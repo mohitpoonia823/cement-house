@@ -46,4 +46,14 @@ cron.schedule('0 */6 * * *', () => processStockAlert())
 import { Worker } from 'bullmq'
 new Worker('reminders', processReminderJob, { connection: redis })
 
+// ── Health-check HTTP server (so Render free tier can run this as a Web Service)
+import { createServer } from 'node:http'
+const healthPort = Number(process.env.PORT ?? 10000)
+createServer((_req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify({ status: 'ok', service: 'worker', ts: new Date().toISOString() }))
+}).listen(healthPort, '0.0.0.0', () => {
+  console.log(`Worker health-check on port ${healthPort}`)
+})
+
 console.log('Worker started. Cron jobs active.')
