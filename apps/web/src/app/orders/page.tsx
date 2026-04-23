@@ -1,6 +1,6 @@
 'use client'
 import { AppShell }  from '@/components/layout/AppShell'
-import { Card }      from '@/components/ui/Card'
+import { Card, MetricCard, MetricGrid, SectionHeader } from '@/components/ui/Card'
 import { Badge, statusBadge } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/Spinner'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -49,23 +49,40 @@ export default function OrdersPage() {
 
   return (
     <AppShell>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex gap-1">
+      <SectionHeader
+        eyebrow="Order analytics"
+        title="Order operations"
+        description="Track pipeline health, outstanding exposure, and dispatch-ready business from one working board."
+        action={
+          <Link
+            href="/orders/new"
+            className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950"
+          >
+            + New order
+          </Link>
+        }
+      />
+
+      <MetricGrid className="mb-6">
+        <MetricCard label="Visible orders" value={String(orders.length)} hint={`${data?.total ?? 0} total in current result`} />
+        <MetricCard label="Booked value" value={fmt(orders.reduce((sum: number, o: any) => sum + Number(o.totalAmount), 0))} hint="Current filter selection" tone="brand" />
+        <MetricCard label="Collected" value={fmt(orders.reduce((sum: number, o: any) => sum + Number(o.amountPaid), 0))} hint="Payments received against these orders" tone="success" />
+        <MetricCard label="Outstanding" value={fmt(orders.reduce((sum: number, o: any) => sum + (Number(o.totalAmount) - Number(o.amountPaid)), 0))} hint="Remaining due balance" tone="warning" />
+      </MetricGrid>
+
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap gap-2">
           {STATUSES.map(s => (
             <button key={s} onClick={() => { setStatus(s); setSelected(new Set()) }}
-              className={`text-xs px-3 py-1.5 rounded-md transition-colors ${
+              className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
                 status === s
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400 hover:bg-stone-50'
+                  ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950'
+                  : 'border border-slate-200 bg-white/75 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300'
               }`}>
               {s}
             </button>
           ))}
         </div>
-        <Link href="/orders/new"
-          className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium">
-          + New order
-        </Link>
       </div>
 
       {/* Bulk action bar */}
@@ -90,15 +107,16 @@ export default function OrdersPage() {
           <EmptyState title="No orders found" sub="Create your first order to get started"
             action={<Link href="/orders/new" className="text-xs text-blue-600 hover:underline">Create order →</Link>} />
         ) : (
-          <table className="w-full text-xs">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[780px] text-xs">
             <thead>
-              <tr className="border-b border-stone-100 dark:border-stone-800">
+              <tr className="border-b border-slate-200/70 dark:border-slate-800">
                 <th className="text-left py-2 pr-2 w-8">
                   <input type="checkbox" checked={allSelected} onChange={toggleAll}
                     className="rounded border-stone-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
                 </th>
                 {['Order #','Date','Customer','Items','Amount','Paid','Due','Status',''].map(h => (
-                  <th key={h} className="text-left py-2 pr-3 font-normal text-stone-400">{h}</th>
+                  <th key={h} className="py-3 pr-3 text-left font-normal uppercase tracking-[0.18em] text-slate-400">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -108,7 +126,7 @@ export default function OrdersPage() {
                 const isSelected = selected.has(o.id)
                 return (
                   <tr key={o.id} className={`border-b border-stone-50 dark:border-stone-800 last:border-0 transition-colors ${
-                    isSelected ? 'bg-blue-50 dark:bg-blue-950/50' : 'hover:bg-stone-50 dark:hover:bg-stone-800/50'
+                    isSelected ? 'bg-sky-50 dark:bg-sky-950/30' : 'hover:bg-slate-50/80 dark:hover:bg-slate-900/40'
                   }`}>
                     <td className="py-2.5 pr-2">
                       <input type="checkbox" checked={isSelected} onChange={() => toggleOne(o.id)}
@@ -136,6 +154,7 @@ export default function OrdersPage() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </Card>
 

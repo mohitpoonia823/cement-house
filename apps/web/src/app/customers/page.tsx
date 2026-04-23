@@ -1,6 +1,6 @@
 'use client'
 import { AppShell }      from '@/components/layout/AppShell'
-import { Card }          from '@/components/ui/Card'
+import { Card, MetricCard, MetricGrid, SectionHeader } from '@/components/ui/Card'
 import { Badge, statusBadge } from '@/components/ui/Badge'
 import { PageLoader }    from '@/components/ui/Spinner'
 import { EmptyState }    from '@/components/ui/EmptyState'
@@ -28,7 +28,7 @@ export default function CustomersPage() {
   const bulkDelete     = useBulkDeleteCustomers()
   const sendReminders  = useSendReminders()
 
-  const [form, setForm] = useState({ name: '', phone: '', address: '', creditLimit: 0, riskTag: 'RELIABLE' })
+  const [form, setForm] = useState({ name: '', phone: '', address: '', creditLimit: '', riskTag: 'RELIABLE' })
   const [formError, setFormError] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
@@ -73,16 +73,16 @@ export default function CustomersPage() {
     e.preventDefault(); setFormError('')
     try {
       if (editId) {
-        await updateCustomer.mutateAsync({ id: editId, ...form })
+        await updateCustomer.mutateAsync({ id: editId, ...form, creditLimit: Number(form.creditLimit || 0) })
       } else {
-        await createCustomer.mutateAsync(form)
+        await createCustomer.mutateAsync({ ...form, creditLimit: Number(form.creditLimit || 0) })
       }
-      setShowForm(false); setEditId(null); setForm({ name: '', phone: '', address: '', creditLimit: 0, riskTag: 'RELIABLE' })
+      setShowForm(false); setEditId(null); setForm({ name: '', phone: '', address: '', creditLimit: '', riskTag: 'RELIABLE' })
     } catch (err: any) { setFormError(err.response?.data?.error ?? 'Failed') }
   }
 
   function handleEditClick(c: any) {
-    setForm({ name: c.name, phone: c.phone, address: c.address ?? '', creditLimit: Number(c.creditLimit), riskTag: c.riskTag ?? 'RELIABLE' })
+    setForm({ name: c.name, phone: c.phone, address: c.address ?? '', creditLimit: String(Number(c.creditLimit)), riskTag: c.riskTag ?? 'RELIABLE' })
     setEditId(c.id)
     setShowForm(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -91,18 +91,39 @@ export default function CustomersPage() {
   function handleCancel() {
     setShowForm(false)
     setEditId(null)
-    setForm({ name: '', phone: '', address: '', creditLimit: 0, riskTag: 'RELIABLE' })
+    setForm({ name: '', phone: '', address: '', creditLimit: '', riskTag: 'RELIABLE' })
   }
 
   return (
     <AppShell>
-      <div className="flex items-center justify-between mb-4 gap-3">
-        <div className="flex gap-1">
+      <SectionHeader
+        eyebrow="Customer analytics"
+        title="Customer intelligence"
+        description="Monitor outstanding exposure, risky accounts, reminder campaigns, and relationship value from one view."
+        action={
+          <button
+            onClick={() => { setEditId(null); setForm({ name: '', phone: '', address: '', creditLimit: '', riskTag: 'RELIABLE' }); setShowForm(true) }}
+            className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950"
+          >
+            + Add customer
+          </button>
+        }
+      />
+
+      <MetricGrid className="mb-6">
+        <MetricCard label="Customers in view" value={String(list.length)} hint="Filtered active accounts" />
+        <MetricCard label="Outstanding" value={fmt(list.reduce((sum: number, c: any) => sum + Math.max(0, Number(c.balance)), 0))} hint="Open exposure across selected customers" tone="warning" />
+        <MetricCard label="High risk" value={String(list.filter((c: any) => c.riskTag !== 'RELIABLE').length)} hint="Watch + blocked accounts" tone="danger" />
+        <MetricCard label="Order relationships" value={String(list.reduce((sum: number, c: any) => sum + Number(c.orderCount), 0))} hint="Lifetime order count in current list" tone="brand" />
+      </MetricGrid>
+
+      <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex flex-wrap gap-2">
           {RISK_TAGS.map(t => (
             <button key={t} onClick={() => { setRiskTag(t); setSelected(new Set()) }}
-              className={`text-xs px-3 py-1.5 rounded-md transition-colors ${
-                riskTag === t ? 'bg-blue-600 text-white'
-                : 'bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-600 hover:bg-stone-50'}`}>
+              className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
+                riskTag === t ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950'
+                : 'border border-slate-200 bg-white/75 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300'}`}>
               {t}
             </button>
           ))}
@@ -112,10 +133,6 @@ export default function CustomersPage() {
             placeholder="Search by name…"
             className="flex-1 text-xs px-3 py-1.5 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
-        <button onClick={() => { setEditId(null); setForm({ name: '', phone: '', address: '', creditLimit: 0, riskTag: 'RELIABLE' }); setShowForm(true) }}
-          className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium">
-          + Add customer
-        </button>
       </div>
 
       {showForm && (
@@ -133,7 +150,7 @@ export default function CustomersPage() {
               <div key={f.key}>
                 <label className="block text-xs text-stone-500 mb-1">{f.label}</label>
                 <input type={f.type} placeholder={f.placeholder}
-                  value={(form as any)[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: f.type === 'number' ? Number(e.target.value) : e.target.value }))}
+                  value={(form as any)[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
                   className="w-full text-xs px-2 py-1.5 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   required={f.key === 'name' || f.key === 'phone'} />
               </div>
@@ -187,15 +204,16 @@ export default function CustomersPage() {
         {isLoading ? <PageLoader /> : list.length === 0 ? (
           <EmptyState title="No customers found" sub="Add your first customer to get started" />
         ) : (
-          <table className="w-full text-xs">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[860px] text-xs">
             <thead>
-              <tr className="border-b border-stone-100 dark:border-stone-800">
+              <tr className="border-b border-slate-200/70 dark:border-slate-800">
                 <th className="text-left py-2 pr-2 w-8">
                   <input type="checkbox" checked={allSelected} onChange={toggleAll}
                     className="rounded border-stone-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
                 </th>
                 {['Name','Phone','Address','Credit limit','Outstanding','Orders','Risk',''].map(h => (
-                  <th key={h} className="text-left py-2 pr-3 font-normal text-stone-400">{h}</th>
+                  <th key={h} className="py-3 pr-3 text-left font-normal uppercase tracking-[0.18em] text-slate-400">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -204,7 +222,7 @@ export default function CustomersPage() {
                 const isSelected = selected.has(c.id)
                 return (
                   <tr key={c.id} className={`border-b border-stone-50 dark:border-stone-800 last:border-0 transition-colors ${
-                    isSelected ? 'bg-blue-50 dark:bg-blue-950/50' : 'hover:bg-stone-50 dark:hover:bg-stone-800/50'
+                    isSelected ? 'bg-sky-50 dark:bg-sky-950/30' : 'hover:bg-slate-50/80 dark:hover:bg-slate-900/40'
                   }`}>
                     <td className="py-2.5 pr-2">
                       <input type="checkbox" checked={isSelected} onChange={() => toggleOne(c.id)}
@@ -233,6 +251,7 @@ export default function CustomersPage() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </Card>
     </AppShell>

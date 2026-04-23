@@ -1,6 +1,6 @@
 'use client'
 import { AppShell }   from '@/components/layout/AppShell'
-import { Card }       from '@/components/ui/Card'
+import { Card, MetricCard, MetricGrid, SectionHeader } from '@/components/ui/Card'
 import { Badge, statusBadge } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/Spinner'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -23,21 +23,19 @@ export default function DeliveryPage() {
 
   return (
     <AppShell>
-      {/* Summary bar */}
+      <SectionHeader
+        eyebrow="Fulfilment analytics"
+        title="Delivery board"
+        description="Watch today’s dispatch pipeline, confirm arrivals fast, and keep challan visibility front and center."
+      />
+
       {data && (
-        <div className="grid grid-cols-4 gap-3 mb-5">
-          {[
-            { label: 'Total today',  value: data.total,     color: '' },
-            { label: 'Scheduled',   value: data.scheduled, color: 'text-blue-600' },
-            { label: 'In transit',  value: data.inTransit, color: 'text-amber-600' },
-            { label: 'Delivered',   value: data.delivered, color: 'text-green-600' },
-          ].map(s => (
-            <div key={s.label} className="bg-stone-100 dark:bg-stone-800 rounded-lg p-3">
-              <div className="text-xs text-stone-500 mb-1">{s.label}</div>
-              <div className={`text-2xl font-medium ${s.color || 'text-stone-900 dark:text-stone-100'}`}>{s.value}</div>
-            </div>
-          ))}
-        </div>
+        <MetricGrid className="mb-6">
+          <MetricCard label="Total today" value={String(data.total)} hint="All active delivery records" />
+          <MetricCard label="Scheduled" value={String(data.scheduled)} hint="Awaiting vehicle movement" tone="info" />
+          <MetricCard label="In transit" value={String(data.inTransit)} hint="Trips currently underway" tone="warning" />
+          <MetricCard label="Delivered" value={String(data.delivered)} hint="Completed confirmations today" tone="success" />
+        </MetricGrid>
       )}
 
       <Card>

@@ -21,7 +21,10 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401 && typeof window !== 'undefined') {
+      const message = err.response?.data?.error ?? 'Your session has expired. Please sign in again.'
       localStorage.removeItem('auth_token')
+      localStorage.removeItem('cement-house-auth')
+      sessionStorage.setItem('auth_logout_reason', message)
       window.location.href = '/auth/login'
     }
     return Promise.reject(err)

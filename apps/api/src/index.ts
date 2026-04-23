@@ -17,7 +17,10 @@ import { authenticate } from './middleware/auth'
 const app = Fastify({ logger: { level: 'info' } })
 
 await app.register(helmet)
-await app.register(cors, { origin: process.env.WEB_URL ?? 'http://localhost:3000' })
+await app.register(cors, {
+  origin: process.env.WEB_URL ?? 'http://localhost:3000',
+  exposedHeaders: ['Content-Disposition'],
+})
 await app.register(jwt, { secret: process.env.JWT_SECRET! })
 
 // ── Public ───────────────────────────────────────────────────────────────────

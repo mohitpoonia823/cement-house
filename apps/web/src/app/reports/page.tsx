@@ -1,6 +1,6 @@
 'use client'
 import { AppShell }  from '@/components/layout/AppShell'
-import { Card, KpiCard } from '@/components/ui/Card'
+import { Card, KpiCard, SectionHeader } from '@/components/ui/Card'
 import { PageLoader } from '@/components/ui/Spinner'
 import { useQuery }  from '@tanstack/react-query'
 import { api }       from '@/lib/api'
@@ -25,23 +25,28 @@ export default function ReportsPage() {
 
   return (
     <AppShell>
-      {/* Month picker */}
-      <div className="flex gap-2 mb-5 flex-wrap">
+      <SectionHeader
+        eyebrow="Owner analytics"
+        title="Business reports"
+        description="Monthly performance snapshots for sales, margin quality, and order throughput."
+      />
+
+      <div className="mb-5 flex flex-wrap gap-2">
         {months.map((m, i) => (
           <button key={m} onClick={() => setMonth(i + 1)}
-            className={`text-xs px-3 py-1.5 rounded-md transition-colors ${
-              month === i + 1 ? 'bg-blue-600 text-white' : 'bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-600 hover:bg-stone-50'
+            className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
+              month === i + 1 ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950' : 'border border-slate-200 bg-white/75 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300'
             }`}>{m}</button>
         ))}
         <select value={year} onChange={e => setYear(Number(e.target.value))}
-          className="text-xs px-3 py-1.5 border border-stone-200 dark:border-stone-700 rounded-md bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none">
+          className="rounded-full border border-slate-200 bg-white/75 px-4 py-2 text-xs font-semibold text-slate-700 focus:outline-none dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
           {[now.getFullYear() - 1, now.getFullYear()].map(y => <option key={y} value={y}>{y}</option>)}
         </select>
       </div>
 
       {isLoading ? <PageLoader /> : (
         <>
-          <div className="grid grid-cols-3 gap-3 mb-5">
+          <div className="mb-5 grid gap-4 md:grid-cols-3">
             <KpiCard label="Total sales"  value={fmt(data?.totalSales ?? 0)} sub={`${data?.orderCount ?? 0} orders`} />
             <KpiCard label="Avg margin"   value={`${(data?.avgMargin ?? 0).toFixed(1)}%`} />
             <KpiCard label="Orders"       value={String(data?.orderCount ?? 0)} />

@@ -1,13 +1,13 @@
 'use client'
 import { useAuthStore } from '@/store/auth'
-import { useRouter }    from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { Sidebar }      from './Sidebar'
-import { Topbar }       from './Topbar'
+import { Sidebar } from './Sidebar'
+import { Topbar } from './Topbar'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { token } = useAuthStore()
-  const router    = useRouter()
+  const router = useRouter()
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -21,13 +21,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!mounted || !token) return null
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex min-h-screen">
       <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
-        <main className="flex-1 overflow-y-auto p-5 bg-stone-50 dark:bg-stone-950">
-          {children}
-        </main>
+        <main className="flex-1 px-4 pb-6 md:px-6">{children}</main>
       </div>
     </div>
   )

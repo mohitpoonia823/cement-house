@@ -1,6 +1,6 @@
 'use client'
 import { AppShell }   from '@/components/layout/AppShell'
-import { Card }       from '@/components/ui/Card'
+import { Card, MetricCard, MetricGrid, SectionHeader } from '@/components/ui/Card'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -180,6 +180,19 @@ export default function SettingsPage() {
 
   return (
     <AppShell>
+      <SectionHeader
+        eyebrow="Workspace administration"
+        title="Settings"
+        description="Manage business identity, staff access, reminder automation, and personal account controls in one place."
+      />
+
+      <MetricGrid className="mb-6 max-w-5xl">
+        <MetricCard label="Business" value={data?.business?.name ?? 'Unknown'} hint={data?.business?.city ?? 'City not set'} tone="brand" />
+        <MetricCard label="Reminder engine" value={data?.business?.remindersEnabled ? 'Enabled' : 'Disabled'} hint={`Soft ${data?.business?.reminderSoftDays ?? 0}d • Follow ${data?.business?.reminderFollowDays ?? 0}d`} tone={data?.business?.remindersEnabled ? 'success' : 'default'} />
+        <MetricCard label="Staff seats" value={String((staffList ?? []).filter((u: any) => u.isActive).length + 1)} hint="Owner plus active munim accounts" />
+        <MetricCard label="Your role" value={data?.user?.role ?? user?.role ?? 'Unknown'} hint={data?.user?.phone ?? ''} />
+      </MetricGrid>
+
       <div className="max-w-xl space-y-5">
 
         {/* Business Info */}

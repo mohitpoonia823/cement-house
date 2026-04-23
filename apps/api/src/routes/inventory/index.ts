@@ -33,6 +33,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
   // POST /api/inventory/stock-in — purchase from supplier
   app.post('/stock-in', async (req, reply) => {
     const user = req.user as { id: string }
+    const bizId = getBizId(req)
     const body = StockInSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
@@ -47,7 +48,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
       }),
       prisma.stockMovement.create({
         data: { materialId: body.data.materialId, type: 'IN', quantity: body.data.quantity,
-                stockAfter, reason: body.data.reason ?? 'Purchase', recordedById: user.id }
+                stockAfter, reason: body.data.reason ?? 'Purchase', recordedById: user.id, businessId: bizId }
       }),
     ])
     return { success: true, data: updated }
@@ -56,6 +57,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
   // POST /api/inventory/adjust — manual stock correction
   app.post('/adjust', async (req, reply) => {
     const user = req.user as { id: string }
+    const bizId = getBizId(req)
     const body = AdjustSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
@@ -68,7 +70,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
       prisma.stockMovement.create({
         data: { materialId: body.data.materialId, type: 'ADJUSTMENT',
                 quantity: Math.abs(diff), stockAfter: body.data.newQty,
-                reason: body.data.reason, recordedById: user.id }
+                reason: body.data.reason, recordedById: user.id, businessId: bizId }
       }),
     ])
     return { success: true }
@@ -76,9 +78,10 @@ export async function inventoryRoutes(app: FastifyInstance) {
 
   // GET /api/inventory/:id/movements — audit trail for one material
   app.get('/:id/movements', async (req) => {
+    const bizId = getBizId(req)
     const { id } = req.params as any
     const movements = await prisma.stockMovement.findMany({
-      where: { materialId: id }, orderBy: { createdAt: 'desc' }, take: 50,
+      where: { materialId: id, businessId: bizId }, orderBy: { createdAt: 'desc' }, take: 50,
       include: { order: { select: { orderNumber: true } } },
     })
     return { success: true, data: movements }

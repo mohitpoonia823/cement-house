@@ -18,6 +18,13 @@ const CreateOrderSchema = z.object({
   })).min(1),
 })
 
+const AddItemSchema = z.object({
+  materialId:    z.string().uuid(),
+  quantity:      z.number().positive(),
+  unitPrice:     z.number().positive(),
+  purchasePrice: z.number().positive(),
+})
+
 export async function orderRoutes(app: FastifyInstance) {
   // GET /api/orders — list with filters (scoped to business)
   app.get('/', async (req) => {
@@ -92,14 +99,88 @@ export async function orderRoutes(app: FastifyInstance) {
         await tx.material.update({ where: { id: item.materialId }, data: { stockQty: stockAfter } })
         await tx.stockMovement.create({
           data: { materialId: item.materialId, orderId: o.id, type: 'OUT',
-                  quantity: item.quantity, stockAfter, reason: `Order ${orderNumber}`, recordedById: user.id }
+                  quantity: item.quantity, stockAfter, reason: `Order ${orderNumber}`, recordedById: user.id, businessId: bizId }
         })
       }
 
       return o
-    })
+    }, { maxWait: 10000, timeout: 15000 })
 
     return { success: true, data: order }
+  })
+
+  // POST /api/orders/:id/items — append item to existing order
+  app.post('/:id/items', async (req, reply) => {
+    const { id } = req.params as any
+    const user = req.user as { id: string }
+    const bizId = getBizId(req)
+    const body = AddItemSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    const itemData = body.data
+
+    const order = await prisma.order.findUnique({ where: { id }, include: { items: true } })
+    if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Add order item
+      const lineTotal = itemData.quantity * itemData.unitPrice
+      await tx.orderItem.create({
+        data: {
+          orderId: id,
+          materialId: itemData.materialId,
+          quantity: itemData.quantity,
+          unitPrice: itemData.unitPrice,
+          purchasePrice: itemData.purchasePrice,
+          lineTotal
+        }
+      })
+
+      // 2. Update order total & margin
+      const allItems = [...order.items, { ...itemData, lineTotal }]
+      const newTotal = allItems.reduce((s, i) => s + Number(i.quantity) * Number(i.unitPrice), 0)
+      const newMargin = allItems.reduce((s, i) => s + marginPct(Number(i.unitPrice), Number(i.purchasePrice)), 0) / allItems.length
+
+      await tx.order.update({
+        where: { id },
+        data: { totalAmount: newTotal, marginPct: newMargin }
+      })
+
+      // 3. Update Ledger
+      await tx.ledgerEntry.create({
+        data: {
+          customerId: order.customerId,
+          orderId: id,
+          type: 'DEBIT',
+          amount: lineTotal,
+          paymentMode: order.paymentMode,
+          recordedById: user.id,
+          businessId: bizId,
+          notes: `Added item to Order ${order.orderNumber}`
+        }
+      })
+
+      // 4. Update Stock
+      const mat = await tx.material.findUnique({ where: { id: itemData.materialId } })
+      if (!mat) throw new Error('Material not found')
+      const stockAfter = Number(mat.stockQty) - itemData.quantity
+      await tx.material.update({ where: { id: itemData.materialId }, data: { stockQty: stockAfter } })
+      
+      await tx.stockMovement.create({
+        data: {
+          materialId: itemData.materialId,
+          orderId: id,
+          type: 'OUT',
+          quantity: itemData.quantity,
+          stockAfter,
+          reason: `Added to Order ${order.orderNumber}`,
+          recordedById: user.id,
+          businessId: bizId
+        }
+      })
+    }, { maxWait: 10000, timeout: 15000 })
+
+    return { success: true }
   })
 
   // PATCH /api/orders/:id/status
@@ -131,7 +212,7 @@ export async function orderRoutes(app: FastifyInstance) {
             }
           })
           await tx.order.update({ where: { id }, data: { status } })
-        })
+        }, { maxWait: 10000, timeout: 15000 })
         return { success: true, data: { ...order, status } }
       }
     } else if (status === 'DELIVERED') {
@@ -145,7 +226,7 @@ export async function orderRoutes(app: FastifyInstance) {
             await tx.delivery.update({ where: { id: d.id }, data: { status: 'DELIVERED', deliveredAt: new Date() } })
           }
         }
-      })
+      }, { maxWait: 10000, timeout: 15000 })
       return { success: true }
     }
 
@@ -171,7 +252,7 @@ export async function orderRoutes(app: FastifyInstance) {
       await tx.deliveryItem.deleteMany({ where: { delivery: { orderId: id } } })
       await tx.delivery.deleteMany({ where: { orderId: id } })
       await tx.order.delete({ where: { id } })
-    })
+    }, { maxWait: 10000, timeout: 15000 })
 
     return { success: true }
   })
@@ -198,7 +279,7 @@ export async function orderRoutes(app: FastifyInstance) {
       }
       await tx.orderItem.deleteMany({ where: { orderId: { in: ids } } })
       await tx.order.deleteMany({ where: { id: { in: ids } } })
-    })
+    }, { maxWait: 10000, timeout: 15000 })
 
     return { success: true, data: { deleted: orders.length } }
   })

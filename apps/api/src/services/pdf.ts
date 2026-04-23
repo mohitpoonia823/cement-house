@@ -6,6 +6,11 @@
 import PDFDocument from 'pdfkit'
 import type { FastifyReply } from 'fastify'
 
+function applyManualDownloadHeaders(reply: FastifyReply) {
+  reply.raw.setHeader('Access-Control-Allow-Origin', process.env.WEB_URL ?? 'http://localhost:3000')
+  reply.raw.setHeader('Access-Control-Expose-Headers', 'Content-Disposition')
+}
+
 interface ChallanData {
   challanNumber:  string
   orderNumber:    string
@@ -41,15 +46,37 @@ interface StatementData {
   }>
 }
 
+interface AnalyticsSnapshotData {
+  title: string
+  subtitle: string
+  generatedAt: Date
+  businessName: string
+  businessCity: string
+  metrics: Array<{
+    label: string
+    value: string
+  }>
+  sections: Array<{
+    title: string
+    rows: Array<{
+      label: string
+      value: string
+    }>
+  }>
+}
+
 function rupees(n: number) {
   return `Rs. ${new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n)}`
 }
 
 /** Stream a PDF delivery challan into the Fastify reply */
 export function streamChallan(data: ChallanData, reply: FastifyReply) {
+  reply.hijack()
   const doc = new PDFDocument({ size: 'A5', margin: 40 })
+  applyManualDownloadHeaders(reply)
   reply.raw.setHeader('Content-Type', 'application/pdf')
   reply.raw.setHeader('Content-Disposition', `inline; filename="${data.challanNumber}.pdf"`)
+  reply.raw.on('error', () => { /* Handle client disconnect silently */ })
   doc.pipe(reply.raw)
 
   // ── Header ──
@@ -133,9 +160,12 @@ export function streamChallan(data: ChallanData, reply: FastifyReply) {
 
 /** Stream a PDF ledger statement into the Fastify reply */
 export function streamStatement(data: StatementData, reply: FastifyReply) {
+  reply.hijack()
   const doc = new PDFDocument({ size: 'A4', margin: 50 })
+  applyManualDownloadHeaders(reply)
   reply.raw.setHeader('Content-Type', 'application/pdf')
   reply.raw.setHeader('Content-Disposition', `inline; filename="statement-${data.customerName.replace(/\s+/g, '-')}.pdf"`)
+  reply.raw.on('error', () => { /* Handle client disconnect silently */ })
   doc.pipe(reply.raw)
 
   // Header
@@ -185,6 +215,57 @@ export function streamStatement(data: StatementData, reply: FastifyReply) {
   const balColor = data.currentBalance > 0 ? '#c00' : '#080'
   doc.fillColor('#111').text('Current outstanding balance:', { continued: true })
   doc.fillColor(balColor).text(`  ${rupees(data.currentBalance)}`)
+
+  doc.end()
+}
+
+export function streamAnalyticsSnapshot(data: AnalyticsSnapshotData, reply: FastifyReply) {
+  reply.hijack()
+  const doc = new PDFDocument({ size: 'A4', margin: 50 })
+  const safeTitle = data.title.toLowerCase().replace(/\s+/g, '-')
+  applyManualDownloadHeaders(reply)
+  reply.raw.setHeader('Content-Type', 'application/pdf')
+  reply.raw.setHeader('Content-Disposition', `attachment; filename="${safeTitle}-snapshot.pdf"`)
+  reply.raw.on('error', () => { /* Handle client disconnect silently */ })
+  doc.pipe(reply.raw)
+
+  doc.fontSize(18).font('Helvetica-Bold').fillColor('#111').text(data.businessName)
+  doc.fontSize(10).font('Helvetica').fillColor('#666').text(`${data.businessCity} | Analytics snapshot`)
+  doc.moveDown(0.4)
+  doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#d4d4d8').stroke()
+  doc.moveDown(0.7)
+
+  doc.fontSize(20).font('Helvetica-Bold').fillColor('#111').text(data.title)
+  doc.fontSize(10).font('Helvetica').fillColor('#52525b').text(data.subtitle)
+  doc.text(`Generated on ${data.generatedAt.toLocaleDateString('en-IN')} at ${data.generatedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`)
+  doc.moveDown(0.8)
+
+  doc.fontSize(11).font('Helvetica-Bold').fillColor('#111').text('Key metrics')
+  doc.moveDown(0.4)
+
+  const metricWidth = 230
+  data.metrics.forEach((metric, index) => {
+    const x = 50 + (index % 2) * 250
+    const y = doc.y + Math.floor(index / 2) * 58
+    doc.roundedRect(x, y, metricWidth, 46, 10).fillAndStroke('#f8fafc', '#e2e8f0')
+    doc.fillColor('#64748b').fontSize(9).font('Helvetica-Bold').text(metric.label, x + 12, y + 10, { width: metricWidth - 24 })
+    doc.fillColor('#0f172a').fontSize(14).font('Helvetica-Bold').text(metric.value, x + 12, y + 24, { width: metricWidth - 24 })
+  })
+
+  doc.y += Math.ceil(data.metrics.length / 2) * 58 + 12
+
+  for (const section of data.sections) {
+    if (doc.y > 700) doc.addPage()
+    doc.fontSize(12).font('Helvetica-Bold').fillColor('#111').text(section.title)
+    doc.moveDown(0.35)
+    section.rows.forEach((row) => {
+      const rowY = doc.y
+      doc.fontSize(10).font('Helvetica').fillColor('#52525b').text(row.label, 50, rowY, { width: 270 })
+      doc.font('Helvetica-Bold').fillColor('#111').text(row.value, 330, rowY, { width: 215, align: 'right' })
+      doc.moveDown(0.45)
+    })
+    doc.moveDown(0.6)
+  }
 
   doc.end()
 }

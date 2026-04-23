@@ -48,7 +48,7 @@ new Worker('reminders', processReminderJob, { connection: redis })
 
 // ── Health-check HTTP server (so Render free tier can run this as a Web Service)
 import { createServer } from 'node:http'
-const healthPort = Number(process.env.PORT ?? 10000)
+const healthPort = Number(process.env.WORKER_PORT ?? 10000)
 createServer((_req, res) => {
   res.writeHead(200, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify({ status: 'ok', service: 'worker', ts: new Date().toISOString() }))

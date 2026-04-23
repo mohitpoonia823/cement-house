@@ -1,6 +1,6 @@
 'use client'
 import { AppShell }    from '@/components/layout/AppShell'
-import { Card }        from '@/components/ui/Card'
+import { Card, MetricCard, MetricGrid, SectionHeader } from '@/components/ui/Card'
 import { Badge, statusBadge } from '@/components/ui/Badge'
 import { PageLoader }  from '@/components/ui/Spinner'
 import { useInventory, useStockIn, useCreateMaterial, useDeleteMaterial, useBulkDeleteMaterials } from '@/hooks/useInventory'
@@ -36,7 +36,7 @@ export default function InventoryPage() {
 
   // New material form
   const [newForm, setNewForm] = useState({
-    name: '', unit: 'bags', stockQty: 0, minThreshold: 0, maxThreshold: 0, purchasePrice: 0, salePrice: 0
+    name: '', unit: 'bags', stockQty: '', minThreshold: '', maxThreshold: '', purchasePrice: '', salePrice: ''
   })
   const [newError, setNewError] = useState('')
 
@@ -65,9 +65,16 @@ export default function InventoryPage() {
   async function handleCreateMaterial(e: React.FormEvent) {
     e.preventDefault(); setNewError('')
     try {
-      await createMaterial.mutateAsync(newForm)
+      await createMaterial.mutateAsync({
+        ...newForm,
+        stockQty: Number(newForm.stockQty || 0),
+        minThreshold: Number(newForm.minThreshold || 0),
+        maxThreshold: newForm.maxThreshold === '' ? undefined : Number(newForm.maxThreshold),
+        purchasePrice: Number(newForm.purchasePrice || 0),
+        salePrice: Number(newForm.salePrice || 0),
+      })
       setShowAddNew(false)
-      setNewForm({ name: '', unit: 'bags', stockQty: 0, minThreshold: 0, maxThreshold: 0, purchasePrice: 0, salePrice: 0 })
+      setNewForm({ name: '', unit: 'bags', stockQty: '', minThreshold: '', maxThreshold: '', purchasePrice: '', salePrice: '' })
     } catch (err: any) { setNewError(err.response?.data?.error ?? 'Failed to create material') }
   }
 
@@ -91,16 +98,24 @@ export default function InventoryPage() {
 
   return (
     <AppShell>
-      {/* Top bar */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-xs text-stone-500">
-          {list.length} material{list.length !== 1 ? 's' : ''} in inventory
-        </div>
-        <button onClick={() => setShowAddNew(true)}
-          className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium">
-          + Add material
-        </button>
-      </div>
+      <SectionHeader
+        eyebrow="Inventory analytics"
+        title="Inventory control"
+        description="Balance stock health, replenishment activity, and pricing signals without losing the operational workflows."
+        action={
+          <button onClick={() => setShowAddNew(true)}
+            className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950">
+            + Add material
+          </button>
+        }
+      />
+
+      <MetricGrid className="mb-6">
+        <MetricCard label="Active materials" value={String(list.length)} hint="Live catalog count" />
+        <MetricCard label="Low / out of stock" value={String(list.filter((m: any) => m.stockStatus !== 'OK').length)} hint="Items needing replenishment" tone="danger" />
+        <MetricCard label="Inventory value" value={fmt(list.reduce((sum: number, m: any) => sum + Number(m.stockQty) * Number(m.purchasePrice), 0))} hint="Estimated purchase-side stock value" tone="brand" />
+        <MetricCard label="Selected material" value={selectedMat?.name ?? 'None'} hint={selectedMat ? `${Number(selectedMat.stockQty).toFixed(1)} ${selectedMat.unit} available` : 'Open a card for movement details'} tone="default" />
+      </MetricGrid>
 
       {/* Add new material form */}
       {showAddNew && (
@@ -123,7 +138,7 @@ export default function InventoryPage() {
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Initial stock</label>
-                <input type="number" value={newForm.stockQty} onChange={e => setNewForm(p => ({ ...p, stockQty: Number(e.target.value) }))}
+                <input type="number" value={newForm.stockQty} placeholder="0" onChange={e => setNewForm(p => ({ ...p, stockQty: e.target.value }))}
                   min={0} step={0.01}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
@@ -131,25 +146,25 @@ export default function InventoryPage() {
             <div className="grid grid-cols-4 gap-3">
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Min threshold</label>
-                <input type="number" value={newForm.minThreshold} onChange={e => setNewForm(p => ({ ...p, minThreshold: Number(e.target.value) }))}
+                <input type="number" value={newForm.minThreshold} placeholder="0" onChange={e => setNewForm(p => ({ ...p, minThreshold: e.target.value }))}
                   min={0} step={0.01}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Max threshold</label>
-                <input type="number" value={newForm.maxThreshold} onChange={e => setNewForm(p => ({ ...p, maxThreshold: Number(e.target.value) }))}
+                <input type="number" value={newForm.maxThreshold} placeholder="0" onChange={e => setNewForm(p => ({ ...p, maxThreshold: e.target.value }))}
                   min={0} step={0.01}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Purchase price (₹) *</label>
-                <input type="number" value={newForm.purchasePrice} onChange={e => setNewForm(p => ({ ...p, purchasePrice: Number(e.target.value) }))}
+                <input type="number" value={newForm.purchasePrice} placeholder="0" onChange={e => setNewForm(p => ({ ...p, purchasePrice: e.target.value }))}
                   min={0} step={0.01} required
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Sale price (₹) *</label>
-                <input type="number" value={newForm.salePrice} onChange={e => setNewForm(p => ({ ...p, salePrice: Number(e.target.value) }))}
+                <input type="number" value={newForm.salePrice} placeholder="0" onChange={e => setNewForm(p => ({ ...p, salePrice: e.target.value }))}
                   min={0} step={0.01} required
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
@@ -194,7 +209,7 @@ export default function InventoryPage() {
       )}
 
       {/* Material cards grid */}
-      <div className="grid grid-cols-3 gap-3 mb-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-5">
         {isLoading ? <div className="col-span-3"><PageLoader /></div> :
           list.map((m: any) => {
             const isSelected = selected.has(m.id)
@@ -213,7 +228,7 @@ export default function InventoryPage() {
                     className="rounded border-stone-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
                 </div>
                 <button onClick={() => setSelectedId(m.id === selectedId ? '' : m.id)}
-                  className="text-left p-4 pl-9 w-full">
+                  className="w-full text-left p-4 pl-9">
                   <div className="flex items-start justify-between mb-2">
                     <div className="text-sm font-medium text-stone-800 dark:text-stone-200">{m.name}</div>
                     <div className="flex items-center gap-1.5">
@@ -247,7 +262,7 @@ export default function InventoryPage() {
       </div>
 
       {selectedId && (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid gap-4 xl:grid-cols-2">
           {/* Stock in form */}
           <Card>
             <div className="flex items-center justify-between mb-3">

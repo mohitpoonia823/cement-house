@@ -105,6 +105,7 @@ model Business {
   materials   Material[]
   orders      Order[]
   ledgerEntries LedgerEntry[]
+  stockMovements StockMovement[]
 
   @@map("businesses")
 }
@@ -336,6 +337,10 @@ model StockMovement {
   recordedBy   User              @relation("StockRecordedBy", fields: [recordedById], references: [id])
   recordedById String
   createdAt    DateTime          @default(now())
+
+  // Tenant
+  business     Business          @relation(fields: [businessId], references: [id])
+  businessId   String
 
   @@map("stock_movements")
 }

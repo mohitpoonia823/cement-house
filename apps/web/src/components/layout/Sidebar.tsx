@@ -3,35 +3,20 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuthStore } from '@/store/auth'
 import { cn } from '@/lib/utils'
-
-const navItems = [
-  { label: 'Dashboard',  href: '/dashboard',  group: 'main' },
-  { label: 'New order',  href: '/orders/new', group: 'main', permissionId: 'orders' },
-  { label: 'Orders',     href: '/orders',     group: 'main', permissionId: 'orders' },
-  { label: 'Khata',      href: '/khata',      group: 'finance', permissionId: 'ledger' },
-  { label: 'Customers',  href: '/customers',  group: 'ops', permissionId: 'customers' },
-  { label: 'Inventory',  href: '/inventory',  group: 'ops', permissionId: 'inventory' },
-  { label: 'Delivery',   href: '/delivery',   group: 'ops', permissionId: 'delivery' },
-  { label: 'Reports',    href: '/reports',    group: 'owner' },
-  { label: 'Settings',   href: '/settings',   group: 'account' },
-]
-
-const groups: Record<string, string> = {
-  main: 'Main', finance: 'Finance', ops: 'Operations', owner: 'Owner', account: 'Account'
-}
+import { groupLabels, navItems } from './navigation'
 
 export function Sidebar() {
-  const pathname  = usePathname()
+  const pathname = usePathname()
   const { user, logout } = useAuthStore()
-  const isOwner   = user?.role === 'OWNER'
+  const isOwner = user?.role === 'OWNER'
 
-  const visible = navItems.filter(i => {
-    if (i.group === 'owner') return isOwner
-    if (i.group === 'account') return true
+  const visible = navItems.filter((item) => {
+    if (item.group === 'workspace' || item.group === 'insights') return isOwner
     if (isOwner) return true
-    if (i.permissionId) return user?.permissions?.includes(i.permissionId)
-    return true // dashboard
+    if (item.permissionId) return user?.permissions?.includes(item.permissionId)
+    return true
   })
+
   const grouped = visible.reduce((acc, item) => {
     if (!acc[item.group]) acc[item.group] = []
     acc[item.group].push(item)
@@ -39,33 +24,44 @@ export function Sidebar() {
   }, {} as Record<string, typeof navItems>)
 
   return (
-    <aside style={{ width: 'var(--sidebar-width)', minWidth: 'var(--sidebar-width)' }}
-      className="h-screen flex flex-col bg-stone-50 border-r border-stone-200 dark:bg-stone-900 dark:border-stone-800">
-      {/* Logo */}
-      <div className="px-4 py-4 border-b border-stone-200 dark:border-stone-800">
-        <div className="text-sm font-medium text-stone-900 dark:text-stone-100">{user?.businessName ?? 'Cement House'}</div>
-        <div className="text-xs text-stone-500 mt-0.5">{user?.businessCity ?? ''}</div>
+    <aside className="sticky top-0 hidden h-screen w-[280px] min-w-[280px] self-start border-r border-slate-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(240,247,250,0.98))] px-5 py-5 text-slate-900 shadow-[18px_0_70px_rgba(15,23,42,0.10)] backdrop-blur xl:block dark:border-white/10 dark:bg-slate-950/96 dark:text-white dark:shadow-[18px_0_70px_rgba(2,6,23,0.25)]">
+      <div className="flex h-full flex-col overflow-hidden rounded-[30px]">
+      <div className="rounded-[28px] border border-emerald-200/60 bg-gradient-to-br from-emerald-100 via-cyan-50 to-white p-5 shadow-[0_18px_40px_rgba(16,185,129,0.08)] dark:border-white/10 dark:bg-gradient-to-br dark:from-emerald-400/20 dark:via-sky-400/12 dark:to-transparent dark:shadow-none">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-300">Cement House</div>
+        <div className="mt-3 text-3xl font-semibold leading-tight tracking-tight text-slate-950 dark:text-white">{user?.businessName ?? 'Poonia Trading Company'}</div>
+        <div className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">{user?.businessCity ?? 'Hisar, Haryana'}</div>
+        <div className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/12 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-700 dark:bg-emerald-400/14 dark:text-emerald-200">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+          Operations live
+        </div>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 py-2 overflow-y-auto">
+      <nav className="flex-1 overflow-y-auto py-6 pr-1">
         {Object.entries(grouped).map(([group, items]) => (
-          <div key={group}>
-            <div className="px-4 pt-3 pb-1 text-[10px] font-medium uppercase tracking-wider text-stone-400">
-              {groups[group]}
+          <div key={group} className="mb-6">
+            <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
+              {groupLabels[group]}
             </div>
-            {items.map(item => {
-              const active = pathname === item.href || 
-                (item.href !== '/dashboard' && pathname.startsWith(item.href + '/') && !(item.href === '/orders' && pathname === '/orders/new'))
+            {items.map((item) => {
+              const active =
+                pathname === item.href ||
+                (item.href !== '/dashboard' &&
+                  pathname.startsWith(item.href + '/') &&
+                  !(item.href === '/orders' && pathname === '/orders/new'))
+
               return (
-                <Link key={item.href} href={item.href}
+                <Link
+                  key={item.href}
+                  href={item.href}
                   className={cn(
-                    'flex items-center px-4 py-2 text-sm transition-colors',
+                    'mb-1 flex items-center justify-between rounded-2xl px-3 py-3 text-sm transition-all',
                     active
-                      ? 'bg-white text-blue-600 font-medium border-l-2 border-blue-500 dark:bg-stone-800 dark:text-blue-400'
-                      : 'text-stone-600 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-800'
-                  )}>
-                  {item.label}
+                      ? 'bg-slate-950 text-white shadow-[0_12px_28px_rgba(15,23,42,0.16)] dark:bg-white dark:text-slate-950'
+                      : 'text-slate-700 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/8 dark:hover:text-white'
+                  )}
+                >
+                  <span className="font-medium">{item.label}</span>
+                  <span className={cn('h-2.5 w-2.5 rounded-full', active ? 'bg-emerald-400 dark:bg-emerald-500' : 'bg-slate-400 dark:bg-slate-700')} />
                 </Link>
               )
             })}
@@ -73,19 +69,21 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* User footer */}
-      <div className="px-4 py-3 border-t border-stone-200 dark:border-stone-800 flex items-center gap-2">
-        <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-xs font-medium text-blue-700 dark:text-blue-300">
+      <div className="flex items-center gap-3 rounded-[24px] border border-slate-200/80 bg-white/90 p-4 shadow-[0_12px_28px_rgba(15,23,42,0.06)] dark:border-white/10 dark:bg-white/5 dark:shadow-none">
+        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-500/14 text-xs font-semibold text-sky-700 dark:bg-sky-500/18 dark:text-sky-100">
           {user?.name?.slice(0, 2).toUpperCase()}
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-xs font-medium text-stone-800 dark:text-stone-200 truncate">{user?.name}</div>
-          <div className="text-[10px] text-stone-500">{user?.role}</div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold text-slate-950 dark:text-white">{user?.name}</div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{user?.role}</div>
         </div>
-        <button onClick={logout}
-          className="text-xs text-stone-400 hover:text-red-500 transition-colors">
-          Out
+        <button
+          onClick={logout}
+          className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:border-rose-400/60 hover:text-rose-600 dark:border-white/10 dark:text-slate-300 dark:hover:text-rose-200"
+        >
+          Sign out
         </button>
+      </div>
       </div>
     </aside>
   )

@@ -4,6 +4,7 @@ import { Card }       from '@/components/ui/Card'
 import { Badge, statusBadge } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/Spinner'
 import { useOrder }   from '@/hooks/useOrders'
+import { useInventory } from '@/hooks/useInventory'
 import { fmt, fmtDate } from '@/lib/utils'
 import { useParams, useRouter } from 'next/navigation'
 import { useState }   from 'react'
@@ -27,6 +28,10 @@ export default function OrderDetailPage() {
   const { data: order, isLoading } = useOrder(id)
   const [updating, setUpdating]    = useState(false)
   const [showChallan, setShowChallan] = useState(false)
+  const [showAddItem, setShowAddItem] = useState(false)
+  const [addingItem, setAddingItem]   = useState(false)
+  const [newItem, setNewItem]         = useState({ materialId: '', quantity: 1, unitPrice: 0, purchasePrice: 0 })
+  const { data: materials } = useInventory()
   const { user } = useAuthStore()
 
   async function updateStatus(status: string) {
@@ -35,7 +40,21 @@ export default function OrderDetailPage() {
       await api.patch(`/api/orders/${id}/status`, { status })
       qc.invalidateQueries({ queryKey: ['orders', id] })
       qc.invalidateQueries({ queryKey: ['orders'] })
+      qc.invalidateQueries({ queryKey: ['orders'] })
     } finally { setUpdating(false) }
+  }
+
+  async function handleAddItem(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newItem.materialId || newItem.quantity <= 0) return
+    setAddingItem(true)
+    try {
+      await api.post(`/api/orders/${id}/items`, newItem)
+      qc.invalidateQueries({ queryKey: ['orders', id] })
+      qc.invalidateQueries({ queryKey: ['orders'] })
+      setShowAddItem(false)
+      setNewItem({ materialId: '', quantity: 1, unitPrice: 0, purchasePrice: 0 })
+    } finally { setAddingItem(false) }
   }
 
   if (isLoading) return <AppShell><PageLoader /></AppShell>
@@ -129,7 +148,13 @@ export default function OrderDetailPage() {
 
         {/* Order items */}
         <Card>
-          <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">Items ordered</div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs font-medium text-stone-500 uppercase tracking-wide">Items ordered</div>
+            {order.status !== 'DELIVERED' && order.status !== 'CANCELLED' && (
+              <button onClick={() => setShowAddItem(true)}
+                className="text-xs text-blue-600 hover:underline">+ Add item</button>
+            )}
+          </div>
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-stone-100 dark:border-stone-800">
@@ -274,6 +299,61 @@ export default function OrderDetailPage() {
               className="mt-3 w-full py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
               Print challan
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Add Item Modal */}
+      {showAddItem && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowAddItem(false)}>
+          <div className="bg-white dark:bg-stone-900 rounded-xl p-6 max-w-md w-full"
+            onClick={e => e.stopPropagation()}>
+            <div className="text-lg font-medium text-stone-900 dark:text-stone-100 mb-4">Add Item to Order</div>
+            <form onSubmit={handleAddItem} className="space-y-4">
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">Material</label>
+                <select value={newItem.materialId} onChange={e => {
+                  const mat = materials?.find((m: any) => m.id === e.target.value)
+                  if (mat) {
+                    setNewItem({ ...newItem, materialId: mat.id, unitPrice: Number(mat.salePrice), purchasePrice: Number(mat.purchasePrice) })
+                  } else {
+                    setNewItem({ ...newItem, materialId: '' })
+                  }
+                }}
+                  className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required>
+                  <option value="">Select material…</option>
+                  {(materials ?? []).map((m: any) => (
+                    <option key={m.id} value={m.id}>{m.name} ({m.stockQty} {m.unit} in stock)</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-stone-500 mb-1">Quantity</label>
+                  <input type="number" min={0.01} step={0.01} value={newItem.quantity}
+                    onChange={e => setNewItem({ ...newItem, quantity: Number(e.target.value) })}
+                    className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                </div>
+                <div>
+                  <label className="block text-xs text-stone-500 mb-1">Unit Price (₹)</label>
+                  <input type="number" min={0} step={0.01} value={newItem.unitPrice}
+                    onChange={e => setNewItem({ ...newItem, unitPrice: Number(e.target.value) })}
+                    className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                </div>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="submit" disabled={addingItem}
+                  className="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                  {addingItem ? 'Adding…' : 'Add Item'}
+                </button>
+                <button type="button" onClick={() => setShowAddItem(false)}
+                  className="flex-1 border border-stone-200 dark:border-stone-700 text-stone-900 dark:text-stone-100 py-2 rounded-lg text-sm hover:bg-stone-50 dark:hover:bg-stone-800">
+                  Cancel
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
