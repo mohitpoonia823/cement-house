@@ -6,12 +6,20 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Badge } from '@/components/ui/Badge'
 import { useLedger, useLedgerSummary, useRecordPayment } from '@/hooks/useLedger'
 import { fmt, fmtDate } from '@/lib/utils'
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 
 const PAYMENT_MODES = ['CASH', 'UPI', 'CHEQUE']
 
 export default function KhataPage() {
+  return (
+    <Suspense fallback={<AppShell><PageLoader /></AppShell>}>
+      <KhataContent />
+    </Suspense>
+  )
+}
+
+function KhataContent() {
   const params = useSearchParams()
   const initId = params.get('customer') ?? ''
   const [selectedId, setSelectedId] = useState(initId)
