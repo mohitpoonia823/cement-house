@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z }            from 'zod'
 import { prisma }       from '@cement-house/db'
-import { generateOrderNumber, marginPct } from '@cement-house/utils'
+import { generateOrderNumber, generateChallanNumber, marginPct } from '@cement-house/utils'
 import { getBizId }     from '../../middleware/auth'
 
 const CreateOrderSchema = z.object({
