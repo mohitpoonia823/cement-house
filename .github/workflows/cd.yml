@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────────────────────
-# CD Pipeline — Deploy to Render after CI passes
-# Triggers Render Deploy Hooks for all 3 services
+# CD Pipeline — Build Docker Images → Push to Docker Hub → Deploy to Render
+# Runs only after CI passes on master branch
 # ─────────────────────────────────────────────────────────────
 
 name: CD
@@ -11,34 +11,100 @@ on:
     types: [completed]
     branches: [master]
 
+env:
+  DOCKERHUB_REPO: mohit823/cement-house
+
 jobs:
-  deploy:
-    name: Deploy to Render
+  build-and-push:
+    name: Build & Push Docker Images
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     steps:
-      - name: Deploy API
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Get short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      # ── Build & Push API Image ────────────────────────────
+      - name: Build & Push API
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./apps/api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKERHUB_REPO }}:api-latest
+            ${{ env.DOCKERHUB_REPO }}:api-${{ steps.sha.outputs.short }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      # ── Build & Push Worker Image ─────────────────────────
+      - name: Build & Push Worker
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./apps/worker/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKERHUB_REPO }}:worker-latest
+            ${{ env.DOCKERHUB_REPO }}:worker-${{ steps.sha.outputs.short }}
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
+
+      # ── Build & Push Web Image ────────────────────────────
+      - name: Build & Push Web
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./apps/web/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKERHUB_REPO }}:web-latest
+            ${{ env.DOCKERHUB_REPO }}:web-${{ steps.sha.outputs.short }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+  deploy:
+    name: Deploy to Render
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: Trigger Render Deploy — API
         run: |
           curl -s "${{ secrets.RENDER_DEPLOY_HOOK_API }}"
           echo "✅ API deploy triggered"
 
-      - name: Deploy Worker
+      - name: Trigger Render Deploy — Worker
         run: |
           curl -s "${{ secrets.RENDER_DEPLOY_HOOK_WORKER }}"
           echo "✅ Worker deploy triggered"
 
-      - name: Deploy Web
+      - name: Trigger Render Deploy — Web
         run: |
           curl -s "${{ secrets.RENDER_DEPLOY_HOOK_WEB }}"
           echo "✅ Web deploy triggered"
 
       - name: Summary
         run: |
-          echo "## 🚀 Deployment Triggered" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Service | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| API     | ✅ Triggered |" >> $GITHUB_STEP_SUMMARY
-          echo "| Worker  | ✅ Triggered |" >> $GITHUB_STEP_SUMMARY
-          echo "| Web     | ✅ Triggered |" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Image | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| API     | \`${{ env.DOCKERHUB_REPO }}:api-latest\` | ✅ Deployed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Worker  | \`${{ env.DOCKERHUB_REPO }}:worker-latest\` | ✅ Deployed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Web     | \`${{ env.DOCKERHUB_REPO }}:web-latest\` | ✅ Deployed |" >> $GITHUB_STEP_SUMMARY
