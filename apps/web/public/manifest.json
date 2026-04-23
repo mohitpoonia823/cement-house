@@ -1,5 +1,18 @@
 {
-  "name": "cement-house",
-  "version": "1.0.0",
-  "description": "Shree Cement House – Construction Distributor Management App"
+  "name": "Cement House",
+  "short_name": "CementHouse",
+  "description": "Shree Cement House — Construction Distributor Management",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#1e3a5f",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
 }
