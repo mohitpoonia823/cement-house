@@ -5,7 +5,7 @@ import { WA_TEMPLATES } from '@cement-house/utils'
 export async function processReminderJob(job: Job) {
   const { customerId, balance, days, phone, name } = job.data
 
-  const message = WA_TEMPLATES.paymentReminder(name, balance, days)
+  const message = WA_TEMPLATES.paymentReminder(name, balance, days, new Date().toLocaleDateString('en-IN'))
 
   // Send via WhatsApp Cloud API
   const res = await fetch(
