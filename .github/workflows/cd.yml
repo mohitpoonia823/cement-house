@@ -1,0 +1,44 @@
+# ─────────────────────────────────────────────────────────────
+# CD Pipeline — Deploy to Render after CI passes
+# Triggers Render Deploy Hooks for all 3 services
+# ─────────────────────────────────────────────────────────────
+
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [master]
+
+jobs:
+  deploy:
+    name: Deploy to Render
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Deploy API
+        run: |
+          curl -s "${{ secrets.RENDER_DEPLOY_HOOK_API }}"
+          echo "✅ API deploy triggered"
+
+      - name: Deploy Worker
+        run: |
+          curl -s "${{ secrets.RENDER_DEPLOY_HOOK_WORKER }}"
+          echo "✅ Worker deploy triggered"
+
+      - name: Deploy Web
+        run: |
+          curl -s "${{ secrets.RENDER_DEPLOY_HOOK_WEB }}"
+          echo "✅ Web deploy triggered"
+
+      - name: Summary
+        run: |
+          echo "## 🚀 Deployment Triggered" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| API     | ✅ Triggered |" >> $GITHUB_STEP_SUMMARY
+          echo "| Worker  | ✅ Triggered |" >> $GITHUB_STEP_SUMMARY
+          echo "| Web     | ✅ Triggered |" >> $GITHUB_STEP_SUMMARY
