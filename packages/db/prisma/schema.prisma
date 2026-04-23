@@ -1,0 +1,360 @@
+// ============================================================
+// Cement House — Multi-Tenant Construction Distributor App
+// Prisma Schema (PostgreSQL)
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────
+
+enum UserRole {
+  OWNER
+  MUNIM
+}
+
+enum RiskTag {
+  RELIABLE
+  WATCH
+  BLOCKED
+}
+
+enum OrderStatus {
+  DRAFT
+  CONFIRMED
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMode {
+  CASH
+  UPI
+  CHEQUE
+  CREDIT      // full udhar
+  PARTIAL     // partial payment, rest udhar
+}
+
+enum LedgerEntryType {
+  DEBIT       // sale made → customer owes money
+  CREDIT      // payment received → reduces balance
+}
+
+enum DeliveryStatus {
+  SCHEDULED
+  IN_TRANSIT
+  DELIVERED
+  FAILED
+}
+
+enum ConfirmationType {
+  OTP
+  PHOTO
+  MANUAL
+}
+
+enum StockMovementType {
+  IN          // purchase from supplier
+  OUT         // sale/delivery to customer
+  ADJUSTMENT  // manual correction
+}
+
+enum ReminderChannel {
+  WHATSAPP
+  SMS
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+// ─────────────────────────────────────────
+// BUSINESS — each cement house / tenant
+// ─────────────────────────────────────────
+
+model Business {
+  id          String   @id @default(uuid())
+  name        String   // e.g. "Shree Cement House", "Sharma Cement Store"
+  city        String   // e.g. "Hisar", "Rohtak"
+  address     String?
+  phone       String?
+  gstin       String?
+  isActive    Boolean  @default(true)
+  remindersEnabled Boolean @default(true)
+  reminderSoftDays Int     @default(7)
+  reminderFollowDays Int   @default(15)
+  reminderFirmDays Int     @default(30)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  users       User[]
+  customers   Customer[]
+  materials   Material[]
+  orders      Order[]
+  ledgerEntries LedgerEntry[]
+
+  @@map("businesses")
+}
+
+// ─────────────────────────────────────────
+// USERS — owner and munim login accounts
+// ─────────────────────────────────────────
+
+model User {
+  id            String   @id @default(uuid())
+  name          String
+  phone         String   @unique
+  role          UserRole @default(MUNIM)
+  permissions   String[] @default([])
+  passwordHash  String
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Tenant
+  business      Business @relation(fields: [businessId], references: [id])
+  businessId    String
+
+  // Relations
+  ordersCreated    Order[]         @relation("OrderCreatedBy")
+  ledgerEntries    LedgerEntry[]   @relation("LedgerRecordedBy")
+  stockMovements   StockMovement[] @relation("StockRecordedBy")
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────
+// CUSTOMERS — all parties / contractors
+// ─────────────────────────────────────────
+
+model Customer {
+  id           String   @id @default(uuid())
+  name         String
+  phone        String
+  altPhone     String?
+  address      String?
+  siteAddress  String?
+  gstin        String?
+  creditLimit  Decimal  @default(0) @db.Decimal(12, 2)
+  riskTag      RiskTag  @default(RELIABLE)
+  notes        String?
+  isActive     Boolean  @default(true)
+  remindersEnabled Boolean @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Tenant
+  business     Business @relation(fields: [businessId], references: [id])
+  businessId   String
+
+  // Relations
+  orders         Order[]
+  ledgerEntries  LedgerEntry[]
+  reminders      Reminder[]
+
+  @@map("customers")
+}
+
+// ─────────────────────────────────────────
+// MATERIALS — cement, bajri, saria, crusher
+// ─────────────────────────────────────────
+
+model Material {
+  id              String   @id @default(uuid())
+  name            String   // e.g. "OPC Cement", "Bajri / Sand"
+  unit            String   // "bags", "MT", "feet"
+  stockQty        Decimal  @default(0) @db.Decimal(12, 3)
+  minThreshold    Decimal  @default(0) @db.Decimal(12, 3)
+  maxThreshold    Decimal? @db.Decimal(12, 3)
+  purchasePrice   Decimal  @db.Decimal(10, 2)  // cost per unit
+  salePrice       Decimal  @db.Decimal(10, 2)  // default sale price per unit
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Tenant
+  business        Business @relation(fields: [businessId], references: [id])
+  businessId      String
+
+  // Relations
+  orderItems      OrderItem[]
+  stockMovements  StockMovement[]
+  deliveryItems   DeliveryItem[]
+
+  @@map("materials")
+}
+
+// ─────────────────────────────────────────
+// ORDERS — every sale transaction
+// ─────────────────────────────────────────
+
+model Order {
+  id            String      @id @default(uuid())
+  orderNumber   String      @unique  // ORD-2026-0841
+  customer      Customer    @relation(fields: [customerId], references: [id])
+  customerId    String
+  createdBy     User        @relation("OrderCreatedBy", fields: [createdById], references: [id])
+  createdById   String
+  orderDate     DateTime    @default(now())
+  deliveryDate  DateTime?
+  status        OrderStatus @default(CONFIRMED)
+  paymentMode   PaymentMode
+  amountPaid    Decimal     @default(0) @db.Decimal(12, 2)
+  totalAmount   Decimal     @db.Decimal(12, 2)
+  marginPct     Decimal?    @db.Decimal(5, 2)  // calculated margin %
+  notes         String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Tenant
+  business      Business    @relation(fields: [businessId], references: [id])
+  businessId    String
+
+  // Relations
+  items          OrderItem[]
+  deliveries     Delivery[]
+  ledgerEntries  LedgerEntry[]
+  stockMovements StockMovement[]
+
+  @@map("orders")
+}
+
+// ─────────────────────────────────────────
+// ORDER ITEMS — line items per order
+// ─────────────────────────────────────────
+
+model OrderItem {
+  id             String   @id @default(uuid())
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId        String
+  material       Material @relation(fields: [materialId], references: [id])
+  materialId     String
+  quantity       Decimal  @db.Decimal(12, 3)
+  unitPrice      Decimal  @db.Decimal(10, 2)  // actual sale price charged
+  purchasePrice  Decimal  @db.Decimal(10, 2)  // cost at time of order (snapshot)
+  lineTotal      Decimal  @db.Decimal(12, 2)  // quantity × unitPrice
+
+  @@map("order_items")
+}
+
+// ─────────────────────────────────────────
+// LEDGER ENTRIES — digital khata
+// Every debit (sale) and credit (payment) for each customer
+// ─────────────────────────────────────────
+
+model LedgerEntry {
+  id           String          @id @default(uuid())
+  customer     Customer        @relation(fields: [customerId], references: [id])
+  customerId   String
+  order        Order?          @relation(fields: [orderId], references: [id])
+  orderId      String?
+  type         LedgerEntryType // DEBIT or CREDIT
+  amount       Decimal         @db.Decimal(12, 2)
+  paymentMode  PaymentMode?
+  reference    String?         // UPI txn ID, cheque number, etc.
+  notes        String?
+  recordedBy   User            @relation("LedgerRecordedBy", fields: [recordedById], references: [id])
+  recordedById String
+  createdAt    DateTime        @default(now())
+
+  // Tenant
+  business     Business        @relation(fields: [businessId], references: [id])
+  businessId   String
+
+  @@map("ledger_entries")
+}
+
+// ─────────────────────────────────────────
+// DELIVERIES — each dispatch trip / challan
+// ─────────────────────────────────────────
+
+model Delivery {
+  id                String           @id @default(uuid())
+  order             Order            @relation(fields: [orderId], references: [id])
+  orderId           String
+  challanNumber     String           @unique  // CH-2026-0839
+  driverName        String?
+  vehicleNumber     String?
+  status            DeliveryStatus   @default(SCHEDULED)
+  confirmationType  ConfirmationType?
+  confirmationRef   String?          // OTP code, photo URL, or manual note
+  deliveredAt       DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  // Relations
+  items  DeliveryItem[]
+
+  @@map("deliveries")
+}
+
+// ─────────────────────────────────────────
+// DELIVERY ITEMS — actual qty delivered per material
+// Separate from order items to handle disputes
+// ─────────────────────────────────────────
+
+model DeliveryItem {
+  id           String   @id @default(uuid())
+  delivery     Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  deliveryId   String
+  material     Material @relation(fields: [materialId], references: [id])
+  materialId   String
+  orderedQty   Decimal  @db.Decimal(12, 3)
+  deliveredQty Decimal  @db.Decimal(12, 3)
+
+  @@map("delivery_items")
+}
+
+// ─────────────────────────────────────────
+// STOCK MOVEMENTS — full inventory audit trail
+// Auto-created on order, delivery, and manual adjustment
+// ─────────────────────────────────────────
+
+model StockMovement {
+  id           String            @id @default(uuid())
+  material     Material          @relation(fields: [materialId], references: [id])
+  materialId   String
+  order        Order?            @relation(fields: [orderId], references: [id])
+  orderId      String?
+  type         StockMovementType // IN, OUT, ADJUSTMENT
+  quantity     Decimal           @db.Decimal(12, 3)
+  stockAfter   Decimal           @db.Decimal(12, 3)  // snapshot of stock after this move
+  reason       String?
+  recordedBy   User              @relation("StockRecordedBy", fields: [recordedById], references: [id])
+  recordedById String
+  createdAt    DateTime          @default(now())
+
+  @@map("stock_movements")
+}
+
+// ─────────────────────────────────────────
+// REMINDERS — automated payment follow-ups
+// Queued by the background job engine
+// ─────────────────────────────────────────
+
+model Reminder {
+  id           String          @id @default(uuid())
+  customer     Customer        @relation(fields: [customerId], references: [id])
+  customerId   String
+  channel      ReminderChannel @default(WHATSAPP)
+  status       ReminderStatus  @default(PENDING)
+  messageBody  String
+  scheduledAt  DateTime
+  sentAt       DateTime?
+  createdAt    DateTime        @default(now())
+
+  @@map("reminders")
+}

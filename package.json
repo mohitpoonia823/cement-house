@@ -1,0 +1,28 @@
+{
+  "name": "cement-house",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Shree Cement House – Construction Distributor Management App",
+  "engines": { "node": ">=20", "pnpm": ">=9" },
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev":        "turbo run dev --parallel",
+    "build":      "turbo run build",
+    "start":      "turbo run start",
+    "lint":       "turbo run lint",
+    "typecheck":  "turbo run typecheck",
+    "db:push":    "pnpm --filter @cement-house/db db:push",
+    "db:migrate": "pnpm --filter @cement-house/db db:migrate",
+    "db:studio":  "pnpm --filter @cement-house/db db:studio",
+    "db:seed":    "pnpm --filter @cement-house/db db:seed"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}

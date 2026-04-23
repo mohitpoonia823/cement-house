@@ -1,0 +1,75 @@
+# ─────────────────────────────────────────────────────────────
+# Render Blueprint — Infrastructure as Code
+# Defines all 3 services from one monorepo
+# Docs: https://render.com/docs/blueprint-spec
+# ─────────────────────────────────────────────────────────────
+
+services:
+  # ── Next.js Frontend ──────────────────────────────────────
+  - type: web
+    name: cement-house-web
+    runtime: docker
+    dockerfilePath: ./apps/web/Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        value: https://cement-house-api.onrender.com
+    buildFilter:
+      paths:
+        - apps/web/**
+        - packages/**
+
+  # ── Fastify API ───────────────────────────────────────────
+  - type: web
+    name: cement-house-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false    # set manually in Render dashboard
+      - key: DIRECT_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: PORT
+        value: 4000
+      - key: WEB_URL
+        value: https://cement-house-web.onrender.com
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+    buildFilter:
+      paths:
+        - apps/api/**
+        - packages/**
+
+  # ── Background Worker ─────────────────────────────────────
+  - type: worker
+    name: cement-house-worker
+    runtime: docker
+    dockerfilePath: ./apps/worker/Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+    buildFilter:
+      paths:
+        - apps/worker/**
+        - packages/**
