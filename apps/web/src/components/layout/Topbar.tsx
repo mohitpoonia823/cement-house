@@ -40,6 +40,14 @@ export function Topbar() {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'
       const params = new URLSearchParams()
       params.set('page', page)
+      if (page === 'dashboard') {
+        const range = searchParams.get('range')
+        const startDate = searchParams.get('startDate')
+        const endDate = searchParams.get('endDate')
+        if (range) params.set('range', range)
+        if (startDate) params.set('startDate', startDate)
+        if (endDate) params.set('endDate', endDate)
+      }
       if (page === 'reports') {
         const granularity = searchParams.get('granularity')
         const year = searchParams.get('year')
