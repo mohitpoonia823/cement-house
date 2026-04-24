@@ -1,6 +1,6 @@
 'use client'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useMemo, useTransition } from 'react'
+import { useMemo, useTransition, Suspense } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AppShell } from '@/components/layout/AppShell'
 import { Card, KpiCard, SectionHeader } from '@/components/ui/Card'
@@ -64,7 +64,7 @@ async function downloadReportExport(input: {
   window.URL.revokeObjectURL(url)
 }
 
-export default function ReportsPage() {
+function ReportsContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
@@ -280,5 +280,13 @@ export default function ReportsPage() {
         </>
       )}
     </AppShell>
+  )
+}
+
+export default function ReportsPage() {
+  return (
+    <Suspense fallback={<AppShell><PageLoader /></AppShell>}>
+      <ReportsContent />
+    </Suspense>
   )
 }

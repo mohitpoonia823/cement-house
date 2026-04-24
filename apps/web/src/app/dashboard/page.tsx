@@ -1,6 +1,6 @@
 'use client'
 
-import { startTransition, useEffect, useState } from 'react'
+import { startTransition, useEffect, useState, Suspense } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
@@ -73,7 +73,7 @@ function emptyIfBlank(value: string | null) {
   return value?.trim() ?? ''
 }
 
-export default function DashboardPage() {
+function DashboardContent() {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -609,5 +609,13 @@ function MiniPie({ title, data }: { title: string; data: Array<{ name: string; v
         ))}
       </div>
     </div>
+  )
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<AppShell><PageLoader /></AppShell>}>
+      <DashboardContent />
+    </Suspense>
   )
 }
