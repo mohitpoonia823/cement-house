@@ -12,6 +12,7 @@ import { deliveryRoutes } from './routes/delivery'
 import { reminderRoutes } from './routes/reminders'
 import { reportRoutes } from './routes/reports'
 import { settingsRoutes } from './routes/settings'
+import { superAdminRoutes } from './routes/super-admin'
 import { authenticate } from './middleware/auth'
 
 const app = Fastify({ logger: { level: 'info' } })
@@ -40,6 +41,7 @@ app.register(async function protectedRoutes(scoped) {
   scoped.register(reminderRoutes,       { prefix: '/api/reminders' })
   scoped.register(reportRoutes,         { prefix: '/api/reports' })
   scoped.register(settingsRoutes,       { prefix: '/api/settings' })
+  scoped.register(superAdminRoutes,     { prefix: '/api/super-admin' })
 })
 
 const port = Number(process.env.PORT ?? 4000)

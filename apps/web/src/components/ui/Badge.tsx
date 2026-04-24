@@ -26,7 +26,8 @@ export function statusBadge(status: string) {
     CANCELLED: 'danger',  DRAFT: 'default', IN_TRANSIT: 'warning',
     SCHEDULED: 'info', FAILED: 'danger', RELIABLE: 'success',
     WATCH: 'warning', BLOCKED: 'danger', OK: 'success', LOW: 'warning',
-    OUT_OF_STOCK: 'danger',
+    OUT_OF_STOCK: 'danger', ACTIVE: 'success', TRIAL: 'info',
+    PAST_DUE: 'warning', SUSPENDED: 'danger',
   }
   return map[status] ?? 'default'
 }

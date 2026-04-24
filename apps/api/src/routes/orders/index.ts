@@ -3,6 +3,7 @@ import { z }            from 'zod'
 import { prisma }       from '@cement-house/db'
 import { generateOrderNumber, generateChallanNumber, marginPct } from '@cement-house/utils'
 import { getBizId }     from '../../middleware/auth'
+import { createAuditLog } from '../../services/audit'
 
 const CreateOrderSchema = z.object({
   customerId:   z.string().uuid(),
@@ -291,6 +292,7 @@ import { streamChallan } from '../../services/pdf'
 export async function orderChallanRoute(app: FastifyInstance) {
   app.get('/:id/challan', async (req, reply) => {
     const { id } = req.params as any
+    const bizId = getBizId(req)
     const order = await prisma.order.findUnique({
       where: { id },
       include: {
@@ -300,6 +302,7 @@ export async function orderChallanRoute(app: FastifyInstance) {
       },
     })
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
+    if (order.businessId !== bizId) return reply.status(404).send({ success: false, error: 'Order not found' })
 
     const delivery = order.deliveries[0]
     const items = (delivery?.items ?? order.items).map((i: any) => ({
@@ -310,6 +313,18 @@ export async function orderChallanRoute(app: FastifyInstance) {
     }))
 
     const jwtUser = req.user as any
+
+    createAuditLog({
+      actorId: jwtUser.id,
+      businessId: bizId,
+      action: 'CHALLAN_PDF_GENERATED',
+      targetType: 'ORDER',
+      targetId: order.id,
+      metadata: {
+        orderNumber: order.orderNumber,
+        challanNumber: delivery?.challanNumber ?? `CH-${order.orderNumber}`,
+      },
+    }).catch(() => undefined)
 
     streamChallan({
       challanNumber:    delivery?.challanNumber ?? `CH-${order.orderNumber}`,

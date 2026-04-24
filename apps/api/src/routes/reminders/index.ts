@@ -3,6 +3,7 @@ import { z }         from 'zod'
 import { prisma }    from '@cement-house/db'
 import { WA_TEMPLATES } from '@cement-house/utils'
 import { requireOwner, getBizId } from '../../middleware/auth'
+import { createAuditLog } from '../../services/audit'
 
 const SendReminderSchema = z.object({
   customerId: z.string().uuid(),
@@ -43,8 +44,9 @@ async function sendWhatsAppTemplate(phone: string, templateName: string, params:
 export async function reminderRoutes(app: FastifyInstance) {
   // GET /api/reminders  — recent reminders log
   app.get('/', async (req) => {
+    const bizId = getBizId(req)
     const { customerId } = req.query as any
-    const where: any = {}
+    const where: any = { customer: { businessId: bizId } }
     if (customerId) where.customerId = customerId
     const reminders = await prisma.reminder.findMany({
       where, orderBy: { createdAt: 'desc' }, take: 50,
@@ -56,6 +58,7 @@ export async function reminderRoutes(app: FastifyInstance) {
   // POST /api/reminders/send  — manually trigger a reminder (owner only)
   app.post('/send', async (req, reply) => {
     if (!requireOwner(req, reply)) return
+    const bizId = getBizId(req)
     const body = SendReminderSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
@@ -80,6 +83,20 @@ export async function reminderRoutes(app: FastifyInstance) {
         messageBody: message,
         scheduledAt: new Date(),
         sentAt:      sent ? new Date() : undefined,
+      },
+    })
+
+    await createAuditLog({
+      actorId: (req.user as any).id,
+      businessId: bizId,
+      action: sent ? 'REMINDER_SENT' : 'REMINDER_FAILED',
+      targetType: 'CUSTOMER',
+      targetId: customer.id,
+      metadata: {
+        customerName: customer.name,
+        channel: body.data.channel,
+        amount: body.data.amount,
+        days: body.data.days,
       },
     })
 
@@ -127,6 +144,20 @@ export async function reminderRoutes(app: FastifyInstance) {
           status: sent ? 'SENT' : 'FAILED',
           messageBody: message, scheduledAt: new Date(),
           sentAt: sent ? new Date() : undefined,
+        },
+      })
+      await createAuditLog({
+        actorId: (req.user as any).id,
+        businessId: bizId,
+        action: sent ? 'REMINDER_SENT' : 'REMINDER_FAILED',
+        targetType: 'CUSTOMER',
+        targetId: customer.id,
+        metadata: {
+          customerName: customer.name,
+          channel: 'WHATSAPP',
+          amount: balance,
+          days,
+          source: 'bulk',
         },
       })
       results.push({ customer: customer.name, balance, days, sent })
@@ -177,6 +208,20 @@ export async function reminderRoutes(app: FastifyInstance) {
           status: sent ? 'SENT' : 'FAILED',
           messageBody: message, scheduledAt: new Date(),
           sentAt: sent ? new Date() : undefined,
+        },
+      })
+      await createAuditLog({
+        actorId: (req.user as any).id,
+        businessId: bizId,
+        action: sent ? 'REMINDER_SENT' : 'REMINDER_FAILED',
+        targetType: 'CUSTOMER',
+        targetId: customer.id,
+        metadata: {
+          customerName: customer.name,
+          channel: 'WHATSAPP',
+          amount: balance,
+          days,
+          source: 'selected',
         },
       })
       results.push({ customer: customer.name, balance, sent })

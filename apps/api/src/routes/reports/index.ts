@@ -1,7 +1,15 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { prisma } from '@cement-house/db'
+import { z } from 'zod'
 import { requireOwner, getBizId } from '../../middleware/auth'
 import { streamAnalyticsSnapshot } from '../../services/pdf'
+import { createAuditLog } from '../../services/audit'
+
+const ReportSummaryQuerySchema = z.object({
+  granularity: z.enum(['monthly', 'yearly']).default('monthly'),
+  year: z.coerce.number().int().min(2020).max(2100).default(new Date().getFullYear()),
+  month: z.coerce.number().int().min(1).max(12).optional(),
+})
 
 function startOfDay(date: Date) {
   const next = new Date(date)
@@ -15,6 +23,107 @@ function endOfDay(date: Date) {
   return next
 }
 
+function reportPeriodFromQuery(query: z.infer<typeof ReportSummaryQuerySchema>) {
+  if (query.granularity === 'yearly') {
+    const start = new Date(query.year, 0, 1)
+    const end = new Date(query.year, 11, 31, 23, 59, 59, 999)
+    return {
+      granularity: 'yearly' as const,
+      year: query.year,
+      month: null,
+      start,
+      end,
+      label: `${query.year}`,
+      exportSuffix: `${query.year}`,
+    }
+  }
+
+  const month = query.month ?? new Date().getMonth() + 1
+  const start = new Date(query.year, month - 1, 1)
+  const end = new Date(query.year, month, 0, 23, 59, 59, 999)
+  const monthShort = start.toLocaleDateString('en-IN', { month: 'short' })
+  return {
+    granularity: 'monthly' as const,
+    year: query.year,
+    month,
+    start,
+    end,
+    label: `${monthShort} ${query.year}`,
+    exportSuffix: `${query.year}-${String(month).padStart(2, '0')}`,
+  }
+}
+
+function csv(headers: string[], rows: Array<Array<string | number>>) {
+  const escape = (value: string | number) => `"${String(value ?? '').replace(/"/g, '""')}"`
+  return [headers.map(escape).join(','), ...rows.map((row) => row.map(escape).join(','))].join('\n')
+}
+
+async function createExportAuditLog(req: FastifyRequest, input: {
+  page: string
+  format: 'pdf' | 'csv'
+  fileName: string
+  label: string
+  query?: Record<string, unknown>
+}) {
+  const user = req.user as any
+  await createAuditLog({
+    actorId: user.id,
+    businessId: user.businessId ?? null,
+    action: 'REPORT_EXPORTED',
+    targetType: 'REPORT',
+    targetId: null,
+    metadata: {
+      page: input.page,
+      format: input.format,
+      fileName: input.fileName,
+      label: input.label,
+      query: input.query ?? {},
+    },
+  })
+}
+
+async function loadReportSummary(bizId: string, queryInput: unknown) {
+  const parsed = ReportSummaryQuerySchema.safeParse(queryInput)
+  if (!parsed.success) throw parsed.error
+
+  const period = reportPeriodFromQuery(parsed.data)
+  const orders = await prisma.order.findMany({
+    where: {
+      businessId: bizId,
+      status: { not: 'CANCELLED' },
+      createdAt: { gte: period.start, lte: period.end },
+    },
+    include: {
+      customer: { select: { name: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  const totalSales = orders.reduce((sum, order) => sum + Number(order.totalAmount), 0)
+  const totalMargin = orders.reduce((sum, order) => sum + Number(order.marginPct ?? 0), 0)
+  const avgMargin = orders.length ? totalMargin / orders.length : 0
+  const paidAmount = orders.reduce((sum, order) => sum + Number(order.amountPaid), 0)
+  const outstanding = orders.reduce((sum, order) => sum + (Number(order.totalAmount) - Number(order.amountPaid)), 0)
+
+  return {
+    ...period,
+    totalSales,
+    orderCount: orders.length,
+    avgMargin,
+    paidAmount,
+    outstanding,
+    recentOrders: orders.slice(0, 8).map((order) => ({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      customerName: order.customer?.name ?? 'Unknown customer',
+      totalAmount: Number(order.totalAmount),
+      amountPaid: Number(order.amountPaid),
+      status: order.status,
+      createdAt: order.createdAt,
+    })),
+  }
+}
+
 export async function reportRoutes(app: FastifyInstance) {
   app.get('/export', async (req, reply) => {
     const bizId = getBizId(req)
@@ -22,27 +131,22 @@ export async function reportRoutes(app: FastifyInstance) {
     const jwtUser = req.user as any
     const generatedAt = new Date()
 
-    const csv = (headers: string[], rows: Array<Array<string | number>>) => {
-      const escape = (value: string | number) => `"${String(value ?? '').replace(/"/g, '""')}"`
-      return [headers.map(escape).join(','), ...rows.map((row) => row.map(escape).join(','))].join('\n')
-    }
-
-    const sendCsv = (filename: string, body: string) => {
+    const sendCsv = async (filename: string, body: string, label: string, query?: Record<string, unknown>) => {
+      await createExportAuditLog(req, { page, format: 'csv', fileName: filename, label, query })
       reply.header('Content-Type', 'text/csv; charset=utf-8')
       reply.header('Content-Disposition', `attachment; filename="${filename}"`)
       return reply.send(body)
     }
 
-    if (page === 'dashboard' || page === 'reports') {
+    if (page === 'dashboard') {
       const today = new Date()
-      const start = startOfDay(today)
       const sevenDaysAgo = startOfDay(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6))
       const [orders, ledgerEntries, materials, customers, deliveries] = await Promise.all([
         prisma.order.findMany({
           where: {
             businessId: bizId,
             status: { not: 'CANCELLED' },
-            createdAt: page === 'dashboard' ? { gte: sevenDaysAgo } : undefined,
+            createdAt: { gte: sevenDaysAgo },
           },
           include: { customer: { select: { name: true } } },
           orderBy: { createdAt: 'desc' },
@@ -69,16 +173,24 @@ export async function reportRoutes(app: FastifyInstance) {
 
       const topExposure = [...customerExposure.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
       const recentOrders = orders.slice(0, 5)
+      const fileName = 'dashboard-snapshot.pdf'
+
+      await createExportAuditLog(req, {
+        page,
+        format: 'pdf',
+        fileName,
+        label: 'Dashboard snapshot',
+      })
 
       return streamAnalyticsSnapshot(
         {
-          title: page === 'dashboard' ? 'Dashboard snapshot' : 'Business report snapshot',
-          subtitle: page === 'dashboard' ? 'Operations and collection summary' : 'Revenue and business performance summary',
+          title: 'Dashboard snapshot',
+          subtitle: 'Operations and collection summary',
           generatedAt,
           businessName: jwtUser.businessName ?? 'Cement House',
           businessCity: jwtUser.businessCity ?? '',
           metrics: [
-            { label: page === 'dashboard' ? 'Sales window' : 'Total sales', value: `Rs. ${new Intl.NumberFormat('en-IN').format(totalSales)}` },
+            { label: 'Sales window', value: `Rs. ${new Intl.NumberFormat('en-IN').format(totalSales)}` },
             { label: 'Collections', value: `Rs. ${new Intl.NumberFormat('en-IN').format(totalCollected)}` },
             { label: 'Outstanding', value: `Rs. ${new Intl.NumberFormat('en-IN').format(outstanding)}` },
             { label: 'Low stock items', value: String(lowStock.length) },
@@ -113,6 +225,58 @@ export async function reportRoutes(app: FastifyInstance) {
       )
     }
 
+    if (page === 'reports') {
+      const summary = await loadReportSummary(bizId, req.query)
+      const fileName = `business-report-${summary.exportSuffix}.pdf`
+
+      await createExportAuditLog(req, {
+        page,
+        format: 'pdf',
+        fileName,
+        label: `${summary.granularity === 'yearly' ? 'Yearly' : 'Monthly'} report • ${summary.label}`,
+        query: {
+          granularity: summary.granularity,
+          year: summary.year,
+          month: summary.month,
+        },
+      })
+
+      return streamAnalyticsSnapshot(
+        {
+          title: `${summary.granularity === 'yearly' ? 'Yearly' : 'Monthly'} business report`,
+          subtitle: `Performance summary for ${summary.label}`,
+          generatedAt,
+          businessName: jwtUser.businessName ?? 'Cement House',
+          businessCity: jwtUser.businessCity ?? '',
+          metrics: [
+            { label: 'Total sales', value: `Rs. ${new Intl.NumberFormat('en-IN').format(summary.totalSales)}` },
+            { label: 'Orders', value: String(summary.orderCount) },
+            { label: 'Avg margin', value: `${summary.avgMargin.toFixed(1)}%` },
+            { label: 'Outstanding', value: `Rs. ${new Intl.NumberFormat('en-IN').format(summary.outstanding)}` },
+          ],
+          sections: [
+            {
+              title: 'Collections and dues',
+              rows: [
+                { label: 'Collected within period', value: `Rs. ${new Intl.NumberFormat('en-IN').format(summary.paidAmount)}` },
+                { label: 'Outstanding within period', value: `Rs. ${new Intl.NumberFormat('en-IN').format(summary.outstanding)}` },
+              ],
+            },
+            {
+              title: 'Recent orders in selection',
+              rows: summary.recentOrders.length > 0
+                ? summary.recentOrders.map((order) => ({
+                    label: `${order.orderNumber} • ${order.customerName}`,
+                    value: `Rs. ${new Intl.NumberFormat('en-IN').format(order.totalAmount)}`,
+                  }))
+                : [{ label: 'No orders in selected period', value: '—' }],
+            },
+          ],
+        },
+        reply
+      )
+    }
+
     if (page === 'orders') {
       const orders = await prisma.order.findMany({
         where: { businessId: bizId },
@@ -133,7 +297,8 @@ export async function reportRoutes(app: FastifyInstance) {
             Number(order.amountPaid),
             Number(order.totalAmount) - Number(order.amountPaid),
           ])
-        )
+        ),
+        'Orders snapshot'
       )
     }
 
@@ -155,7 +320,11 @@ export async function reportRoutes(app: FastifyInstance) {
           return [customer.name, customer.phone, customer.riskTag, customer.address ?? '', customer._count.orders, Number(customer.creditLimit), debit - credit]
         })
       )
-      return sendCsv('customers-snapshot.csv', csv(['Name', 'Phone', 'Risk Tag', 'Address', 'Orders', 'Credit Limit', 'Outstanding'], rows))
+      return sendCsv(
+        'customers-snapshot.csv',
+        csv(['Name', 'Phone', 'Risk Tag', 'Address', 'Orders', 'Credit Limit', 'Outstanding'], rows),
+        'Customers snapshot'
+      )
     }
 
     if (page === 'inventory') {
@@ -176,7 +345,8 @@ export async function reportRoutes(app: FastifyInstance) {
             Number(material.purchasePrice),
             Number(material.salePrice),
           ])
-        )
+        ),
+        'Inventory snapshot'
       )
     }
 
@@ -201,7 +371,8 @@ export async function reportRoutes(app: FastifyInstance) {
             delivery.driverName ?? '',
             delivery.vehicleNumber ?? '',
           ])
-        )
+        ),
+        'Delivery snapshot'
       )
     }
 
@@ -219,7 +390,11 @@ export async function reportRoutes(app: FastifyInstance) {
           return [customer.name, customer.phone, customer.riskTag, debit, credit, debit - credit]
         })
       )
-      return sendCsv('khata-snapshot.csv', csv(['Customer', 'Phone', 'Risk Tag', 'Total Debit', 'Total Credit', 'Outstanding'], rows))
+      return sendCsv(
+        'khata-snapshot.csv',
+        csv(['Customer', 'Phone', 'Risk Tag', 'Total Debit', 'Total Credit', 'Outstanding'], rows),
+        'Khata snapshot'
+      )
     }
 
     if (page === 'settings') {
@@ -238,7 +413,8 @@ export async function reportRoutes(app: FastifyInstance) {
             user.role,
             (user.permissions ?? []).join(' | '),
           ])
-        )
+        ),
+        'Workspace snapshot'
       )
     }
 
@@ -412,22 +588,62 @@ export async function reportRoutes(app: FastifyInstance) {
     }
   })
 
+  app.get('/summary', async (req, reply) => {
+    if (!requireOwner(req, reply)) return
+    const bizId = getBizId(req)
+    const summary = await loadReportSummary(bizId, req.query)
+    return { success: true, data: summary }
+  })
+
+  app.get('/history', async (req) => {
+    const bizId = getBizId(req)
+    const userId = (req.user as any).id
+
+    const exports = await prisma.auditLog.findMany({
+      where: {
+        businessId: bizId,
+        actorId: userId,
+        action: 'REPORT_EXPORTED',
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    })
+
+    return {
+      success: true,
+      data: exports.map((entry) => {
+        const meta = (entry.metadata ?? {}) as Record<string, any>
+        return {
+          id: entry.id,
+          report: meta.page ?? 'unknown',
+          label: meta.label ?? 'Report export',
+          format: meta.format ?? 'file',
+          fileName: meta.fileName ?? 'export',
+          exportedAt: entry.createdAt,
+          query: meta.query ?? {},
+        }
+      }),
+    }
+  })
+
   app.get('/monthly', async (req, reply) => {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
-    const { year = new Date().getFullYear(), month = new Date().getMonth() + 1 } = req.query as any
-    const start = new Date(year, month - 1, 1)
-    const end = new Date(year, month, 0, 23, 59, 59)
-
-    const orders = await prisma.order.findMany({
-      where: { createdAt: { gte: start, lte: end }, status: { not: 'CANCELLED' }, businessId: bizId },
-      include: { items: { include: { material: true } } },
+    const query = typeof req.query === 'object' && req.query !== null ? req.query as Record<string, unknown> : {}
+    const summary = await loadReportSummary(bizId, {
+      ...query,
+      granularity: 'monthly',
     })
 
-    const totalSales = orders.reduce((sum, order) => sum + Number(order.totalAmount), 0)
-    const totalMargin = orders.reduce((sum, order) => sum + Number(order.marginPct ?? 0), 0)
-    const avgMargin = orders.length ? totalMargin / orders.length : 0
-
-    return { success: true, data: { year, month, totalSales, orderCount: orders.length, avgMargin } }
+    return {
+      success: true,
+      data: {
+        year: summary.year,
+        month: summary.month,
+        totalSales: summary.totalSales,
+        orderCount: summary.orderCount,
+        avgMargin: summary.avgMargin,
+      },
+    }
   })
 }

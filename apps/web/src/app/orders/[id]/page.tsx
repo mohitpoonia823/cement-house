@@ -1,36 +1,36 @@
 'use client'
-import { AppShell }   from '@/components/layout/AppShell'
-import { Card }       from '@/components/ui/Card'
+import { AppShell } from '@/components/layout/AppShell'
+import { Card } from '@/components/ui/Card'
 import { Badge, statusBadge } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/Spinner'
-import { useOrder }   from '@/hooks/useOrders'
+import { useOrder } from '@/hooks/useOrders'
 import { useInventory } from '@/hooks/useInventory'
 import { fmt, fmtDate } from '@/lib/utils'
 import { useParams, useRouter } from 'next/navigation'
-import { useState }   from 'react'
-import { api }        from '@/lib/api'
+import { useState } from 'react'
+import { api } from '@/lib/api'
 import { useQueryClient } from '@tanstack/react-query'
-import Link           from 'next/link'
+import Link from 'next/link'
 import { useAuthStore } from '@/store/auth'
 
 const STATUS_FLOW: Record<string, string[]> = {
-  DRAFT:      ['CONFIRMED','CANCELLED'],
-  CONFIRMED:  ['DISPATCHED','CANCELLED'],
-  DISPATCHED: ['DELIVERED','CONFIRMED'],
-  DELIVERED:  [],
-  CANCELLED:  [],
+  DRAFT: ['CONFIRMED', 'CANCELLED'],
+  CONFIRMED: ['DISPATCHED', 'CANCELLED'],
+  DISPATCHED: ['DELIVERED', 'CONFIRMED'],
+  DELIVERED: [],
+  CANCELLED: [],
 }
 
 export default function OrderDetailPage() {
-  const { id }         = useParams<{ id: string }>()
-  const router         = useRouter()
-  const qc             = useQueryClient()
+  const { id } = useParams<{ id: string }>()
+  const router = useRouter()
+  const qc = useQueryClient()
   const { data: order, isLoading } = useOrder(id)
-  const [updating, setUpdating]    = useState(false)
+  const [updating, setUpdating] = useState(false)
   const [showChallan, setShowChallan] = useState(false)
   const [showAddItem, setShowAddItem] = useState(false)
-  const [addingItem, setAddingItem]   = useState(false)
-  const [newItem, setNewItem]         = useState({ materialId: '', quantity: 1, unitPrice: 0, purchasePrice: 0 })
+  const [addingItem, setAddingItem] = useState(false)
+  const [newItem, setNewItem] = useState({ materialId: '', quantity: 1, unitPrice: 0, purchasePrice: 0 })
   const { data: materials } = useInventory()
   const { user } = useAuthStore()
 
@@ -58,9 +58,9 @@ export default function OrderDetailPage() {
   }
 
   if (isLoading) return <AppShell><PageLoader /></AppShell>
-  if (!order)    return <AppShell><div className="text-sm text-stone-500">Order not found.</div></AppShell>
+  if (!order) return <AppShell><div className="text-sm text-stone-500">Order not found.</div></AppShell>
 
-  const due          = Number(order.totalAmount) - Number(order.amountPaid)
+  const due = Number(order.totalAmount) - Number(order.amountPaid)
   const nextStatuses = STATUS_FLOW[order.status] ?? []
 
   return (
@@ -82,10 +82,9 @@ export default function OrderDetailPage() {
           <div className="flex gap-2 flex-wrap justify-end">
             {nextStatuses.map(s => (
               <button key={s} onClick={() => updateStatus(s)} disabled={updating}
-                className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors disabled:opacity-50 ${
-                  s === 'CANCELLED' ? 'border border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-950'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
-                }`}>
+                className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors disabled:opacity-50 ${s === 'CANCELLED' ? 'border border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-950'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}>
                 {updating ? '…' : `Mark ${s.toLowerCase()}`}
               </button>
             ))}
@@ -158,7 +157,7 @@ export default function OrderDetailPage() {
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-stone-100 dark:border-stone-800">
-                {['Material','Quantity','Rate','Amount','Margin'].map(h => (
+                {['Material', 'Quantity', 'Rate', 'Amount', 'Margin'].map(h => (
                   <th key={h} className="text-left py-2 pr-4 font-normal text-stone-400">{h}</th>
                 ))}
               </tr>

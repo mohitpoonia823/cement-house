@@ -18,8 +18,23 @@ datasource db {
 // ─────────────────────────────────────────
 
 enum UserRole {
+  SUPER_ADMIN
   OWNER
   MUNIM
+}
+
+enum SubscriptionPlan {
+  STARTER
+  PRO
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  SUSPENDED
 }
 
 enum RiskTag {
@@ -96,6 +111,11 @@ model Business {
   reminderSoftDays Int     @default(7)
   reminderFollowDays Int   @default(15)
   reminderFirmDays Int     @default(30)
+  subscriptionPlan SubscriptionPlan   @default(STARTER)
+  subscriptionStatus SubscriptionStatus @default(TRIAL)
+  subscriptionEndsAt DateTime?
+  monthlySubscriptionAmount Decimal @default(0) @db.Decimal(10, 2)
+  suspendedReason String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -106,6 +126,7 @@ model Business {
   orders      Order[]
   ledgerEntries LedgerEntry[]
   stockMovements StockMovement[]
+  auditLogs   AuditLog[]
 
   @@map("businesses")
 }
@@ -122,17 +143,19 @@ model User {
   permissions   String[] @default([])
   passwordHash  String
   isActive      Boolean  @default(true)
+  lastSeenAt    DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   // Tenant
-  business      Business @relation(fields: [businessId], references: [id])
-  businessId    String
+  business      Business? @relation(fields: [businessId], references: [id])
+  businessId    String?
 
   // Relations
   ordersCreated    Order[]         @relation("OrderCreatedBy")
   ledgerEntries    LedgerEntry[]   @relation("LedgerRecordedBy")
   stockMovements   StockMovement[] @relation("StockRecordedBy")
+  auditLogs        AuditLog[]      @relation("AuditActor")
 
   @@map("users")
 }
@@ -362,4 +385,21 @@ model Reminder {
   createdAt    DateTime        @default(now())
 
   @@map("reminders")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actor       User?    @relation("AuditActor", fields: [actorId], references: [id])
+  actorId     String?
+  business    Business? @relation(fields: [businessId], references: [id])
+  businessId  String?
+  action      String
+  targetType  String
+  targetId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([businessId, createdAt])
+  @@map("audit_logs")
 }

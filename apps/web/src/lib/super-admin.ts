@@ -1,0 +1,95 @@
+import { useQuery } from '@tanstack/react-query'
+import { api } from './api'
+
+export type BusinessListItem = {
+  id: string
+  name: string
+  city: string
+  phone: string | null
+  gstin: string | null
+  isActive: boolean
+  suspendedReason: string | null
+  subscriptionPlan: 'STARTER' | 'PRO' | 'ENTERPRISE'
+  subscriptionStatus: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'SUSPENDED'
+  subscriptionEndsAt: string | null
+  monthlySubscriptionAmount: number
+  createdAt: string
+  updatedAt: string
+  ownerName: string | null
+  ownerPhone: string | null
+  totalUsers: number
+  totalCustomers: number
+  totalOrders: number
+  gmv: number
+  outstanding: number
+}
+
+export type UserListItem = {
+  id: string
+  name: string
+  phone: string
+  role: 'SUPER_ADMIN' | 'OWNER' | 'MUNIM'
+  isActive: boolean
+  permissions: string[]
+  lastSeenAt: string | null
+  createdAt: string
+  businessId: string | null
+  businessName: string | null
+  businessCity: string | null
+  businessActive: boolean | null
+}
+
+export type PaginatedResponse<T> = {
+  items: T[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages: number
+}
+
+type ListParams = Record<string, string | number | undefined>
+
+function buildQuery(params: ListParams) {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === '') continue
+    search.set(key, String(value))
+  }
+  return search.toString()
+}
+
+export function useSuperAdminOverview() {
+  return useQuery({
+    queryKey: ['super-admin', 'overview'],
+    queryFn: () => api.get('/api/super-admin/overview').then((res) => res.data.data),
+    refetchInterval: 60_000,
+  })
+}
+
+export function useSuperAdminBusinesses(params: {
+  page: number
+  pageSize: number
+  search?: string
+  status?: 'ACTIVE' | 'SUSPENDED' | ''
+}) {
+  const query = buildQuery(params)
+  return useQuery({
+    queryKey: ['super-admin', 'businesses', query],
+    queryFn: () => api.get(`/api/super-admin/businesses?${query}`).then((res) => res.data.data as PaginatedResponse<BusinessListItem>),
+    placeholderData: (prev) => prev,
+  })
+}
+
+export function useSuperAdminUsers(params: {
+  page: number
+  pageSize: number
+  search?: string
+  role?: 'SUPER_ADMIN' | 'OWNER' | 'MUNIM' | ''
+}) {
+  const query = buildQuery(params)
+  return useQuery({
+    queryKey: ['super-admin', 'users', query],
+    queryFn: () => api.get(`/api/super-admin/users?${query}`).then((res) => res.data.data as PaginatedResponse<UserListItem>),
+    placeholderData: (prev) => prev,
+  })
+}

@@ -38,6 +38,7 @@ The most critical ones for local dev:
 DATABASE_URL="postgresql://postgres:password@localhost:5432/cement_house"
 REDIS_URL="redis://localhost:6379"
 JWT_SECRET="any-random-32-char-string-here"
+SUPER_ADMIN_SETUP_KEY="set-a-long-random-bootstrap-key"
 ```
 
 ---
@@ -67,6 +68,12 @@ pnpm db:seed
 After seeding, you can log in with:
 - **Owner** → phone: `9876543210` · password: `owner123`
 - **Munim** → phone: `9876543211` · password: `munim123`
+
+If you want to create the first Super Admin from the UI instead:
+- set `SUPER_ADMIN_SETUP_KEY` in `apps/api/.env`
+- open `/auth/admin-setup`
+- enter the bootstrap key and create the account
+- after the first Super Admin exists, this bootstrap flow is disabled
 
 ---
 

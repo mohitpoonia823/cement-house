@@ -30,7 +30,7 @@ export default function LoginPage() {
     try {
       const res = await api.post('/api/auth/login', { phone, password })
       login(res.data.data.token, res.data.data.user)
-      router.replace('/dashboard')
+      router.replace(res.data.data.user.role === 'SUPER_ADMIN' ? '/super-admin' : '/dashboard')
     } catch (err: any) {
       setError(err.response?.data?.error ?? 'Login failed. Check credentials.')
     } finally {
@@ -95,6 +95,12 @@ export default function LoginPage() {
           New here?{' '}
           <Link href="/auth/register" className="font-semibold text-sky-600 hover:underline dark:text-sky-400">
             Create an account
+          </Link>
+        </div>
+        <div className="mt-2 text-center text-sm text-slate-600 dark:text-slate-300">
+          Platform setup?{' '}
+          <Link href="/auth/admin-setup" className="font-semibold text-emerald-700 hover:underline dark:text-emerald-300">
+            Create Super Admin
           </Link>
         </div>
         <div className="mt-2 text-center text-xs uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">

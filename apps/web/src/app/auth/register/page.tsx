@@ -133,6 +133,12 @@ export default function RegisterPage() {
             Sign in
           </Link>
         </div>
+        <div className="mt-2 text-center text-sm text-slate-600 dark:text-slate-300">
+          Need platform access?{' '}
+          <Link href="/auth/admin-setup" className="font-semibold text-emerald-700 hover:underline dark:text-emerald-300">
+            Create Super Admin
+          </Link>
+        </div>
         <div className="mt-2 text-center text-xs uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
           Construction material management platform
         </div>

@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { pageTitles } from './navigation'
 import { useState } from 'react'
 
@@ -22,6 +22,7 @@ function exportLabel(page: string) {
 
 export function Topbar() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const title = pageTitles[pathname] ?? 'Cement House'
   const page = exportPageForPath(pathname)
   const [isExporting, setIsExporting] = useState(false)
@@ -37,7 +38,18 @@ export function Topbar() {
       setIsExporting(true)
       const token = window.localStorage.getItem('auth_token')
       const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'
-      const response = await fetch(`${baseUrl}/api/reports/export?page=${encodeURIComponent(page)}`, {
+      const params = new URLSearchParams()
+      params.set('page', page)
+      if (page === 'reports') {
+        const granularity = searchParams.get('granularity')
+        const year = searchParams.get('year')
+        const month = searchParams.get('month')
+        if (granularity) params.set('granularity', granularity)
+        if (year) params.set('year', year)
+        if (month) params.set('month', month)
+      }
+
+      const response = await fetch(`${baseUrl}/api/reports/export?${params.toString()}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
 
