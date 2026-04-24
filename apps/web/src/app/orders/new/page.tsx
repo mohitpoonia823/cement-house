@@ -61,6 +61,7 @@ export default function NewOrderPage() {
     if (items.some(i => i.quantity <= 0)) return setError('Quantity must be greater than 0')
     try {
       await createOrder.mutateAsync({ customerId, deliveryDate: deliveryDate || undefined, paymentMode, amountPaid, notes, items })
+      sessionStorage.setItem('orders_success_message', 'Order created successfully')
       router.push('/orders')
     } catch (err: any) {
       setError(err.response?.data?.error ?? 'Failed to create order')

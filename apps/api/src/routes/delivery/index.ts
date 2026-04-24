@@ -25,7 +25,7 @@ export async function deliveryRoutes(app: FastifyInstance) {
   app.get('/', async (req) => {
     const bizId = getBizId(req)
     const { status, date } = req.query as any
-    const where: any = { order: { businessId: bizId } }
+    const where: any = { order: { businessId: bizId, isDeleted: false } }
     if (status) where.status = status
     if (date) {
       const d = new Date(date)
@@ -61,7 +61,8 @@ export async function deliveryRoutes(app: FastifyInstance) {
     const body = CreateDeliverySchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const order = await prisma.order.findUnique({ where: { id: body.data.orderId } })
+    const bizId = getBizId(req)
+    const order = await prisma.order.findFirst({ where: { id: body.data.orderId, businessId: bizId, isDeleted: false } })
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
     if (order.status === 'CANCELLED') return reply.status(400).send({ success: false, error: 'Cannot deliver a cancelled order' })
 
@@ -144,7 +145,7 @@ export async function deliveryRoutes(app: FastifyInstance) {
     const start = new Date(); start.setHours(0,0,0,0)
     const end   = new Date(); end.setHours(23,59,59,999)
     const deliveries = await prisma.delivery.findMany({
-      where: { createdAt: { gte: start, lte: end }, order: { businessId: bizId } },
+      where: { createdAt: { gte: start, lte: end }, order: { businessId: bizId, isDeleted: false } },
       include: { order: { include: { customer: { select: { name: true, address: true } } } } },
       orderBy: { createdAt: 'asc' },
     })

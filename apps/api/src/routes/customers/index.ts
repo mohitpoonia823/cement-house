@@ -32,7 +32,7 @@ export async function customerRoutes(app: FastifyInstance) {
       where,
       orderBy: { name: 'asc' },
       include: {
-        _count: { select: { orders: true } },
+        _count: { select: { orders: { where: { isDeleted: false } } } },
       },
     })
 
@@ -58,19 +58,20 @@ export async function customerRoutes(app: FastifyInstance) {
       where: { id },
       include: {
         orders: {
+          where: { isDeleted: false },
           orderBy: { createdAt: 'desc' },
           take: 10,
           include: { items: { include: { material: true } } },
         },
         reminders: { orderBy: { createdAt: 'desc' }, take: 5 },
-        _count: { select: { orders: true } },
+        _count: { select: { orders: { where: { isDeleted: false } } } },
       },
     })
     if (!customer) return reply.status(404).send({ success: false, error: 'Customer not found' })
 
     // Compute lifetime stats
     const allOrders = await prisma.order.findMany({
-      where: { customerId: id, status: { not: 'CANCELLED' } },
+      where: { customerId: id, status: { not: 'CANCELLED' }, isDeleted: false },
       select: { totalAmount: true, amountPaid: true },
     })
     const lifetimeBusiness = allOrders.reduce((s, o) => s + Number(o.totalAmount), 0)

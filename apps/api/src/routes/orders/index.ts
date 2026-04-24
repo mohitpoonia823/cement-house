@@ -32,7 +32,7 @@ export async function orderRoutes(app: FastifyInstance) {
     const bizId = getBizId(req)
     const { status, customerId, page = 1 } = req.query as any
     const take = 20, skip = (page - 1) * take
-    const where: any = { businessId: bizId }
+    const where: any = { businessId: bizId, isDeleted: false }
     if (status)     where.status = status
     if (customerId) where.customerId = customerId
     const [items, total] = await Promise.all([
@@ -45,8 +45,9 @@ export async function orderRoutes(app: FastifyInstance) {
 
   // GET /api/orders/:id
   app.get('/:id', async (req, reply) => {
+    const bizId = getBizId(req)
     const { id } = req.params as any
-    const order = await prisma.order.findUnique({ where: { id },
+    const order = await prisma.order.findFirst({ where: { id, businessId: bizId, isDeleted: false },
       include: { customer: true, items: { include: { material: true } }, deliveries: true } })
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
     return { success: true, data: order }
@@ -120,7 +121,7 @@ export async function orderRoutes(app: FastifyInstance) {
 
     const itemData = body.data
 
-    const order = await prisma.order.findUnique({ where: { id }, include: { items: true } })
+    const order = await prisma.order.findFirst({ where: { id, businessId: bizId, isDeleted: false }, include: { items: true } })
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
 
     await prisma.$transaction(async (tx) => {
@@ -187,10 +188,11 @@ export async function orderRoutes(app: FastifyInstance) {
   // PATCH /api/orders/:id/status
   app.patch('/:id/status', async (req, reply) => {
     const { id } = req.params as any
+    const bizId = getBizId(req)
     const { status } = req.body as any
     
     if (status === 'DISPATCHED') {
-      const order = await prisma.order.findUnique({ where: { id }, include: { items: true, deliveries: true } })
+      const order = await prisma.order.findFirst({ where: { id, businessId: bizId, isDeleted: false }, include: { items: true, deliveries: true } })
       if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
       
       if (order.deliveries.length === 0) {
@@ -217,7 +219,7 @@ export async function orderRoutes(app: FastifyInstance) {
         return { success: true, data: { ...order, status } }
       }
     } else if (status === 'DELIVERED') {
-      const order = await prisma.order.findUnique({ where: { id }, include: { deliveries: true } })
+      const order = await prisma.order.findFirst({ where: { id, businessId: bizId, isDeleted: false }, include: { deliveries: true } })
       if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
 
       await prisma.$transaction(async (tx) => {
@@ -231,14 +233,17 @@ export async function orderRoutes(app: FastifyInstance) {
       return { success: true }
     }
 
+    const existing = await prisma.order.findFirst({ where: { id, businessId: bizId, isDeleted: false }, select: { id: true } })
+    if (!existing) return reply.status(404).send({ success: false, error: 'Order not found' })
     const order = await prisma.order.update({ where: { id }, data: { status } })
     return { success: true, data: order }
   })
 
   // DELETE /api/orders/:id — delete order + reverse stock + clean ledger
   app.delete('/:id', async (req, reply) => {
+    const bizId = getBizId(req)
     const { id } = req.params as any
-    const order = await prisma.order.findUnique({ where: { id }, include: { items: true } })
+    const order = await prisma.order.findFirst({ where: { id, businessId: bizId, isDeleted: false }, include: { items: true } })
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
 
     await prisma.$transaction(async (tx) => {
@@ -252,7 +257,7 @@ export async function orderRoutes(app: FastifyInstance) {
       await tx.ledgerEntry.deleteMany({ where: { orderId: id } })
       await tx.deliveryItem.deleteMany({ where: { delivery: { orderId: id } } })
       await tx.delivery.deleteMany({ where: { orderId: id } })
-      await tx.order.delete({ where: { id } })
+      await tx.order.update({ where: { id }, data: { isDeleted: true } })
     }, { maxWait: 10000, timeout: 15000 })
 
     return { success: true }
@@ -260,10 +265,14 @@ export async function orderRoutes(app: FastifyInstance) {
 
   // POST /api/orders/bulk-delete — delete multiple orders at once
   app.post('/bulk-delete', async (req, reply) => {
+    const bizId = getBizId(req)
     const { ids } = req.body as { ids: string[] }
     if (!ids?.length) return reply.status(400).send({ success: false, error: 'No order IDs provided' })
 
-    const orders = await prisma.order.findMany({ where: { id: { in: ids } }, include: { items: true } })
+    const orders = await prisma.order.findMany({
+      where: { id: { in: ids }, businessId: bizId, isDeleted: false },
+      include: { items: true },
+    })
 
     await prisma.$transaction(async (tx) => {
       for (const order of orders) {
@@ -278,8 +287,7 @@ export async function orderRoutes(app: FastifyInstance) {
         await tx.deliveryItem.deleteMany({ where: { delivery: { orderId: order.id } } })
         await tx.delivery.deleteMany({ where: { orderId: order.id } })
       }
-      await tx.orderItem.deleteMany({ where: { orderId: { in: ids } } })
-      await tx.order.deleteMany({ where: { id: { in: ids } } })
+      await tx.order.updateMany({ where: { id: { in: orders.map((o) => o.id) } }, data: { isDeleted: true } })
     }, { maxWait: 10000, timeout: 15000 })
 
     return { success: true, data: { deleted: orders.length } }
@@ -293,8 +301,8 @@ export async function orderChallanRoute(app: FastifyInstance) {
   app.get('/:id/challan', async (req, reply) => {
     const { id } = req.params as any
     const bizId = getBizId(req)
-    const order = await prisma.order.findUnique({
-      where: { id },
+    const order = await prisma.order.findFirst({
+      where: { id, businessId: bizId, isDeleted: false },
       include: {
         customer: true,
         items:    { include: { material: true } },
@@ -302,7 +310,6 @@ export async function orderChallanRoute(app: FastifyInstance) {
       },
     })
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
-    if (order.businessId !== bizId) return reply.status(404).send({ success: false, error: 'Order not found' })
 
     const delivery = order.deliveries[0]
     const items = (delivery?.items ?? order.items).map((i: any) => ({

@@ -7,7 +7,7 @@ import { PaginationBar } from '@/components/super-admin/PaginationBar'
 import { Badge, statusBadge } from '@/components/ui/Badge'
 import { Card, SectionHeader } from '@/components/ui/Card'
 import { PageLoader } from '@/components/ui/Spinner'
-import { useSuperAdminBusinesses, type BusinessListItem } from '@/lib/super-admin'
+import { useSuperAdminBillingConfig, useSuperAdminBusinesses, type BusinessListItem } from '@/lib/super-admin'
 import { api } from '@/lib/api'
 import { fmt, fmtDate } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth'
@@ -15,7 +15,10 @@ import { useAuthStore } from '@/store/auth'
 type BusinessDraft = {
   subscriptionPlan: BusinessListItem['subscriptionPlan']
   subscriptionStatus: BusinessListItem['subscriptionStatus']
+  subscriptionInterval: BusinessListItem['subscriptionInterval']
+  trialDaysOverride: number | null
   monthlySubscriptionAmount: number
+  yearlySubscriptionAmount: number
   suspendedReason: string
 }
 
@@ -28,8 +31,14 @@ export default function SuperAdminBusinessesPage() {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<'' | 'ACTIVE' | 'SUSPENDED'>('')
   const [drafts, setDrafts] = useState<Record<string, BusinessDraft>>({})
+  const [billingDraft, setBillingDraft] = useState({ trialDays: 7, monthlyPrice: 200, yearlyPrice: 2100, currency: 'INR', trialRequiresCard: true })
 
   const { data, isLoading } = useSuperAdminBusinesses({ page, pageSize: 6, search, status })
+  const { data: billingConfig } = useSuperAdminBillingConfig()
+
+  useEffect(() => {
+    if (billingConfig) setBillingDraft(billingConfig)
+  }, [billingConfig])
 
   useEffect(() => {
     if (!data?.items) return
@@ -39,7 +48,10 @@ export default function SuperAdminBusinessesPage() {
         {
           subscriptionPlan: business.subscriptionPlan,
           subscriptionStatus: business.subscriptionStatus,
+          subscriptionInterval: business.subscriptionInterval,
+          trialDaysOverride: business.trialDaysOverride,
           monthlySubscriptionAmount: business.monthlySubscriptionAmount,
+          yearlySubscriptionAmount: business.yearlySubscriptionAmount,
           suspendedReason: business.suspendedReason ?? '',
         },
       ])
@@ -50,6 +62,13 @@ export default function SuperAdminBusinessesPage() {
   const updateBusiness = useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: Record<string, unknown> }) =>
       api.patch(`/api/super-admin/businesses/${id}`, payload).then((res) => res.data.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['super-admin'] })
+    },
+  })
+
+  const updateBillingConfig = useMutation({
+    mutationFn: (payload: typeof billingDraft) => api.patch('/api/super-admin/billing-config', payload).then((res) => res.data.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['super-admin'] })
     },
@@ -125,6 +144,40 @@ export default function SuperAdminBusinessesPage() {
         </div>
       </Card>
 
+      <Card className="mb-6">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Platform billing defaults</div>
+            <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">Admin-controlled trial and subscription pricing</div>
+          </div>
+          <button
+            onClick={() => updateBillingConfig.mutate(billingDraft)}
+            disabled={updateBillingConfig.isPending}
+            className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white dark:bg-white dark:text-slate-950"
+          >
+            {updateBillingConfig.isPending ? 'Saving...' : 'Save defaults'}
+          </button>
+        </div>
+        <div className="grid gap-4 xl:grid-cols-5">
+          <Field label="Trial days">
+            <input type="number" min={1} max={90} value={billingDraft.trialDays} onChange={(e) => setBillingDraft((current) => ({ ...current, trialDays: Number(e.target.value) }))} className={inputCls} />
+          </Field>
+          <Field label="Monthly price">
+            <input type="number" min={0} value={billingDraft.monthlyPrice} onChange={(e) => setBillingDraft((current) => ({ ...current, monthlyPrice: Number(e.target.value) }))} className={inputCls} />
+          </Field>
+          <Field label="Yearly price">
+            <input type="number" min={0} value={billingDraft.yearlyPrice} onChange={(e) => setBillingDraft((current) => ({ ...current, yearlyPrice: Number(e.target.value) }))} className={inputCls} />
+          </Field>
+          <Field label="Currency">
+            <input value={billingDraft.currency} maxLength={3} onChange={(e) => setBillingDraft((current) => ({ ...current, currency: e.target.value.toUpperCase() }))} className={inputCls} />
+          </Field>
+          <label className="flex items-end gap-2 rounded-2xl border border-slate-200/70 px-4 py-3 dark:border-slate-800">
+            <input type="checkbox" checked={billingDraft.trialRequiresCard} onChange={(e) => setBillingDraft((current) => ({ ...current, trialRequiresCard: e.target.checked }))} />
+            <span className="text-sm text-slate-700 dark:text-slate-200">Require card at trial signup</span>
+          </label>
+        </div>
+      </Card>
+
       <div className="space-y-4">
         {(data?.items ?? []).map((business) => {
           const draft = drafts[business.id]
@@ -150,11 +203,11 @@ export default function SuperAdminBusinessesPage() {
                 <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[560px]">
                   <MiniStat label="GMV" value={fmt(business.gmv)} />
                   <MiniStat label="Outstanding" value={fmt(business.outstanding)} />
-                  <MiniStat label="MRR" value={fmt(business.monthlySubscriptionAmount)} />
+                  <MiniStat label="Monthly" value={fmt(business.monthlySubscriptionAmount)} />
                 </div>
               </div>
 
-              <div className="grid gap-4 xl:grid-cols-[1fr_1fr_1fr_1.25fr_auto]">
+              <div className="grid gap-4 xl:grid-cols-[1fr_1fr_1fr_1fr_1fr_1.25fr_auto]">
                 <Field label="Plan">
                   <select
                     value={draft.subscriptionPlan}
@@ -181,12 +234,46 @@ export default function SuperAdminBusinessesPage() {
                   </select>
                 </Field>
 
+                <Field label="Interval">
+                  <select
+                    value={draft.subscriptionInterval ?? ''}
+                    onChange={(e) => updateDraft(setDrafts, business.id, 'subscriptionInterval', e.target.value || null)}
+                    className={inputCls}
+                  >
+                    <option value="">Trial / none</option>
+                    <option value="MONTHLY">Monthly</option>
+                    <option value="YEARLY">Yearly</option>
+                  </select>
+                </Field>
+
                 <Field label="Monthly fee">
                   <input
                     type="number"
                     min={0}
                     value={draft.monthlySubscriptionAmount}
                     onChange={(e) => updateDraft(setDrafts, business.id, 'monthlySubscriptionAmount', Number(e.target.value))}
+                    className={inputCls}
+                  />
+                </Field>
+
+                <Field label="Yearly fee">
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.yearlySubscriptionAmount}
+                    onChange={(e) => updateDraft(setDrafts, business.id, 'yearlySubscriptionAmount', Number(e.target.value))}
+                    className={inputCls}
+                  />
+                </Field>
+
+                <Field label="Trial days override">
+                  <input
+                    type="number"
+                    min={1}
+                    max={90}
+                    value={draft.trialDaysOverride ?? ''}
+                    onChange={(e) => updateDraft(setDrafts, business.id, 'trialDaysOverride', e.target.value ? Number(e.target.value) : null)}
+                    placeholder="Use platform default"
                     className={inputCls}
                   />
                 </Field>
@@ -208,7 +295,10 @@ export default function SuperAdminBusinessesPage() {
                         payload: {
                           subscriptionPlan: draft.subscriptionPlan,
                           subscriptionStatus: draft.subscriptionStatus,
+                          subscriptionInterval: draft.subscriptionInterval,
+                          trialDaysOverride: draft.trialDaysOverride,
                           monthlySubscriptionAmount: draft.monthlySubscriptionAmount,
+                          yearlySubscriptionAmount: draft.yearlySubscriptionAmount,
                           suspendedReason: draft.suspendedReason || null,
                         },
                       })
@@ -243,7 +333,9 @@ export default function SuperAdminBusinessesPage() {
                 </div>
               </div>
 
-              <div className="mt-4 text-xs text-slate-400 dark:text-slate-500">Business created on {fmtDate(business.createdAt)}</div>
+              <div className="mt-4 text-xs text-slate-400 dark:text-slate-500">
+                Business created on {fmtDate(business.createdAt)} • Access until {business.subscriptionEndsAt ? fmtDate(business.subscriptionEndsAt) : 'Not set'}
+              </div>
             </Card>
           )
         })}
@@ -266,7 +358,7 @@ function updateDraft(
   setDrafts: Dispatch<SetStateAction<Record<string, BusinessDraft>>>,
   businessId: string,
   key: keyof BusinessDraft,
-  value: string | number
+  value: string | number | null
 ) {
   setDrafts((current) => ({
     ...current,

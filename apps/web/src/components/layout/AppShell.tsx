@@ -1,13 +1,14 @@
 'use client'
 import { useAuthStore } from '@/store/auth'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { token, user, originalAdminSession, restoreAdminSession } = useAuthStore()
+  const { token, user, originalAdminSession, restoreAdminSession, logout } = useAuthStore()
   const router = useRouter()
+  const pathname = usePathname()
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -21,6 +22,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (mounted && user?.role === 'SUPER_ADMIN') router.replace('/super-admin')
   }, [mounted, user?.role, router])
+
+  useEffect(() => {
+    if (!mounted || !token || user?.role === 'SUPER_ADMIN') return
+    if (user?.accessLocked) {
+      if (user.role !== 'OWNER') {
+        sessionStorage.setItem('auth_logout_reason', user.accessReason ?? 'Workspace access is locked until the owner renews the subscription.')
+        logout()
+        router.replace('/auth/login')
+        return
+      }
+      if (pathname !== '/settings') {
+        router.replace('/settings?subscription=required')
+      }
+      return
+    }
+  }, [mounted, pathname, router, token, user?.accessLocked, user?.role])
 
   if (!mounted || !token || user?.role === 'SUPER_ADMIN') return null
 

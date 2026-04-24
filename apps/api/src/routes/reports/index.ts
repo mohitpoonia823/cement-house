@@ -254,6 +254,7 @@ async function loadReportSummary(bizId: string, queryInput: unknown) {
   const orders = await prisma.order.findMany({
     where: {
       businessId: bizId,
+      isDeleted: false,
       status: { not: 'CANCELLED' },
       createdAt: { gte: period.start, lte: period.end },
     },
@@ -296,13 +297,13 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
 
   const [todayOrders, todayCredits, rangeOrders, rangeCredits, previousOrders, previousCredits, materials, customers, deliveries] = await Promise.all([
     prisma.order.findMany({
-      where: { createdAt: { gte: todayStart, lte: todayEnd }, businessId: bizId, status: { not: 'CANCELLED' } },
+      where: { createdAt: { gte: todayStart, lte: todayEnd }, businessId: bizId, isDeleted: false, status: { not: 'CANCELLED' } },
     }),
     prisma.ledgerEntry.findMany({
       where: { createdAt: { gte: todayStart, lte: todayEnd }, businessId: bizId, type: 'CREDIT' },
     }),
     prisma.order.findMany({
-      where: { createdAt: { gte: range.start, lte: range.end }, businessId: bizId, status: { not: 'CANCELLED' } },
+      where: { createdAt: { gte: range.start, lte: range.end }, businessId: bizId, isDeleted: false, status: { not: 'CANCELLED' } },
       include: {
         customer: { select: { id: true, name: true, riskTag: true } },
         items: { select: { quantity: true, material: { select: { name: true } } } },
@@ -313,7 +314,7 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
       where: { createdAt: { gte: range.start, lte: range.end }, businessId: bizId, type: 'CREDIT' },
     }),
     prisma.order.findMany({
-      where: { createdAt: { gte: range.comparisonStart, lte: range.comparisonEnd }, businessId: bizId, status: { not: 'CANCELLED' } },
+      where: { createdAt: { gte: range.comparisonStart, lte: range.comparisonEnd }, businessId: bizId, isDeleted: false, status: { not: 'CANCELLED' } },
     }),
     prisma.ledgerEntry.findMany({
       where: { createdAt: { gte: range.comparisonStart, lte: range.comparisonEnd }, businessId: bizId, type: 'CREDIT' },
@@ -321,10 +322,10 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
     prisma.material.findMany({ where: { isActive: true, businessId: bizId } }),
     prisma.customer.findMany({
       where: { isActive: true, businessId: bizId },
-      include: { _count: { select: { orders: true } } },
+      include: { _count: { select: { orders: { where: { isDeleted: false } } } } },
     }),
     prisma.delivery.findMany({
-      where: { order: { businessId: bizId } },
+      where: { order: { businessId: bizId, isDeleted: false } },
       include: { order: { include: { customer: { select: { name: true } } } } },
     }),
   ])
@@ -637,7 +638,7 @@ export async function reportRoutes(app: FastifyInstance) {
 
     if (page === 'orders') {
       const orders = await prisma.order.findMany({
-        where: { businessId: bizId },
+        where: { businessId: bizId, isDeleted: false },
         include: { customer: { select: { name: true } }, items: true },
         orderBy: { createdAt: 'desc' },
       })
@@ -663,7 +664,7 @@ export async function reportRoutes(app: FastifyInstance) {
     if (page === 'customers') {
       const customers = await prisma.customer.findMany({
         where: { businessId: bizId, isActive: true },
-        include: { _count: { select: { orders: true } } },
+        include: { _count: { select: { orders: { where: { isDeleted: false } } } } },
         orderBy: { name: 'asc' },
       })
       const rows = await Promise.all(
@@ -712,7 +713,7 @@ export async function reportRoutes(app: FastifyInstance) {
       const start = startOfDay(generatedAt)
       const end = endOfDay(generatedAt)
       const deliveries = await prisma.delivery.findMany({
-        where: { createdAt: { gte: start, lte: end }, order: { businessId: bizId } },
+        where: { createdAt: { gte: start, lte: end }, order: { businessId: bizId, isDeleted: false } },
         include: { order: { include: { customer: { select: { name: true, address: true } } } } },
         orderBy: { createdAt: 'asc' },
       })

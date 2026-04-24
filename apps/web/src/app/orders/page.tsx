@@ -7,7 +7,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { useOrders, useDeleteOrder, useBulkDeleteOrders }  from '@/hooks/useOrders'
 import { fmt, fmtDate } from '@/lib/utils'
 import Link           from 'next/link'
-import { useState }   from 'react'
+import { useEffect, useState }   from 'react'
 
 const STATUSES = ['ALL','CONFIRMED','DISPATCHED','DELIVERED','CANCELLED']
 
@@ -19,7 +19,16 @@ export default function OrdersPage() {
   const orders = data?.items ?? []
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [alert, setAlert] = useState<{ tone: 'success' | 'danger'; message: string } | null>(null)
   const allSelected = orders.length > 0 && selected.size === orders.length
+
+  useEffect(() => {
+    const message = sessionStorage.getItem('orders_success_message')
+    if (message) {
+      setAlert({ tone: 'success', message })
+      sessionStorage.removeItem('orders_success_message')
+    }
+  }, [])
 
   function toggleOne(id: string) {
     setSelected(prev => {
@@ -39,12 +48,28 @@ export default function OrdersPage() {
 
   function handleDelete(id: string, orderNumber: string) {
     if (!confirm(`Delete ${orderNumber}? This will reverse stock and remove ledger entries.`)) return
-    deleteOrder.mutate(id, { onSuccess: () => setSelected(prev => { const n = new Set(prev); n.delete(id); return n }) })
+    deleteOrder.mutate(id, {
+      onSuccess: () => {
+        setSelected(prev => { const n = new Set(prev); n.delete(id); return n })
+        setAlert({ tone: 'success', message: 'Order deleted successfully' })
+      },
+      onError: (error: any) => {
+        setAlert({ tone: 'danger', message: error?.response?.data?.error ?? 'Failed to delete order' })
+      },
+    })
   }
 
   function handleBulkDelete() {
     if (!confirm(`Delete ${selected.size} selected order(s)? Stock will be reversed and ledger entries removed.`)) return
-    bulkDelete.mutate([...selected], { onSuccess: () => setSelected(new Set()) })
+    bulkDelete.mutate([...selected], {
+      onSuccess: () => {
+        setSelected(new Set())
+        setAlert({ tone: 'success', message: 'Order deleted successfully' })
+      },
+      onError: (error: any) => {
+        setAlert({ tone: 'danger', message: error?.response?.data?.error ?? 'Failed to delete selected orders' })
+      },
+    })
   }
 
   return (
@@ -69,6 +94,18 @@ export default function OrdersPage() {
         <MetricCard label="Collected" value={fmt(orders.reduce((sum: number, o: any) => sum + Number(o.amountPaid), 0))} hint="Payments received against these orders" tone="success" />
         <MetricCard label="Outstanding" value={fmt(orders.reduce((sum: number, o: any) => sum + (Number(o.totalAmount) - Number(o.amountPaid)), 0))} hint="Remaining due balance" tone="warning" />
       </MetricGrid>
+
+      {alert ? (
+        <div
+          className={`mb-4 rounded-lg border px-4 py-2 text-sm ${
+            alert.tone === 'success'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-950/30 dark:text-emerald-200'
+              : 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-500/30 dark:bg-rose-950/30 dark:text-rose-200'
+          }`}
+        >
+          {alert.message}
+        </div>
+      ) : null}
 
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap gap-2">

@@ -10,6 +10,25 @@ async function main() {
   const ownerHash = await bcrypt.hash('owner123', 10)
   const munimHash = await bcrypt.hash('munim123', 10)
 
+  await prisma.platformSetting.upsert({
+    where: { id: 'default' },
+    update: {
+      trialDays: 7,
+      monthlyPrice: 200,
+      yearlyPrice: 2100,
+      currency: 'INR',
+      trialRequiresCard: true,
+    },
+    create: {
+      id: 'default',
+      trialDays: 7,
+      monthlyPrice: 200,
+      yearlyPrice: 2100,
+      currency: 'INR',
+      trialRequiresCard: true,
+    },
+  })
+
   const business = await prisma.business.upsert({
     where: { id: 'demo-business-seed-id' },
     update: {
@@ -18,7 +37,10 @@ async function main() {
       phone: '9876543210',
       subscriptionPlan: 'PRO',
       subscriptionStatus: 'ACTIVE',
+      subscriptionInterval: 'MONTHLY',
+      subscriptionEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       monthlySubscriptionAmount: 2499,
+      yearlySubscriptionAmount: 24990,
     },
     create: {
       id: 'demo-business-seed-id',
@@ -27,7 +49,10 @@ async function main() {
       phone: '9876543210',
       subscriptionPlan: 'PRO',
       subscriptionStatus: 'ACTIVE',
+      subscriptionInterval: 'MONTHLY',
+      subscriptionEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       monthlySubscriptionAmount: 2499,
+      yearlySubscriptionAmount: 24990,
     },
   })
 

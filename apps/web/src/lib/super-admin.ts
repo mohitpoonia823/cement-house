@@ -12,7 +12,10 @@ export type BusinessListItem = {
   subscriptionPlan: 'STARTER' | 'PRO' | 'ENTERPRISE'
   subscriptionStatus: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'SUSPENDED'
   subscriptionEndsAt: string | null
+  subscriptionInterval: 'MONTHLY' | 'YEARLY' | null
+  trialDaysOverride: number | null
   monthlySubscriptionAmount: number
+  yearlySubscriptionAmount: number
   createdAt: string
   updatedAt: string
   ownerName: string | null
@@ -47,6 +50,14 @@ export type PaginatedResponse<T> = {
   totalPages: number
 }
 
+export type BillingConfig = {
+  trialDays: number
+  monthlyPrice: number
+  yearlyPrice: number
+  currency: string
+  trialRequiresCard: boolean
+}
+
 type ListParams = Record<string, string | number | undefined>
 
 function buildQuery(params: ListParams) {
@@ -63,6 +74,13 @@ export function useSuperAdminOverview() {
     queryKey: ['super-admin', 'overview'],
     queryFn: () => api.get('/api/super-admin/overview').then((res) => res.data.data),
     refetchInterval: 60_000,
+  })
+}
+
+export function useSuperAdminBillingConfig() {
+  return useQuery({
+    queryKey: ['super-admin', 'billing-config'],
+    queryFn: () => api.get('/api/super-admin/billing-config').then((res) => res.data.data as BillingConfig),
   })
 }
 

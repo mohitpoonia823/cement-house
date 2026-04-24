@@ -37,6 +37,11 @@ enum SubscriptionStatus {
   SUSPENDED
 }
 
+enum BillingInterval {
+  MONTHLY
+  YEARLY
+}
+
 enum RiskTag {
   RELIABLE
   WATCH
@@ -95,6 +100,16 @@ enum ReminderStatus {
   CANCELLED
 }
 
+enum PaymentProvider {
+  DUMMY
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
 // ─────────────────────────────────────────
 // BUSINESS — each cement house / tenant
 // ─────────────────────────────────────────
@@ -114,7 +129,11 @@ model Business {
   subscriptionPlan SubscriptionPlan   @default(STARTER)
   subscriptionStatus SubscriptionStatus @default(TRIAL)
   subscriptionEndsAt DateTime?
+  trialStartedAt DateTime?
+  trialDaysOverride Int?
+  subscriptionInterval BillingInterval?
   monthlySubscriptionAmount Decimal @default(0) @db.Decimal(10, 2)
+  yearlySubscriptionAmount Decimal @default(0) @db.Decimal(10, 2)
   suspendedReason String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -127,6 +146,8 @@ model Business {
   ledgerEntries LedgerEntry[]
   stockMovements StockMovement[]
   auditLogs   AuditLog[]
+  paymentMethods PaymentMethod[]
+  paymentTransactions PaymentTransaction[]
 
   @@map("businesses")
 }
@@ -240,6 +261,7 @@ model Order {
   totalAmount   Decimal     @db.Decimal(12, 2)
   marginPct     Decimal?    @db.Decimal(5, 2)  // calculated margin %
   notes         String?
+  isDeleted     Boolean     @default(false)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
@@ -402,4 +424,61 @@ model AuditLog {
   @@index([action, createdAt])
   @@index([businessId, createdAt])
   @@map("audit_logs")
+}
+
+model PlatformSetting {
+  id                 String   @id
+  trialDays          Int      @default(7)
+  monthlyPrice       Decimal  @default(200) @db.Decimal(10, 2)
+  yearlyPrice        Decimal  @default(2100) @db.Decimal(10, 2)
+  currency           String   @default("INR")
+  trialRequiresCard  Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("platform_settings")
+}
+
+model PaymentMethod {
+  id                      String          @id @default(uuid())
+  business                Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId              String
+  provider                PaymentProvider @default(DUMMY)
+  providerCustomerId      String?
+  providerPaymentMethodId String?
+  cardholderName          String
+  brand                   String
+  last4                   String
+  expMonth                Int
+  expYear                 Int
+  isDefault               Boolean         @default(true)
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+
+  transactions PaymentTransaction[]
+
+  @@index([businessId, isDefault])
+  @@map("payment_methods")
+}
+
+model PaymentTransaction {
+  id              String          @id @default(uuid())
+  business        Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId      String
+  paymentMethod   PaymentMethod?  @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  paymentMethodId String?
+  provider        PaymentProvider @default(DUMMY)
+  interval        BillingInterval
+  amount          Decimal         @db.Decimal(10, 2)
+  currency        String          @default("INR")
+  status          PaymentStatus   @default(PENDING)
+  reference       String?
+  failureReason   String?
+  metadata        Json?
+  paidAt          DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([businessId, createdAt])
+  @@map("payment_transactions")
 }

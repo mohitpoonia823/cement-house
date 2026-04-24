@@ -20,6 +20,23 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
+    if (err.response?.status === 402 && typeof window !== 'undefined') {
+      const code = err.response?.data?.code ?? ''
+      if (code === 'SUBSCRIPTION_REQUIRED') {
+        const message = err.response?.data?.error ?? 'Your workspace is locked until a subscription is activated.'
+        sessionStorage.setItem('auth_logout_reason', message)
+        const role = err.response?.data?.data?.role ?? ''
+        if (role === 'OWNER') {
+          if (!window.location.pathname.startsWith('/settings')) {
+            window.location.href = '/settings?subscription=required'
+          }
+        } else {
+          localStorage.removeItem('auth_token')
+          localStorage.removeItem('cement-house-auth')
+          window.location.href = '/auth/login'
+        }
+      }
+    }
     if (err.response?.status === 401 && typeof window !== 'undefined') {
       const message = err.response?.data?.error ?? 'Your session has expired. Please sign in again.'
       localStorage.removeItem('auth_token')

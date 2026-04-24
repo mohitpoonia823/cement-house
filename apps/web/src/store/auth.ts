@@ -9,6 +9,15 @@ interface AuthUser {
   businessName: string | null
   businessCity: string | null
   permissions?: string[]
+  subscriptionStatus?: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'SUSPENDED' | null
+  subscriptionEndsAt?: string | null
+  subscriptionInterval?: 'MONTHLY' | 'YEARLY' | null
+  monthlySubscriptionAmount?: number
+  yearlySubscriptionAmount?: number
+  trialStartedAt?: string | null
+  trialDaysOverride?: number | null
+  accessLocked?: boolean
+  accessReason?: string | null
 }
 
 interface StoredSession {

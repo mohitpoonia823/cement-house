@@ -3,6 +3,7 @@ import { prisma } from '@cement-house/db'
 import { z } from 'zod'
 import { requireSuperAdmin } from '../../middleware/auth'
 import { createAuditLog } from '../../services/audit'
+import { ensurePlatformSettings } from '../../services/billing'
 
 const UpdateBusinessSchema = z.object({
   isActive: z.boolean().optional(),
@@ -10,7 +11,18 @@ const UpdateBusinessSchema = z.object({
   subscriptionPlan: z.enum(['STARTER', 'PRO', 'ENTERPRISE']).optional(),
   subscriptionStatus: z.enum(['TRIAL', 'ACTIVE', 'PAST_DUE', 'CANCELLED', 'SUSPENDED']).optional(),
   subscriptionEndsAt: z.string().nullable().optional(),
+  subscriptionInterval: z.enum(['MONTHLY', 'YEARLY']).nullable().optional(),
+  trialDaysOverride: z.number().int().min(1).max(90).nullable().optional(),
   monthlySubscriptionAmount: z.number().min(0).optional(),
+  yearlySubscriptionAmount: z.number().min(0).optional(),
+})
+
+const UpdateBillingConfigSchema = z.object({
+  trialDays: z.number().int().min(1).max(90),
+  monthlyPrice: z.number().min(0),
+  yearlyPrice: z.number().min(0),
+  currency: z.string().min(3).max(3),
+  trialRequiresCard: z.boolean(),
 })
 
 const ListBusinessesQuerySchema = z.object({
@@ -49,7 +61,17 @@ function authPayloadForUser(user: {
   role: 'SUPER_ADMIN' | 'OWNER' | 'MUNIM'
   businessId: string | null
   permissions: string[]
-  business?: { name: string; city: string } | null
+  business?: {
+    name: string
+    city: string
+    subscriptionStatus?: string
+    subscriptionEndsAt?: Date | null
+    subscriptionInterval?: 'MONTHLY' | 'YEARLY' | null
+    monthlySubscriptionAmount?: unknown
+    yearlySubscriptionAmount?: unknown
+    trialStartedAt?: Date | null
+    trialDaysOverride?: number | null
+  } | null
 }) {
   return {
     id: user.id,
@@ -59,10 +81,71 @@ function authPayloadForUser(user: {
     businessName: user.business?.name ?? null,
     businessCity: user.business?.city ?? null,
     permissions: user.permissions,
+    subscriptionStatus: user.business?.subscriptionStatus ?? null,
+    subscriptionEndsAt: user.business?.subscriptionEndsAt?.toISOString?.() ?? null,
+    subscriptionInterval: user.business?.subscriptionInterval ?? null,
+    monthlySubscriptionAmount: Number(user.business?.monthlySubscriptionAmount ?? 0),
+    yearlySubscriptionAmount: Number(user.business?.yearlySubscriptionAmount ?? 0),
+    trialStartedAt: user.business?.trialStartedAt?.toISOString?.() ?? null,
+    trialDaysOverride: user.business?.trialDaysOverride ?? null,
+    accessLocked: false,
+    accessReason: null,
   }
 }
 
 export async function superAdminRoutes(app: FastifyInstance) {
+  app.get('/billing-config', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const settings = await ensurePlatformSettings()
+
+    return {
+      success: true,
+      data: {
+        trialDays: settings.trialDays,
+        monthlyPrice: safeAmount(settings.monthlyPrice),
+        yearlyPrice: safeAmount(settings.yearlyPrice),
+        currency: settings.currency,
+        trialRequiresCard: settings.trialRequiresCard,
+      },
+    }
+  })
+
+  app.patch('/billing-config', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const body = UpdateBillingConfigSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    const settings = await prisma.platformSetting.upsert({
+      where: { id: 'default' },
+      update: {
+        trialDays: body.data.trialDays,
+        monthlyPrice: body.data.monthlyPrice,
+        yearlyPrice: body.data.yearlyPrice,
+        currency: body.data.currency.toUpperCase(),
+        trialRequiresCard: body.data.trialRequiresCard,
+      },
+      create: {
+        id: 'default',
+        trialDays: body.data.trialDays,
+        monthlyPrice: body.data.monthlyPrice,
+        yearlyPrice: body.data.yearlyPrice,
+        currency: body.data.currency.toUpperCase(),
+        trialRequiresCard: body.data.trialRequiresCard,
+      },
+    })
+
+    return {
+      success: true,
+      data: {
+        trialDays: settings.trialDays,
+        monthlyPrice: safeAmount(settings.monthlyPrice),
+        yearlyPrice: safeAmount(settings.yearlyPrice),
+        currency: settings.currency,
+        trialRequiresCard: settings.trialRequiresCard,
+      },
+    }
+  })
+
   app.get('/overview', async (req, reply) => {
     if (!requireSuperAdmin(req, reply)) return
 
@@ -94,7 +177,10 @@ export async function superAdminRoutes(app: FastifyInstance) {
           subscriptionPlan: true,
           subscriptionStatus: true,
           monthlySubscriptionAmount: true,
+          yearlySubscriptionAmount: true,
           subscriptionEndsAt: true,
+          subscriptionInterval: true,
+          trialDaysOverride: true,
           suspendedReason: true,
           createdAt: true,
           _count: {
@@ -179,7 +265,10 @@ export async function superAdminRoutes(app: FastifyInstance) {
       subscriptionPlan: business.subscriptionPlan,
       subscriptionStatus: business.subscriptionStatus,
       subscriptionEndsAt: business.subscriptionEndsAt,
+      subscriptionInterval: business.subscriptionInterval,
+      trialDaysOverride: business.trialDaysOverride,
       monthlySubscriptionAmount: safeAmount(business.monthlySubscriptionAmount),
+      yearlySubscriptionAmount: safeAmount(business.yearlySubscriptionAmount),
       suspendedReason: business.suspendedReason,
       users: business._count.users,
       customers: business._count.customers,
@@ -314,7 +403,10 @@ export async function superAdminRoutes(app: FastifyInstance) {
           subscriptionPlan: business.subscriptionPlan,
           subscriptionStatus: business.subscriptionStatus,
           subscriptionEndsAt: business.subscriptionEndsAt,
+          subscriptionInterval: business.subscriptionInterval,
+          trialDaysOverride: business.trialDaysOverride,
           monthlySubscriptionAmount: safeAmount(business.monthlySubscriptionAmount),
+          yearlySubscriptionAmount: safeAmount(business.yearlySubscriptionAmount),
           createdAt: business.createdAt,
           updatedAt: business.updatedAt,
           ownerName: ownerMap.get(business.id)?.name ?? null,
@@ -416,8 +508,17 @@ export async function superAdminRoutes(app: FastifyInstance) {
         ...(body.data.subscriptionEndsAt !== undefined
           ? { subscriptionEndsAt: body.data.subscriptionEndsAt ? new Date(body.data.subscriptionEndsAt) : null }
           : {}),
+        ...(body.data.subscriptionInterval !== undefined
+          ? { subscriptionInterval: body.data.subscriptionInterval }
+          : {}),
+        ...(body.data.trialDaysOverride !== undefined
+          ? { trialDaysOverride: body.data.trialDaysOverride }
+          : {}),
         ...(body.data.monthlySubscriptionAmount !== undefined
           ? { monthlySubscriptionAmount: body.data.monthlySubscriptionAmount }
+          : {}),
+        ...(body.data.yearlySubscriptionAmount !== undefined
+          ? { yearlySubscriptionAmount: body.data.yearlySubscriptionAmount }
           : {}),
       },
     })
@@ -461,7 +562,17 @@ export async function superAdminRoutes(app: FastifyInstance) {
       role: targetUser.role,
       businessId: targetUser.businessId ?? null,
       permissions: targetUser.permissions,
-      business: { name: business.name, city: business.city },
+      business: {
+        name: business.name,
+        city: business.city,
+        subscriptionStatus: business.subscriptionStatus,
+        subscriptionEndsAt: business.subscriptionEndsAt,
+        subscriptionInterval: business.subscriptionInterval,
+        monthlySubscriptionAmount: business.monthlySubscriptionAmount,
+        yearlySubscriptionAmount: business.yearlySubscriptionAmount,
+        trialStartedAt: business.trialStartedAt,
+        trialDaysOverride: business.trialDaysOverride,
+      },
     })
 
     const token = app.jwt.sign(authUser, { expiresIn: '2h' })

@@ -1,13 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 
-export function useStaff() {
+export function useStaff(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['staff'],
     queryFn: async () => {
       const res = await api.get('/api/settings/staff')
       return res.data.data
-    }
+    },
+    enabled: options?.enabled ?? true,
   })
 }
 

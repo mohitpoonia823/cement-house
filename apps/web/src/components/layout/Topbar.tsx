@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { pageTitles } from './navigation'
 import { useState } from 'react'
+import { useAuthStore } from '@/store/auth'
 
 function exportPageForPath(pathname: string) {
   if (pathname.startsWith('/orders')) return 'orders'
@@ -23,6 +24,7 @@ function exportLabel(page: string) {
 export function Topbar() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const { user } = useAuthStore()
   const title = pageTitles[pathname] ?? 'Cement House'
   const page = exportPageForPath(pathname)
   const [isExporting, setIsExporting] = useState(false)
@@ -32,6 +34,12 @@ export function Topbar() {
     month: 'long',
     year: 'numeric',
   })
+  const trialDaysRemaining = user?.subscriptionEndsAt ? Math.max(0, Math.ceil((new Date(user.subscriptionEndsAt).getTime() - Date.now()) / 86_400_000)) : 0
+  const showTrialBanner = user?.role === 'OWNER' && user?.subscriptionStatus === 'TRIAL' && !user?.subscriptionInterval
+  const trialMessage =
+    trialDaysRemaining > 0
+      ? `${trialDaysRemaining} day${trialDaysRemaining === 1 ? '' : 's'} remaining in your free trial. Get a subscription to actively access the platform without interruption.`
+      : 'Your free trial has ended. Subscribe now to keep accessing the full platform.'
 
   async function handleExport() {
     try {
@@ -87,6 +95,11 @@ export function Topbar() {
 
   return (
     <header className="sticky top-0 z-20 shrink-0 px-4 pb-4 pt-4 md:px-6">
+      {showTrialBanner ? (
+        <div className="mb-3 rounded-[24px] border border-amber-200/80 bg-amber-50/95 px-4 py-3 text-sm text-amber-900 shadow-sm dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-100">
+          {trialMessage}
+        </div>
+      ) : null}
       <div className="flex items-center justify-between rounded-[28px] border border-white/60 bg-white/75 px-5 py-4 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur dark:border-white/10 dark:bg-slate-950/60">
         <div className="min-w-0">
           <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500 dark:text-slate-400">
