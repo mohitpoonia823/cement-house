@@ -20,6 +20,8 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
+    const reqUrl = String(err.config?.url ?? '')
+    const isAuthRoute = reqUrl.includes('/api/auth/')
     if (err.response?.status === 402 && typeof window !== 'undefined') {
       const code = err.response?.data?.code ?? ''
       if (code === 'SUBSCRIPTION_REQUIRED') {
@@ -37,7 +39,7 @@ api.interceptors.response.use(
         }
       }
     }
-    if (err.response?.status === 401 && typeof window !== 'undefined') {
+    if (err.response?.status === 401 && !isAuthRoute && typeof window !== 'undefined') {
       const message = err.response?.data?.error ?? 'Your session has expired. Please sign in again.'
       localStorage.removeItem('auth_token')
       localStorage.removeItem('cement-house-auth')

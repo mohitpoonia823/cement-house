@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AppShell } from '@/components/layout/AppShell'
 import { Badge } from '@/components/ui/Badge'
-import { Card, MetricCard, MetricGrid, SectionHeader } from '@/components/ui/Card'
+import { Card, SectionHeader } from '@/components/ui/Card'
 import { api } from '@/lib/api'
 import { fmt, fmtDate } from '@/lib/utils'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -39,19 +39,6 @@ declare global {
 
 function getAlertMessage(error: any, fallback: string) {
   return error?.response?.data?.error ?? error?.message ?? fallback
-}
-
-function getBillingPlanLabel(subscription: any) {
-  if (subscription?.interval === 'YEARLY') return 'Yearly'
-  if (subscription?.interval === 'MONTHLY') return 'Monthly'
-  return subscription?.inTrial ? 'Free tier' : 'Free tier'
-}
-
-function getBillingPlanHint(subscription: any) {
-  if (subscription?.interval === 'YEARLY') return 'Yearly subscription is active for this workspace.'
-  if (subscription?.interval === 'MONTHLY') return 'Monthly subscription is active for this workspace.'
-  if (subscription?.inTrial) return 'Free trial is active. Upgrade to keep full platform access after trial ends.'
-  return 'No paid subscription is active right now.'
 }
 
 async function ensureRazorpayLoaded() {
@@ -144,7 +131,7 @@ export default function SettingsPage() {
   const canPurchaseMonthly = !hasActiveYearlyCycle
 
   const monthlyPlanSub = hasActiveYearlyCycle ? 'Available after yearly cycle ends' : '30-day access window'
-  const monthlyPlanStatusLabel = isCurrentPlanActive('MONTHLY') ? 'Current plan' : hasActiveYearlyCycle ? 'Downgrade unavailable' : undefined
+  const monthlyPlanStatusLabel = isCurrentPlanActive('MONTHLY') ? 'Current plan' : hasActiveYearlyCycle ? 'Unavailable' : undefined
   const monthlyPlanCta = isCurrentPlanActive('MONTHLY') ? 'Subscribed' : hasActiveYearlyCycle ? 'Unavailable' : 'Activate Monthly'
 
   const yearlyPlanStatusLabel = isCurrentPlanActive('YEARLY') ? 'Current plan' : hasActiveMonthlyCycle ? 'Upgrade available' : 'Best value'
@@ -422,28 +409,6 @@ export default function SettingsPage() {
 
       {trialBannerMessage ? <AlertBanner tone="warning" message={trialBannerMessage} className="mb-5 max-w-6xl" /> : null}
 
-      <MetricGrid className="mb-6 max-w-6xl">
-        <MetricCard label="Business" value={data?.business?.name ?? 'Unknown'} hint={data?.business?.city ?? 'City not set'} tone="brand" />
-        <MetricCard
-          label="Access status"
-          value={data?.subscription?.status ?? 'Unknown'}
-          hint={data?.subscription?.endsAt ? `Access until ${fmtDate(data.subscription.endsAt)}` : 'No active end date'}
-          tone={accessLocked ? 'warning' : 'success'}
-        />
-        <MetricCard
-          label="Billing plan"
-          value={getBillingPlanLabel(data?.subscription)}
-          hint={getBillingPlanHint(data?.subscription)}
-          tone="info"
-        />
-        <MetricCard
-          label="Payment profile"
-          value={data?.subscription?.paymentMethod ? `${data.subscription.paymentMethod.brand} **** ${data.subscription.paymentMethod.last4}` : 'Razorpay checkout'}
-          hint={data?.subscription?.paymentMethod ? `Expires ${data.subscription.paymentMethod.expMonth}/${data.subscription.paymentMethod.expYear}` : 'Razorpay checkout handles payment methods securely'}
-          tone={data?.subscription?.paymentMethod ? 'default' : 'danger'}
-        />
-      </MetricGrid>
-
       <div className="max-w-6xl space-y-5">
         <Card>
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -525,12 +490,6 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="mt-5 rounded-[24px] border border-slate-200/70 bg-white/70 p-5 dark:border-slate-800 dark:bg-slate-950/45">
-            <div className="text-sm font-semibold text-slate-950 dark:text-white">Razorpay secure checkout</div>
-            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Card, UPI, netbanking, wallet, and other methods are handled directly in Razorpay checkout.
-            </div>
-          </div>
         </Card>
 
         {accessLocked ? (
@@ -953,10 +912,16 @@ function PlanOption({
   const isDisabled = Boolean(disabled || subscribed || busy)
   return (
     <div className="rounded-[22px] border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-950/55">
-      <div className="flex items-start justify-between gap-3">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{title}</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{title}</div>
         {statusLabel ? (
-          <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${subscribed ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
+          <span
+            className={`inline-flex max-w-[116px] items-center justify-center rounded-full px-2.5 py-1 text-center text-[10px] font-semibold uppercase leading-tight tracking-[0.14em] ${
+              subscribed
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200'
+                : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+            }`}
+          >
             {statusLabel}
           </span>
         ) : null}

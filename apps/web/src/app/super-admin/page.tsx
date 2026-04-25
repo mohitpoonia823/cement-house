@@ -53,8 +53,8 @@ export default function SuperAdminOverviewPage() {
         />
       </MetricGrid>
 
-      <div className="mb-6 grid gap-6 xl:grid-cols-[1.2fr_0.9fr]">
-        <Card>
+      <div className="mb-6 grid items-start gap-6 xl:grid-cols-[1.2fr_0.9fr]">
+        <Card className="h-fit">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Feature adoption</div>
@@ -72,7 +72,7 @@ export default function SuperAdminOverviewPage() {
           </div>
         </Card>
 
-        <Card>
+        <Card className="h-fit xl:sticky xl:top-6">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Activity feed</div>
@@ -80,7 +80,7 @@ export default function SuperAdminOverviewPage() {
             </div>
             <Badge variant="info">Live</Badge>
           </div>
-          <div className="space-y-3">
+          <div className="max-h-[560px] space-y-3 overflow-y-auto pr-1">
             {(data?.activityFeed ?? []).map((item: any) => (
               <div key={`${item.kind}-${item.id}`} className="rounded-[22px] border border-slate-200/70 bg-slate-50/70 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/60">
                 <div className="flex items-center justify-between gap-3">

@@ -77,27 +77,24 @@ export function MetricCard({
   hint?: string
   tone?: 'default' | 'success' | 'warning' | 'danger' | 'brand' | 'info'
 }) {
-  const tones = {
-    default: 'from-white to-slate-50 text-slate-950 dark:from-slate-950 dark:to-slate-900 dark:text-white',
-    success: 'from-emerald-500 to-emerald-700 text-white',
-    warning: 'from-amber-400 to-orange-500 text-white',
-    danger: 'from-rose-500 to-red-700 text-white',
-    brand: 'from-cyan-500 via-blue-600 to-slate-950 text-white',
-    info: 'from-sky-400 to-blue-600 text-white',
+  const accents = {
+    default: 'text-slate-500 dark:text-slate-400',
+    success: 'text-emerald-700 dark:text-emerald-300',
+    warning: 'text-amber-700 dark:text-amber-300',
+    danger: 'text-rose-700 dark:text-rose-300',
+    brand: 'text-sky-700 dark:text-sky-300',
+    info: 'text-blue-700 dark:text-blue-300',
   } as const
-
-  const muted = tone === 'default' ? 'text-slate-500 dark:text-slate-400' : 'text-white/74'
 
   return (
     <div
       className={cn(
-        'rounded-[26px] border border-white/60 bg-gradient-to-br p-5 shadow-[0_18px_40px_rgba(15,23,42,0.10)]',
-        tones[tone]
+        'rounded-[26px] border border-white/60 bg-white/84 p-5 text-slate-950 shadow-[0_18px_40px_rgba(15,23,42,0.10)] backdrop-blur dark:border-white/10 dark:bg-slate-950/70 dark:text-white'
       )}
     >
-      <div className={cn('text-[11px] font-semibold uppercase tracking-[0.24em]', muted)}>{label}</div>
+      <div className={cn('text-[11px] font-semibold uppercase tracking-[0.24em]', accents[tone])}>{label}</div>
       <div className="mt-3 text-3xl font-semibold tracking-tight">{value}</div>
-      {hint && <div className={cn('mt-2 text-sm', muted)}>{hint}</div>}
+      {hint && <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">{hint}</div>}
     </div>
   )
 }

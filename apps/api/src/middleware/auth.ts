@@ -14,6 +14,24 @@ function isLockedOwnerRouteAllowed(req: FastifyRequest, role: string) {
   return false
 }
 
+function isDatabaseConnectivityError(error: unknown) {
+  const message = String((error as any)?.message ?? '')
+  const code = String((error as any)?.code ?? '')
+  return (
+    message.includes("Can't reach database server") ||
+    message.includes('ECONNREFUSED') ||
+    message.includes('ETIMEDOUT') ||
+    message.includes('ENOTFOUND') ||
+    code === 'P1001'
+  )
+}
+
+function isJwtAuthError(error: unknown) {
+  const code = String((error as any)?.code ?? '')
+  const name = String((error as any)?.name ?? '')
+  return code.startsWith('FST_JWT') || name.includes('JsonWebTokenError') || name.includes('TokenExpiredError')
+}
+
 export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
   try {
     await req.jwtVerify()
@@ -87,8 +105,17 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
       accessLocked,
       accessReason,
     } as any
-  } catch {
-    return reply.status(401).send({ success: false, error: 'Unauthorised' })
+  } catch (error) {
+    if (isDatabaseConnectivityError(error)) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Service temporarily unavailable. Please try again in a moment.',
+      })
+    }
+    if (isJwtAuthError(error)) {
+      return reply.status(401).send({ success: false, error: 'Unauthorised' })
+    }
+    return reply.status(500).send({ success: false, error: 'Authentication service error' })
   }
 }
 
