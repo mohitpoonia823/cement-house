@@ -38,6 +38,10 @@ services:
         sync: false
       - key: JWT_EXPIRES_IN
         value: 7d
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
       - key: PORT
         value: 4000
       - key: WEB_URL
