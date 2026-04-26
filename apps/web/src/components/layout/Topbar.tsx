@@ -2,8 +2,23 @@
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { navItems, pageTitles } from './navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/store/auth'
+import { getDeferredInstallPrompt } from '@/lib/pwa-install'
+
+type InstallTarget = 'android' | 'ios' | 'desktop' | 'other'
+
+function detectInstallTarget(): InstallTarget {
+  if (typeof navigator === 'undefined') return 'other'
+  const ua = navigator.userAgent.toLowerCase()
+  const isIOS =
+    /iphone|ipad|ipod/.test(ua) ||
+    (ua.includes('macintosh') && typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 1)
+  if (isIOS) return 'ios'
+  if (ua.includes('android')) return 'android'
+  if (ua.includes('windows') || ua.includes('macintosh') || ua.includes('linux')) return 'desktop'
+  return 'other'
+}
 
 function exportPageForPath(pathname: string) {
   if (pathname.startsWith('/orders')) return 'orders'
@@ -29,6 +44,7 @@ export function Topbar() {
   const title = pageTitles[pathname] ?? 'Cement House'
   const page = exportPageForPath(pathname)
   const [isExporting, setIsExporting] = useState(false)
+  const [installTarget, setInstallTarget] = useState<InstallTarget>('other')
   const today = new Date().toLocaleDateString('en-IN', {
     weekday: 'long',
     day: 'numeric',
@@ -47,6 +63,13 @@ export function Topbar() {
     if (item.permissionId) return user?.permissions?.includes(item.permissionId)
     return true
   })
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const standalone = window.matchMedia('(display-mode: standalone)').matches
+    const target = detectInstallTarget()
+    setInstallTarget(standalone ? 'other' : target)
+  }, [])
 
   async function handleExport() {
     try {
@@ -100,6 +123,28 @@ export function Topbar() {
     }
   }
 
+  async function handleDesktopInstall() {
+    const prompt = getDeferredInstallPrompt()
+    if (!prompt) {
+      if (installTarget === 'ios') {
+        window.alert('On iPhone/iPad: tap Share, then choose Add to Home Screen.')
+      } else {
+        window.alert('Use your browser menu and choose Install app.')
+      }
+      return
+    }
+
+    await prompt.prompt()
+    await prompt.userChoice
+  }
+
+  const installTooltip =
+    installTarget === 'desktop'
+      ? 'Install Cement House as a desktop app for faster access.'
+      : installTarget === 'ios'
+      ? 'Tap Share and choose Add to Home Screen.'
+      : 'Install Cement House for faster access.'
+
   return (
     <header className="sticky top-0 z-20 shrink-0 px-4 pb-4 pt-4 md:px-6">
       {showTrialBanner ? (
@@ -118,6 +163,19 @@ export function Topbar() {
           </div>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          {installTarget !== 'other' ? (
+            <div className="group relative">
+              <button
+                onClick={handleDesktopInstall}
+                className="inline-flex rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
+              >
+                {installTarget === 'ios' ? 'Add to Home' : 'Install App'}
+              </button>
+              <div className="pointer-events-none absolute left-1/2 top-[calc(100%+10px)] z-30 hidden -translate-x-1/2 whitespace-nowrap rounded-xl border border-white/60 bg-white/95 px-3 py-2 text-[11px] font-medium text-slate-700 shadow-[0_14px_30px_rgba(15,23,42,0.14)] backdrop-blur group-hover:block group-focus-within:block dark:border-white/10 dark:bg-slate-950/95 dark:text-slate-200">
+                {installTooltip}
+              </div>
+            </div>
+          ) : null}
           <button
             onClick={handleExport}
             disabled={isExporting}
