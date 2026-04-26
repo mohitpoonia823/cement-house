@@ -11,6 +11,7 @@ interface RegistrationConfig {
   monthlyPrice: number
   yearlyPrice: number
   currency: string
+  updatedAt?: string | null
 }
 
 function onlyDigits(value: string, maxLength: number) {
@@ -32,7 +33,10 @@ export default function RegisterPage() {
   const router = useRouter()
 
   useEffect(() => {
-    api.get('/api/auth/registration-config')
+    api.get('/api/auth/registration-config', {
+      params: { t: Date.now() },
+      headers: { 'Cache-Control': 'no-cache' },
+    })
       .then((res) => setConfig(res.data.data))
       .catch(() => undefined)
   }, [])
@@ -141,7 +145,7 @@ export default function RegisterPage() {
               disabled={loading}
               className="w-full rounded-2xl bg-slate-950 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
             >
-              {loading ? 'Creating trial workspace...' : `Start ${config?.trialDays ?? 7}-day free trial`}
+              {loading ? 'Creating trial workspace...' : config ? `Start ${config.trialDays}-day free trial` : 'Start free trial'}
             </button>
           </form>
 

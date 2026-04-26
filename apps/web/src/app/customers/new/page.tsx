@@ -33,7 +33,7 @@ export default function NewCustomerPage() {
       <form onSubmit={handleSubmit} className="max-w-xl space-y-4">
         <Card>
           <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-4">Customer details</div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {[
               { label: 'Full name *',       key: 'name',        type: 'text',   placeholder: 'Rajesh Builders',   full: true  },
               { label: 'Phone *',           key: 'phone',       type: 'tel',    placeholder: '9876543210'                     },
@@ -43,7 +43,7 @@ export default function NewCustomerPage() {
               { label: 'Site / delivery address', key: 'siteAddress', type: 'text', placeholder: 'If different', full: true   },
               { label: 'Credit limit (₹)',  key: 'creditLimit', type: 'number', placeholder: '50000'                          },
             ].map(f => (
-              <div key={f.key} className={f.full ? 'col-span-2' : ''}>
+              <div key={f.key} className={f.full ? 'md:col-span-2' : ''}>
                 <label className="block text-xs text-stone-500 mb-1">{f.label}</label>
                 <input
                   type={f.type}
@@ -55,7 +55,7 @@ export default function NewCustomerPage() {
                 />
               </div>
             ))}
-            <div className="col-span-2">
+            <div className="md:col-span-2">
               <label className="block text-xs text-stone-500 mb-1">Notes</label>
               <textarea
                 placeholder="Any special notes about this customer…"
@@ -74,7 +74,7 @@ export default function NewCustomerPage() {
           </div>
         )}
 
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <button type="submit" disabled={createCustomer.isPending}
             className="px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
             {createCustomer.isPending ? 'Saving…' : 'Save customer'}

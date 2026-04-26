@@ -12,6 +12,7 @@ interface RegistrationConfig {
   yearlyPrice: number
   currency: string
   trialRequiresCard: boolean
+  updatedAt?: string | null
 }
 
 export default function LoginPage() {
@@ -30,7 +31,10 @@ export default function LoginPage() {
       sessionStorage.removeItem('auth_logout_reason')
       setInfo(reason)
     }
-    api.get('/api/auth/registration-config')
+    api.get('/api/auth/registration-config', {
+      params: { t: Date.now() },
+      headers: { 'Cache-Control': 'no-cache' },
+    })
       .then((res) => setConfig(res.data.data))
       .catch(() => undefined)
   }, [])

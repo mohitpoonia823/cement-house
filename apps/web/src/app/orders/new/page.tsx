@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import { AppShell }        from '@/components/layout/AppShell'
 import { Card }            from '@/components/ui/Card'
 import { useCustomers }    from '@/hooks/useCustomers'
@@ -74,15 +74,15 @@ export default function NewOrderPage() {
         {/* Customer + date */}
         <Card>
           <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">Order details</div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <label className="block text-xs text-stone-500 mb-1">Customer *</label>
               <select value={customerId} onChange={e => setCustomerId(e.target.value)}
                 className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required>
-                <option value="">Select customer…</option>
+                <option value="">Select customerâ€¦</option>
                 {(customers ?? []).map((c: any) => (
-                  <option key={c.id} value={c.id}>{c.name} — {c.phone}</option>
+                  <option key={c.id} value={c.id}>{c.name} â€” {c.phone}</option>
                 ))}
               </select>
             </div>
@@ -105,16 +105,17 @@ export default function NewOrderPage() {
         {/* Items */}
         <Card>
           <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">Order items</div>
-          <div className="grid grid-cols-12 gap-2 text-[10px] text-stone-400 mb-1 px-1">
-            <div className="col-span-4">Material</div><div className="col-span-2">Qty</div>
-            <div className="col-span-2">Rate (₹)</div><div className="col-span-3">Amount</div><div />
-          </div>
-          {items.map((item, idx) => (
-            <div key={idx} className="grid grid-cols-12 gap-2 mb-2 items-center">
+          <div className="overflow-x-auto">
+            <div className="grid grid-cols-12 gap-2 text-[10px] text-stone-400 mb-1 px-1 min-w-[640px]">
+              <div className="col-span-4">Material</div><div className="col-span-2">Qty</div>
+              <div className="col-span-2">Rate (â‚¹)</div><div className="col-span-3">Amount</div><div />
+            </div>
+            {items.map((item, idx) => (
+              <div key={idx} className="grid grid-cols-12 gap-2 mb-2 items-center min-w-[640px]">
               <div className="col-span-4">
                 <select value={item.materialId} onChange={e => updateItem(idx, 'materialId', e.target.value)}
                   className="w-full text-xs px-2 py-1.5 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-1 focus:ring-blue-500">
-                  <option value="">Select…</option>
+                  <option value="">Selectâ€¦</option>
                   {(materials ?? []).map((m: any) => (
                     <option key={m.id} value={m.id}>{m.name} ({m.stockQty} {m.unit} in stock)</option>
                   ))}
@@ -136,11 +137,12 @@ export default function NewOrderPage() {
               <div className="col-span-1 flex justify-center">
                 {items.length > 1 && (
                   <button type="button" onClick={() => removeItem(idx)}
-                    className="text-stone-300 hover:text-red-500 transition-colors text-sm">✕</button>
+                    className="text-stone-300 hover:text-red-500 transition-colors text-sm">âœ•</button>
                 )}
               </div>
-            </div>
-          ))}
+              </div>
+            ))}
+          </div>
           <button type="button" onClick={addItem}
             className="text-xs text-blue-600 hover:underline mt-1">+ Add item</button>
 
@@ -168,9 +170,9 @@ export default function NewOrderPage() {
                 }`}>{m}</button>
             ))}
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
-              <label className="block text-xs text-stone-500 mb-1">Amount paid now (₹)</label>
+              <label className="block text-xs text-stone-500 mb-1">Amount paid now (â‚¹)</label>
               <input type="number" value={amountPaid} min={0} max={totalAmount}
                 onChange={e => setAmountPaid(Number(e.target.value))}
                 className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -185,17 +187,17 @@ export default function NewOrderPage() {
           <div className="mt-3">
             <label className="block text-xs text-stone-500 mb-1">Notes (optional)</label>
             <input type="text" value={notes} onChange={e => setNotes(e.target.value)}
-              placeholder="Any special instructions…"
+              placeholder="Any special instructionsâ€¦"
               className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
         </Card>
 
         {error && <div className="text-xs text-red-600 bg-red-50 dark:bg-red-950 rounded-lg px-3 py-2">{error}</div>}
 
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <button type="submit" disabled={createOrder.isPending}
             className="px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
-            {createOrder.isPending ? 'Saving…' : 'Save order & generate challan'}
+            {createOrder.isPending ? 'Savingâ€¦' : 'Save order & generate challan'}
           </button>
           <button type="button" onClick={() => router.back()}
             className="px-5 py-2 border border-stone-200 dark:border-stone-700 text-sm rounded-lg hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors">

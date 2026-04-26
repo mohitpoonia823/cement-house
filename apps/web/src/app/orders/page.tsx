@@ -124,7 +124,7 @@ export default function OrdersPage() {
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
-        <div className="mb-3 flex items-center gap-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg px-4 py-2">
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 dark:border-red-800 dark:bg-red-950">
           <span className="text-xs font-medium text-red-800 dark:text-red-200">
             {selected.size} order{selected.size > 1 ? 's' : ''} selected
           </span>
@@ -133,7 +133,7 @@ export default function OrdersPage() {
             {bulkDelete.isPending ? 'Deleting…' : `Delete selected`}
           </button>
           <button onClick={() => setSelected(new Set())}
-            className="text-xs text-stone-500 hover:text-stone-700 dark:text-stone-400 ml-auto">
+            className="ml-0 text-xs text-stone-500 hover:text-stone-700 dark:text-stone-400 md:ml-auto">
             Clear selection
           </button>
         </div>

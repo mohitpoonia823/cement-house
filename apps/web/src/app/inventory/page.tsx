@@ -122,8 +122,8 @@ export default function InventoryPage() {
         <Card className="mb-4">
           <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">New material</div>
           <form onSubmit={handleCreateMaterial} className="space-y-3">
-            <div className="grid grid-cols-4 gap-3">
-              <div className="col-span-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="sm:col-span-2">
                 <label className="block text-xs text-stone-500 mb-1">Name *</label>
                 <input type="text" value={newForm.name} onChange={e => setNewForm(p => ({ ...p, name: e.target.value }))}
                   placeholder="e.g. PPC Cement" required
@@ -143,7 +143,7 @@ export default function InventoryPage() {
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Min threshold</label>
                 <input type="number" value={newForm.minThreshold} placeholder="0" onChange={e => setNewForm(p => ({ ...p, minThreshold: e.target.value }))}
@@ -184,7 +184,7 @@ export default function InventoryPage() {
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
-        <div className="mb-3 flex items-center gap-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg px-4 py-2">
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 dark:border-red-800 dark:bg-red-950">
           <span className="text-xs font-medium text-red-800 dark:text-red-200">
             {selected.size} material{selected.size > 1 ? 's' : ''} selected
           </span>
@@ -193,7 +193,7 @@ export default function InventoryPage() {
             {bulkDelete.isPending ? 'Deleting…' : 'Delete selected'}
           </button>
           <button onClick={() => setSelected(new Set())}
-            className="text-xs text-stone-500 hover:text-stone-700 dark:text-stone-400 ml-auto">
+            className="ml-0 text-xs text-stone-500 hover:text-stone-700 dark:text-stone-400 md:ml-auto">
             Clear selection
           </button>
         </div>
@@ -209,8 +209,8 @@ export default function InventoryPage() {
       )}
 
       {/* Material cards grid */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-5">
-        {isLoading ? <div className="col-span-3"><PageLoader /></div> :
+      <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {isLoading ? <div className="md:col-span-2 xl:col-span-3"><PageLoader /></div> :
           list.map((m: any) => {
             const isSelected = selected.has(m.id)
             return (
@@ -276,7 +276,7 @@ export default function InventoryPage() {
             </div>
             {showStockIn && (
               <form onSubmit={handleStockIn} className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label className="block text-xs text-stone-500 mb-1">Quantity ({selectedMat?.unit}) *</label>
                     <input type="number" value={siQty} onChange={e => setSiQty(e.target.value)}
@@ -316,15 +316,16 @@ export default function InventoryPage() {
             {!movements ? <PageLoader /> : movements.length === 0 ? (
               <div className="text-xs text-stone-400 py-4 text-center">No movements yet</div>
             ) : (
-              <table className="w-full text-xs">
-                <thead>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[620px] text-xs">
+                  <thead>
                   <tr className="border-b border-stone-100 dark:border-stone-800">
                     {['Date','Type','Qty','Stock after','Reason'].map(h => (
                       <th key={h} className="text-left py-2 pr-2 font-normal text-stone-400">{h}</th>
                     ))}
                   </tr>
-                </thead>
-                <tbody>
+                  </thead>
+                  <tbody>
                   {movements.slice(0,10).map((mv: any) => (
                     <tr key={mv.id} className="border-b border-stone-50 dark:border-stone-800 last:border-0">
                       <td className="py-2 pr-2 text-stone-500">{new Date(mv.createdAt).toLocaleDateString('en-IN')}</td>
@@ -338,8 +339,9 @@ export default function InventoryPage() {
                       <td className="py-2 text-stone-500 truncate max-w-24">{mv.reason ?? mv.order?.orderNumber ?? '—'}</td>
                     </tr>
                   ))}
-                </tbody>
-              </table>
+                  </tbody>
+                </table>
+              </div>
             )}
           </Card>
         </div>

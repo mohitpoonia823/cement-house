@@ -42,7 +42,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!mounted || !token || user?.role === 'SUPER_ADMIN') return null
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen overflow-x-hidden">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
@@ -66,7 +66,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         )}
-        <main className="flex-1 px-4 pb-6 md:px-6">{children}</main>
+        <main className="flex-1 px-3 pb-6 sm:px-4 md:px-6">{children}</main>
       </div>
     </div>
   )

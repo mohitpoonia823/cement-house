@@ -10,6 +10,7 @@ const navItems = [
   { label: 'Businesses', href: '/super-admin/businesses' },
   { label: 'Users', href: '/super-admin/users' },
   { label: 'Metrics', href: '/super-admin/metrics' },
+  { label: 'Settings', href: '/super-admin/settings' },
 ]
 
 export function SuperAdminShell({ children }: { children: React.ReactNode }) {
@@ -41,7 +42,7 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.18),transparent_24%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.16),transparent_26%),linear-gradient(180deg,#f3f7f6_0%,#eef4f8_48%,#eef2f7_100%)] dark:bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.14),transparent_24%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.12),transparent_26%),linear-gradient(180deg,#020617_0%,#0f172a_48%,#111827_100%)]">
-      <div className="mx-auto flex min-h-screen max-w-[1600px] gap-5 px-4 py-5 md:px-6">
+      <div className="mx-auto flex min-h-screen max-w-[1600px] gap-4 px-3 py-4 sm:px-4 md:gap-5 md:px-6 md:py-5">
         <aside className="sticky top-5 hidden h-[calc(100vh-2.5rem)] w-[300px] shrink-0 rounded-[32px] border border-white/70 bg-slate-950 p-5 text-white shadow-[0_28px_80px_rgba(15,23,42,0.28)] xl:block">
           <div className="rounded-[26px] border border-white/10 bg-white/5 p-5">
             <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-200/80">Super Admin</div>

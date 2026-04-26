@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AppShell } from '@/components/layout/AppShell'
 import { Badge } from '@/components/ui/Badge'
@@ -515,12 +515,12 @@ export default function SettingsPage() {
                     }}
                     className="space-y-3"
                   >
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <Field label="Business name *"><input value={bizName} onChange={(e) => setBizName(e.target.value)} className={inputCls} /></Field>
                       <Field label="City *"><input value={bizCity} onChange={(e) => setBizCity(e.target.value)} className={inputCls} /></Field>
                     </div>
                     <Field label="Address"><input value={bizAddr} onChange={(e) => setBizAddr(e.target.value)} className={inputCls} /></Field>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <Field label="Phone"><input value={bizPhone} onChange={(e) => setBizPhone(e.target.value)} className={inputCls} /></Field>
                       <Field label="GSTIN"><input value={bizGstin} onChange={(e) => setBizGstin(e.target.value)} className={inputCls} /></Field>
                     </div>
@@ -617,7 +617,7 @@ export default function SettingsPage() {
                       <input type="checkbox" checked={remEnabled} onChange={(e) => setRemEnabled(e.target.checked)} />
                       Enable automated payment reminders
                     </label>
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <Field label="Soft"><input type="number" value={remSoft} onChange={(e) => setRemSoft(Number(e.target.value))} className={inputCls} /></Field>
                       <Field label="Follow-up"><input type="number" value={remFollow} onChange={(e) => setRemFollow(Number(e.target.value))} className={inputCls} /></Field>
                       <Field label="Firm"><input type="number" value={remFirm} onChange={(e) => setRemFirm(Number(e.target.value))} className={inputCls} /></Field>
@@ -663,7 +663,7 @@ export default function SettingsPage() {
 
                 {staffFormOpen ? (
                   <form onSubmit={handleStaffSubmit} className="mb-4 space-y-3 rounded-[24px] border border-slate-200/70 p-4 dark:border-slate-800">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <Field label="Name *"><input value={staffName} onChange={(e) => setStaffName(e.target.value)} className={inputCls} /></Field>
                       <Field label="Phone *"><input value={staffPhone} onChange={(e) => setStaffPhone(e.target.value)} maxLength={10} className={inputCls} /></Field>
                     </div>
@@ -916,7 +916,7 @@ function PlanOption({
         <div className="flex-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{title}</div>
         {statusLabel ? (
           <span
-            className={`inline-flex max-w-[116px] items-center justify-center rounded-full px-2.5 py-1 text-center text-[10px] font-semibold uppercase leading-tight tracking-[0.14em] ${
+            className={`inline-flex  items-center justify-center rounded-full px-2.5 py-1 text-center text-[10px] font-semibold uppercase leading-tight tracking-[0.14em] ${
               subscribed
                 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200'
                 : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'

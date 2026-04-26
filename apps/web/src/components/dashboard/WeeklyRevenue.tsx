@@ -55,7 +55,7 @@ export function WeeklyRevenue() {
 
       {/* Divider + mini stats */}
       <div className="border-t border-gray-100 dark:border-gray-700 mt-3 pt-3">
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {[
             { value: '1', label: 'Orders today' },
             { value: fmt(4200), label: 'Avg order value' },

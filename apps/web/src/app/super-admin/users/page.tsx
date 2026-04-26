@@ -45,7 +45,7 @@ export default function SuperAdminUsersPage() {
       </MetricGrid>
 
       <Card className="mb-6">
-        <div className="grid gap-4 xl:grid-cols-[1.5fr_0.9fr_auto]">
+        <div className="grid gap-4 lg:grid-cols-[1.5fr_0.9fr_auto]">
           <label className="block">
             <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Search user</div>
             <input
@@ -112,7 +112,7 @@ export default function SuperAdminUsersPage() {
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[440px]">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <MiniInfo label="Permissions" value={user.permissions.length > 0 ? user.permissions.join(', ') : 'No scoped permissions'} />
                 <MiniInfo
                   label="Business"

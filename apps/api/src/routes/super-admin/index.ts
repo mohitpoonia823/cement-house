@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@cement-house/db'
 import { z } from 'zod'
+import bcrypt from 'bcryptjs'
 import { requireSuperAdmin } from '../../middleware/auth'
 import { createAuditLog } from '../../services/audit'
 import { ensurePlatformSettings } from '../../services/billing'
@@ -37,6 +38,16 @@ const ListUsersQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(50).default(12),
   search: z.string().trim().optional(),
   role: z.enum(['SUPER_ADMIN', 'OWNER', 'MUNIM']).optional(),
+})
+
+const UpdateSuperAdminProfileSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  phone: z.string().trim().min(10).max(10),
+})
+
+const UpdateSuperAdminPasswordSchema = z.object({
+  currentPassword: z.string().min(6),
+  newPassword: z.string().min(6),
 })
 
 function startOfDay(date: Date) {
@@ -94,6 +105,114 @@ function authPayloadForUser(user: {
 }
 
 export async function superAdminRoutes(app: FastifyInstance) {
+  app.get('/profile', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+
+    const currentUserId = (req.user as any).id as string
+    const profile = await prisma.user.findUnique({
+      where: { id: currentUserId },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        role: true,
+        createdAt: true,
+        lastSeenAt: true,
+      },
+    })
+
+    if (!profile || profile.role !== 'SUPER_ADMIN') {
+      return reply.status(404).send({ success: false, error: 'Super Admin profile not found' })
+    }
+
+    return { success: true, data: profile }
+  })
+
+  app.patch('/profile', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+
+    const currentUserId = (req.user as any).id as string
+    const body = UpdateSuperAdminProfileSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    const existing = await prisma.user.findUnique({
+      where: { phone: body.data.phone },
+      select: { id: true },
+    })
+    if (existing && existing.id !== currentUserId) {
+      return reply.status(409).send({ success: false, error: 'Phone number is already used by another user' })
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: currentUserId },
+      data: {
+        name: body.data.name,
+        phone: body.data.phone,
+      },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        role: true,
+        permissions: true,
+        businessId: true,
+      },
+    })
+
+    const authUser = authPayloadForUser({
+      id: updated.id,
+      name: updated.name,
+      role: updated.role,
+      businessId: updated.businessId,
+      permissions: updated.permissions,
+      business: null,
+    })
+    const token = app.jwt.sign(authUser, { expiresIn: '7d' })
+
+    return {
+      success: true,
+      data: {
+        profile: {
+          id: updated.id,
+          name: updated.name,
+          phone: updated.phone,
+          role: updated.role,
+        },
+        session: {
+          token,
+          user: authUser,
+        },
+      },
+    }
+  })
+
+  app.patch('/password', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+
+    const currentUserId = (req.user as any).id as string
+    const body = UpdateSuperAdminPasswordSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    const currentUser = await prisma.user.findUnique({
+      where: { id: currentUserId },
+      select: { id: true, passwordHash: true, role: true },
+    })
+    if (!currentUser || currentUser.role !== 'SUPER_ADMIN') {
+      return reply.status(404).send({ success: false, error: 'Super Admin profile not found' })
+    }
+
+    const valid = await bcrypt.compare(body.data.currentPassword, currentUser.passwordHash)
+    if (!valid) return reply.status(401).send({ success: false, error: 'Current password is incorrect' })
+
+    const nextHash = await bcrypt.hash(body.data.newPassword, 10)
+    await prisma.user.update({
+      where: { id: currentUserId },
+      data: { passwordHash: nextHash },
+    })
+
+    return { success: true, data: { message: 'Password updated successfully' } }
+  })
+
   app.get('/billing-config', async (req, reply) => {
     if (!requireSuperAdmin(req, reply)) return
     const settings = await ensurePlatformSettings()

@@ -67,7 +67,8 @@ export function OrdersTable() {
       </div>
 
       {/* Table */}
-      <table className="w-full text-xs border-collapse">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] border-collapse text-xs">
         <thead>
           <tr>
             {['Order', 'Customer', 'Items', 'Amount', 'Status'].map(h => (
@@ -105,7 +106,8 @@ export function OrdersTable() {
             </tr>
           ))}
         </tbody>
-      </table>
+        </table>
+      </div>
 
       {/* Status breakdown bar */}
       <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">

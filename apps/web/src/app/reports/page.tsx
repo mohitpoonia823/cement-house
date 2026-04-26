@@ -179,7 +179,7 @@ function ReportsContent() {
         <PageLoader />
       ) : (
         <>
-          <div className="mb-5 grid gap-4 md:grid-cols-4">
+          <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <KpiCard label="Total sales" value={fmt(data?.totalSales ?? 0)} sub={`${data?.orderCount ?? 0} orders`} />
             <KpiCard label="Avg margin" value={`${(data?.avgMargin ?? 0).toFixed(1)}%`} />
             <KpiCard label="Collected" value={fmt(data?.paidAmount ?? 0)} />
@@ -200,15 +200,15 @@ function ReportsContent() {
                   <strong className="text-stone-900 dark:text-stone-100">{(data?.avgMargin ?? 0).toFixed(1)}%</strong>.
                 </div>
 
-                <div className="overflow-hidden rounded-[24px] border border-slate-200/70 dark:border-slate-800">
-                  <div className="grid grid-cols-[1.1fr_0.8fr_0.65fr_0.75fr] gap-3 bg-slate-50/80 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-900/60 dark:text-slate-400">
+                <div className="overflow-x-auto rounded-[24px] border border-slate-200/70 dark:border-slate-800">
+                  <div className="grid min-w-[620px] grid-cols-[1.1fr_0.8fr_0.65fr_0.75fr] gap-3 bg-slate-50/80 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-900/60 dark:text-slate-400">
                     <div>Order</div>
                     <div>Customer</div>
                     <div>Status</div>
                     <div>Total</div>
                   </div>
                   {(data?.recentOrders ?? []).map((order: any) => (
-                    <div key={order.id} className="grid grid-cols-[1.1fr_0.8fr_0.65fr_0.75fr] gap-3 border-t border-slate-200/70 px-4 py-3 text-sm dark:border-slate-800">
+                    <div key={order.id} className="grid min-w-[620px] grid-cols-[1.1fr_0.8fr_0.65fr_0.75fr] gap-3 border-t border-slate-200/70 px-4 py-3 text-sm dark:border-slate-800">
                       <div className="font-semibold text-slate-950 dark:text-white">{order.orderNumber}</div>
                       <div className="text-slate-600 dark:text-slate-300">{order.customerName}</div>
                       <div className="text-slate-500 dark:text-slate-400">{order.status}</div>
@@ -236,8 +236,8 @@ function ReportsContent() {
                 sub="PDF and CSV exports from dashboard, reports, orders, customers, inventory, delivery, khata, and settings will appear here."
               />
             ) : (
-              <div className="overflow-hidden rounded-[24px] border border-slate-200/70 dark:border-slate-800">
-                <div className="grid grid-cols-[1.3fr_0.55fr_1fr_0.9fr_0.8fr] gap-3 bg-slate-50/80 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-900/60 dark:text-slate-400">
+              <div className="overflow-x-auto rounded-[24px] border border-slate-200/70 dark:border-slate-800">
+                <div className="grid min-w-[820px] grid-cols-[1.3fr_0.55fr_1fr_0.9fr_0.8fr] gap-3 bg-slate-50/80 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-900/60 dark:text-slate-400">
                   <div>Exported report</div>
                   <div>Type</div>
                   <div>Period / scope</div>
@@ -245,7 +245,7 @@ function ReportsContent() {
                   <div>Action</div>
                 </div>
                 {history.map((item: any) => (
-                  <div key={item.id} className="grid grid-cols-[1.3fr_0.55fr_1fr_0.9fr_0.8fr] gap-3 border-t border-slate-200/70 px-4 py-3 text-sm dark:border-slate-800">
+                  <div key={item.id} className="grid min-w-[820px] grid-cols-[1.3fr_0.55fr_1fr_0.9fr_0.8fr] gap-3 border-t border-slate-200/70 px-4 py-3 text-sm dark:border-slate-800">
                     <div>
                       <div className="font-semibold text-slate-950 dark:text-white">{item.label}</div>
                       <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{item.fileName}</div>

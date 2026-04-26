@@ -69,8 +69,8 @@ function KhataContent() {
         <MetricCard label="Selected account" value={selected?.customerName ?? 'None'} hint={selected ? `Current balance ${fmt(Math.abs(selected.balance ?? 0))}` : 'Pick a party to review entries'} tone="brand" />
       </MetricGrid>
 
-      <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <div className="xl:sticky xl:top-28 xl:self-start">
+      <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+        <div className="lg:sticky lg:top-28 lg:self-start">
           <Card className="flex min-h-[520px] flex-col">
             <div className="mb-4">
               <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
@@ -132,7 +132,7 @@ function KhataContent() {
             </Card>
           ) : (
             <Card className="flex min-h-[520px] flex-col">
-              <div className="mb-4 flex items-start justify-between border-b border-stone-100 pb-3 dark:border-stone-800">
+              <div className="mb-4 flex flex-col gap-3 border-b border-stone-100 pb-3 dark:border-stone-800 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="font-medium text-stone-900 dark:text-stone-100">{selected?.customerName}</div>
                   <div className={`mt-0.5 text-sm font-medium ${(selected?.balance ?? 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
@@ -140,7 +140,7 @@ function KhataContent() {
                     {fmt(Math.abs(selected?.balance ?? 0))}
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => setShowPayForm(true)}
                     className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
@@ -176,7 +176,7 @@ function KhataContent() {
                       </button>
                     ))}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <input
                       type="number"
                       value={payAmount}
@@ -216,7 +216,8 @@ function KhataContent() {
                 <PageLoader />
               ) : (
                 <div className="flex-1 overflow-y-auto">
-                  <table className="w-full text-xs">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[700px] text-xs">
                     <thead className="sticky top-0 bg-white dark:bg-stone-900">
                       <tr className="border-b border-stone-100 dark:border-stone-800">
                         {['Date', 'Description', 'Debit (sale)', 'Credit (paid)', 'Balance'].map((h) => (
@@ -256,7 +257,8 @@ function KhataContent() {
                         </tr>
                       </tfoot>
                     )}
-                  </table>
+                    </table>
+                  </div>
                 </div>
               )}
             </Card>

@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { pageTitles } from './navigation'
+import { navItems, pageTitles } from './navigation'
 import { useState } from 'react'
 import { useAuthStore } from '@/store/auth'
 
@@ -25,6 +25,7 @@ export function Topbar() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { user } = useAuthStore()
+  const isOwner = user?.role === 'OWNER'
   const title = pageTitles[pathname] ?? 'Cement House'
   const page = exportPageForPath(pathname)
   const [isExporting, setIsExporting] = useState(false)
@@ -40,6 +41,12 @@ export function Topbar() {
     trialDaysRemaining > 0
       ? `${trialDaysRemaining} day${trialDaysRemaining === 1 ? '' : 's'} remaining in your free trial. Get a subscription to actively access the platform without interruption.`
       : 'Your free trial has ended. Subscribe now to keep accessing the full platform.'
+  const mobileNavItems = navItems.filter((item) => {
+    if (item.group === 'workspace' || item.group === 'insights') return isOwner
+    if (isOwner) return true
+    if (item.permissionId) return user?.permissions?.includes(item.permissionId)
+    return true
+  })
 
   async function handleExport() {
     try {
@@ -100,7 +107,7 @@ export function Topbar() {
           {trialMessage}
         </div>
       ) : null}
-      <div className="flex items-center justify-between rounded-[28px] border border-white/60 bg-white/75 px-5 py-4 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur dark:border-white/10 dark:bg-slate-950/60">
+      <div className="flex flex-col gap-3 rounded-[28px] border border-white/60 bg-white/75 px-4 py-4 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:px-5 dark:border-white/10 dark:bg-slate-950/60">
         <div className="min-w-0">
           <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500 dark:text-slate-400">
             Analytics workspace
@@ -110,7 +117,7 @@ export function Topbar() {
             <span className="text-sm text-slate-500 dark:text-slate-300">{today}</span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
           <button
             onClick={handleExport}
             disabled={isExporting}
@@ -127,18 +134,27 @@ export function Topbar() {
         </div>
       </div>
       <div className="mt-3 flex gap-2 overflow-x-auto xl:hidden">
-        <Link href="/dashboard" className="rounded-full border border-slate-200 bg-white/75 px-4 py-2 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
-          Overview
-        </Link>
-        <Link href="/orders" className="rounded-full border border-slate-200 bg-white/75 px-4 py-2 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
-          Orders
-        </Link>
-        <Link href="/customers" className="rounded-full border border-slate-200 bg-white/75 px-4 py-2 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
-          Customers
-        </Link>
-        <Link href="/inventory" className="rounded-full border border-slate-200 bg-white/75 px-4 py-2 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
-          Inventory
-        </Link>
+        {mobileNavItems.map((item) => {
+          const active =
+            pathname === item.href ||
+            (item.href !== '/dashboard' &&
+              pathname.startsWith(item.href + '/') &&
+              !(item.href === '/orders' && pathname === '/orders/new'))
+
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={
+                active
+                  ? 'rounded-full border border-slate-950 bg-slate-950 px-4 py-2 text-xs font-semibold text-white dark:border-sky-400 dark:bg-sky-400 dark:text-slate-950'
+                  : 'rounded-full border border-slate-200 bg-white/75 px-4 py-2 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200'
+              }
+            >
+              {item.label}
+            </Link>
+          )
+        })}
       </div>
     </header>
   )

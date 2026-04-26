@@ -99,7 +99,7 @@ export default function SuperAdminBusinessesPage() {
       />
 
       <Card className="mb-6">
-        <div className="grid gap-4 xl:grid-cols-[1.5fr_0.9fr_auto]">
+        <div className="grid gap-4 lg:grid-cols-[1.5fr_0.9fr_auto]">
           <label className="block">
             <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Search business</div>
             <input
@@ -145,7 +145,7 @@ export default function SuperAdminBusinessesPage() {
       </Card>
 
       <Card className="mb-6">
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Platform billing defaults</div>
             <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">Admin-controlled trial and subscription pricing</div>
@@ -200,7 +200,7 @@ export default function SuperAdminBusinessesPage() {
                   )}
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[560px]">
+                <div className="grid gap-3 sm:grid-cols-3">
                   <MiniStat label="GMV" value={fmt(business.gmv)} />
                   <MiniStat label="Outstanding" value={fmt(business.outstanding)} />
                   <MiniStat label="Monthly" value={fmt(business.monthlySubscriptionAmount)} />

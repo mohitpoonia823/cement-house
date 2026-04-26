@@ -85,7 +85,7 @@ export function MonthlyChart() {
       </div>
 
       {/* Footer stats */}
-      <div className="grid grid-cols-3 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 text-center">
+      <div className="mt-3 grid grid-cols-1 gap-2 border-t border-gray-100 pt-3 text-center dark:border-gray-700 sm:grid-cols-3 sm:gap-0">
         <div>
           <div className="text-[13px] font-medium text-gray-900 dark:text-gray-100">{fmtLakh(monthTotal)}</div>
           <div className="text-[10px] text-gray-400">Month total</div>

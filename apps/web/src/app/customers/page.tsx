@@ -128,7 +128,7 @@ export default function CustomersPage() {
             </button>
           ))}
         </div>
-        <div className="flex gap-2 flex-1 max-w-xs">
+        <div className="flex max-w-full flex-1 gap-2 xl:max-w-xs">
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search by name…"
             className="flex-1 text-xs px-3 py-1.5 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-1 focus:ring-blue-500" />
@@ -140,7 +140,7 @@ export default function CustomersPage() {
           <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">
             {editId ? 'Edit customer' : 'New customer'}
           </div>
-          <form onSubmit={handleSubmit} className="grid grid-cols-4 gap-3 items-end">
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
               { label: 'Name *',          key: 'name',       type: 'text',   placeholder: 'Rajesh Builders' },
               { label: 'Phone *',         key: 'phone',      type: 'tel',    placeholder: '9876543210' },
@@ -164,7 +164,7 @@ export default function CustomersPage() {
                 <option value="BLOCKED">Blocked</option>
               </select>
             </div>
-            <div className="flex gap-2 col-span-4 mt-2">
+            <div className="col-span-1 mt-2 flex flex-wrap gap-2 sm:col-span-2 xl:col-span-4">
               <button type="submit" disabled={createCustomer.isPending || updateCustomer.isPending}
                 className="text-xs px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {createCustomer.isPending || updateCustomer.isPending ? 'Saving…' : 'Save customer'}
@@ -172,15 +172,15 @@ export default function CustomersPage() {
               <button type="button" onClick={handleCancel}
                 className="text-xs px-3 py-1.5 border border-stone-200 rounded-lg hover:bg-stone-50">Cancel</button>
             </div>
-            {formError && <div className="col-span-4 text-xs text-red-600">{formError}</div>}
+            {formError && <div className="col-span-1 text-xs text-red-600 sm:col-span-2 xl:col-span-4">{formError}</div>}
           </form>
         </Card>
       )}
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
-        <div className="mb-3 flex items-center gap-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg px-4 py-2">
-          <span className="text-xs font-medium text-blue-800 dark:text-blue-200 w-[max-content]">
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 dark:border-blue-900 dark:bg-blue-950/20">
+          <span className="w-auto text-xs font-medium text-blue-800 dark:text-blue-200">
             {selected.size} customer{selected.size > 1 ? 's' : ''} selected
           </span>
           <div className="flex bg-white dark:bg-stone-800 shadow-sm rounded-md overflow-hidden border border-stone-200 dark:border-stone-700">
@@ -194,7 +194,7 @@ export default function CustomersPage() {
             </button>
           </div>
           <button onClick={() => setSelected(new Set())}
-            className="text-xs text-stone-500 hover:text-stone-700 dark:text-stone-400 ml-auto">
+            className="ml-0 text-xs text-stone-500 hover:text-stone-700 dark:text-stone-400 md:ml-auto">
             Clear selection
           </button>
         </div>

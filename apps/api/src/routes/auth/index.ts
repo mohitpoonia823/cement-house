@@ -93,7 +93,11 @@ function buildAuthUser(user: {
 }
 
 export async function authRoutes(app: FastifyInstance) {
-  app.get('/registration-config', async () => {
+  app.get('/registration-config', async (_req, reply) => {
+    reply.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+    reply.header('Pragma', 'no-cache')
+    reply.header('Expires', '0')
+
     const settings = await ensurePlatformSettings()
 
     return {
@@ -104,6 +108,7 @@ export async function authRoutes(app: FastifyInstance) {
         yearlyPrice: Number(settings.yearlyPrice),
         currency: settings.currency,
         trialRequiresCard: settings.trialRequiresCard,
+        updatedAt: settings.updatedAt?.toISOString?.() ?? null,
       },
     }
   })

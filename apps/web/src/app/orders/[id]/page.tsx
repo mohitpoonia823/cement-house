@@ -68,7 +68,7 @@ export default function OrderDetailPage() {
       <div className="max-w-3xl space-y-4">
 
         {/* Header */}
-        <div className="flex items-start justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-3 mb-1">
               <h1 className="text-lg font-medium text-stone-900 dark:text-stone-100">{order.orderNumber}</h1>
@@ -100,7 +100,7 @@ export default function OrderDetailPage() {
         </div>
 
         {/* Customer + payment summary */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Card>
             <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">Customer</div>
             <div className="text-sm font-medium text-stone-900 dark:text-stone-100">{order.customer?.name}</div>
@@ -154,7 +154,8 @@ export default function OrderDetailPage() {
                 className="text-xs text-blue-600 hover:underline">+ Add item</button>
             )}
           </div>
-          <table className="w-full text-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[620px] text-xs">
             <thead>
               <tr className="border-b border-stone-100 dark:border-stone-800">
                 {['Material', 'Quantity', 'Rate', 'Amount', 'Margin'].map(h => (
@@ -203,7 +204,8 @@ export default function OrderDetailPage() {
                 </td>
               </tr>
             </tfoot>
-          </table>
+            </table>
+          </div>
         </Card>
 
         {/* Deliveries */}
@@ -211,7 +213,7 @@ export default function OrderDetailPage() {
           <Card>
             <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">Deliveries</div>
             {order.deliveries.map((d: any) => (
-              <div key={d.id} className="flex items-center justify-between py-2 border-b border-stone-50 dark:border-stone-800 last:border-0">
+              <div key={d.id} className="flex flex-col gap-2 border-b border-stone-50 py-2 dark:border-stone-800 sm:flex-row sm:items-center sm:justify-between last:border-0">
                 <div>
                   <div className="text-xs font-medium text-stone-800 dark:text-stone-200">{d.challanNumber}</div>
                   <div className="text-[10px] text-stone-400 mt-0.5">
@@ -265,7 +267,8 @@ export default function OrderDetailPage() {
                   <div className="text-xs text-stone-400">{order.customer.address}</div>
                 )}
               </div>
-              <table className="w-full text-xs border-t border-stone-100 dark:border-stone-800 pt-3">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[440px] text-xs border-t border-stone-100 dark:border-stone-800 pt-3">
                 <thead>
                   <tr>
                     <th className="text-left py-1 font-normal text-stone-400">Material</th>
@@ -282,8 +285,9 @@ export default function OrderDetailPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
-              <div className="border-t border-stone-200 dark:border-stone-700 pt-3 grid grid-cols-2 gap-4 text-xs">
+                </table>
+              </div>
+              <div className="grid grid-cols-1 gap-4 border-t border-stone-200 pt-3 text-xs dark:border-stone-700 sm:grid-cols-2">
                 <div>
                   <div className="text-stone-400 mb-6">Driver signature:</div>
                   <div className="border-b border-stone-300 dark:border-stone-600" />
@@ -328,7 +332,7 @@ export default function OrderDetailPage() {
                   ))}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="block text-xs text-stone-500 mb-1">Quantity</label>
                   <input type="number" min={0.01} step={0.01} value={newItem.quantity}

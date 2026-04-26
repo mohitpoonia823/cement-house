@@ -76,7 +76,7 @@ const kpis: KpiItem[] = [
 
 export function KpiRow() {
   return (
-    <div className="grid grid-cols-4 gap-2.5 mb-3.5">
+    <div className="mb-3.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
       {kpis.map((kpi) => (
         <div key={kpi.label} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-4 relative overflow-hidden">
           {/* Accent bar */}
