@@ -41,6 +41,29 @@ async function sendWhatsAppTemplate(phone: string, templateName: string, params:
   return res.ok
 }
 
+type LedgerSnapshot = {
+  balance: number
+  oldestDebitAt: Date | null
+}
+
+function buildLedgerSnapshotMap(entries: Array<{ customerId: string; type: string; amount: unknown; createdAt: Date }>) {
+  const map = new Map<string, LedgerSnapshot>()
+  for (const entry of entries) {
+    const current = map.get(entry.customerId) ?? { balance: 0, oldestDebitAt: null }
+    const amount = Number(entry.amount ?? 0)
+    if (entry.type === 'DEBIT') {
+      current.balance += amount
+      if (!current.oldestDebitAt || entry.createdAt < current.oldestDebitAt) {
+        current.oldestDebitAt = entry.createdAt
+      }
+    } else {
+      current.balance -= amount
+    }
+    map.set(entry.customerId, current)
+  }
+  return map
+}
+
 export async function reminderRoutes(app: FastifyInstance) {
   // GET /api/reminders  — recent reminders log
   app.get('/', async (req) => {
@@ -110,26 +133,27 @@ export async function reminderRoutes(app: FastifyInstance) {
     const { minDays = 7 } = req.body as any
 
     const customers = await prisma.customer.findMany({ where: { isActive: true, businessId: bizId } })
+    const customerIds = customers.map((customer) => customer.id)
+    const ledgerEntries = customerIds.length > 0
+      ? await prisma.ledgerEntry.findMany({
+          where: { customerId: { in: customerIds } },
+          select: { customerId: true, type: true, amount: true, createdAt: true },
+        })
+      : []
+    const ledgerMap = buildLedgerSnapshotMap(ledgerEntries)
     const results = []
 
     for (const customer of customers) {
       if (!customer.remindersEnabled) continue
-
-      const entries = await prisma.ledgerEntry.findMany({ where: { customerId: customer.id } })
-      const balance = entries.reduce((s, e) =>
-        s + (e.type === 'DEBIT' ? Number(e.amount) : -Number(e.amount)), 0)
+      const snapshot = ledgerMap.get(customer.id)
+      const balance = Number(snapshot?.balance ?? 0)
       if (balance <= 0) continue
-
-      const oldest = entries
-        .filter(e => e.type === 'DEBIT')
-        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0]
+      const oldest = snapshot?.oldestDebitAt
       if (!oldest) continue
 
-      const days = Math.floor((Date.now() - oldest.createdAt.getTime()) / 86_400_000)
+      const days = Math.floor((Date.now() - oldest.getTime()) / 86_400_000)
       if (days < minDays) continue
 
-      const jwtUser = req.user as any
-      const bName = jwtUser?.businessName ?? 'Cement House'
       // {{1}} Name, {{2}} Amount, {{3}} Days, {{4}} Current Date
       const todayStr = new Date().toLocaleDateString('en-GB')
       const message = WA_TEMPLATES.paymentReminder(customer.name, balance, days, todayStr)
@@ -175,25 +199,28 @@ export async function reminderRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: 'No customers selected' })
     }
 
-    const customers = await prisma.customer.findMany({ 
-      where: { id: { in: customerIds }, isActive: true, businessId: bizId } 
+    const customers = await prisma.customer.findMany({
+      where: { id: { in: customerIds }, isActive: true, businessId: bizId }
     })
+    const resolvedCustomerIds = customers.map((customer) => customer.id)
+    const ledgerEntries = resolvedCustomerIds.length > 0
+      ? await prisma.ledgerEntry.findMany({
+          where: { customerId: { in: resolvedCustomerIds } },
+          select: { customerId: true, type: true, amount: true, createdAt: true },
+        })
+      : []
+    const ledgerMap = buildLedgerSnapshotMap(ledgerEntries)
     
     const results = []
 
     for (const customer of customers) {
-      const entries = await prisma.ledgerEntry.findMany({ where: { customerId: customer.id } })
-      const balance = entries.reduce((s, e) =>
-        s + (e.type === 'DEBIT' ? Number(e.amount) : -Number(e.amount)), 0)
+      const snapshot = ledgerMap.get(customer.id)
+      const balance = Number(snapshot?.balance ?? 0)
       if (balance <= 0) continue
 
-      const oldest = entries
-        .filter(e => e.type === 'DEBIT')
-        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0]
-      const days = oldest ? Math.floor((Date.now() - oldest.createdAt.getTime()) / 86_400_000) : 0
+      const oldest = snapshot?.oldestDebitAt
+      const days = oldest ? Math.floor((Date.now() - oldest.getTime()) / 86_400_000) : 0
 
-      const jwtUser = req.user as any
-      const bName = jwtUser?.businessName ?? 'Cement House'
       // {{1}} Name, {{2}} Amount, {{3}} Days, {{4}} Current Date
       const todayStr = new Date().toLocaleDateString('en-GB')
       const message = WA_TEMPLATES.paymentReminder(customer.name, balance, days, todayStr)

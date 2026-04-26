@@ -64,9 +64,7 @@ export async function orderRoutes(app: FastifyInstance) {
     const totalAmount = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0)
     const avgMargin   = items.reduce((s, i) => s + marginPct(i.unitPrice, i.purchasePrice), 0) / items.length
 
-    // Get next sequence number (scoped to business)
-    const count = await prisma.order.count({ where: { businessId: bizId } })
-    const orderNumber = generateOrderNumber(count + 1)
+    const orderNumber = generateOrderNumber()
 
     const order = await prisma.$transaction(async (tx) => {
       const o = await tx.order.create({
@@ -196,8 +194,7 @@ export async function orderRoutes(app: FastifyInstance) {
       if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
       
       if (order.deliveries.length === 0) {
-        const count = await prisma.delivery.count()
-        const challanNumber = generateChallanNumber(count + 1)
+        const challanNumber = generateChallanNumber()
         
         await prisma.$transaction(async (tx) => {
           await tx.delivery.create({

@@ -667,18 +667,33 @@ export async function reportRoutes(app: FastifyInstance) {
         include: { _count: { select: { orders: { where: { isDeleted: false } } } } },
         orderBy: { name: 'asc' },
       })
-      const rows = await Promise.all(
-        customers.map(async (customer) => {
-          const agg = await prisma.ledgerEntry.groupBy({
-            by: ['type'],
-            where: { customerId: customer.id },
+      const customerIds = customers.map((customer) => customer.id)
+      const ledgerAgg = customerIds.length > 0
+        ? await prisma.ledgerEntry.groupBy({
+            by: ['customerId', 'type'],
+            where: { customerId: { in: customerIds } },
             _sum: { amount: true },
           })
-          const debit = Number(agg.find((a) => a.type === 'DEBIT')?._sum.amount ?? 0)
-          const credit = Number(agg.find((a) => a.type === 'CREDIT')?._sum.amount ?? 0)
-          return [customer.name, customer.phone, customer.riskTag, customer.address ?? '', customer._count.orders, Number(customer.creditLimit), debit - credit]
-        })
-      )
+        : []
+      const balanceMap = new Map<string, { debit: number; credit: number }>()
+      for (const row of ledgerAgg) {
+        const current = balanceMap.get(row.customerId) ?? { debit: 0, credit: 0 }
+        if (row.type === 'DEBIT') current.debit = Number(row._sum.amount ?? 0)
+        if (row.type === 'CREDIT') current.credit = Number(row._sum.amount ?? 0)
+        balanceMap.set(row.customerId, current)
+      }
+      const rows = customers.map((customer) => {
+        const totals = balanceMap.get(customer.id) ?? { debit: 0, credit: 0 }
+        return [
+          customer.name,
+          customer.phone,
+          customer.riskTag,
+          customer.address ?? '',
+          customer._count.orders,
+          Number(customer.creditLimit),
+          totals.debit - totals.credit,
+        ]
+      })
       return sendCsv(
         'customers-snapshot.csv',
         csv(['Name', 'Phone', 'Risk Tag', 'Address', 'Orders', 'Credit Limit', 'Outstanding'], rows),
@@ -737,18 +752,25 @@ export async function reportRoutes(app: FastifyInstance) {
 
     if (page === 'khata') {
       const customers = await prisma.customer.findMany({ where: { isActive: true, businessId: bizId }, orderBy: { name: 'asc' } })
-      const rows = await Promise.all(
-        customers.map(async (customer) => {
-          const agg = await prisma.ledgerEntry.groupBy({
-            by: ['type'],
-            where: { customerId: customer.id },
+      const customerIds = customers.map((customer) => customer.id)
+      const ledgerAgg = customerIds.length > 0
+        ? await prisma.ledgerEntry.groupBy({
+            by: ['customerId', 'type'],
+            where: { customerId: { in: customerIds } },
             _sum: { amount: true },
           })
-          const debit = Number(agg.find((a) => a.type === 'DEBIT')?._sum.amount ?? 0)
-          const credit = Number(agg.find((a) => a.type === 'CREDIT')?._sum.amount ?? 0)
-          return [customer.name, customer.phone, customer.riskTag, debit, credit, debit - credit]
-        })
-      )
+        : []
+      const balanceMap = new Map<string, { debit: number; credit: number }>()
+      for (const row of ledgerAgg) {
+        const current = balanceMap.get(row.customerId) ?? { debit: 0, credit: 0 }
+        if (row.type === 'DEBIT') current.debit = Number(row._sum.amount ?? 0)
+        if (row.type === 'CREDIT') current.credit = Number(row._sum.amount ?? 0)
+        balanceMap.set(row.customerId, current)
+      }
+      const rows = customers.map((customer) => {
+        const totals = balanceMap.get(customer.id) ?? { debit: 0, credit: 0 }
+        return [customer.name, customer.phone, customer.riskTag, totals.debit, totals.credit, totals.debit - totals.credit]
+      })
       return sendCsv(
         'khata-snapshot.csv',
         csv(['Customer', 'Phone', 'Risk Tag', 'Total Debit', 'Total Credit', 'Outstanding'], rows),

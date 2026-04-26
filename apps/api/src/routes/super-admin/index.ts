@@ -4,7 +4,7 @@ import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { requireSuperAdmin } from '../../middleware/auth'
 import { createAuditLog } from '../../services/audit'
-import { ensurePlatformSettings } from '../../services/billing'
+import { ensurePlatformSettings, invalidatePlatformSettingsCache } from '../../services/billing'
 
 const UpdateBusinessSchema = z.object({
   isActive: z.boolean().optional(),
@@ -252,6 +252,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
         trialRequiresCard: body.data.trialRequiresCard,
       },
     })
+    invalidatePlatformSettingsCache()
 
     return {
       success: true,

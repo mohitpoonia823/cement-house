@@ -36,16 +36,31 @@ export async function ledgerRoutes(app: FastifyInstance) {
   app.get('/summary/all', async (req) => {
     const bizId = getBizId(req)
     const customers = await prisma.customer.findMany({ where: { isActive: true, businessId: bizId } })
-    const summaries = await Promise.all(customers.map(async (c) => {
-      const agg = await prisma.ledgerEntry.groupBy({
-        by: ['type'], where: { customerId: c.id },
-        _sum: { amount: true },
-      })
-      const debit  = agg.find(a => a.type === 'DEBIT')?._sum.amount  ?? 0
-      const credit = agg.find(a => a.type === 'CREDIT')?._sum.amount ?? 0
-      const balance = Number(debit) - Number(credit)
-      return { customerId: c.id, customerName: c.name, phone: c.phone, balance, riskTag: c.riskTag }
-    }))
+    const customerIds = customers.map((customer) => customer.id)
+    const ledgerAgg = customerIds.length > 0
+      ? await prisma.ledgerEntry.groupBy({
+          by: ['customerId', 'type'],
+          where: { customerId: { in: customerIds } },
+          _sum: { amount: true },
+        })
+      : []
+    const ledgerMap = new Map<string, { debit: number; credit: number }>()
+    for (const row of ledgerAgg) {
+      const current = ledgerMap.get(row.customerId) ?? { debit: 0, credit: 0 }
+      if (row.type === 'DEBIT') current.debit = Number(row._sum.amount ?? 0)
+      if (row.type === 'CREDIT') current.credit = Number(row._sum.amount ?? 0)
+      ledgerMap.set(row.customerId, current)
+    }
+    const summaries = customers.map((customer) => {
+      const totals = ledgerMap.get(customer.id) ?? { debit: 0, credit: 0 }
+      return {
+        customerId: customer.id,
+        customerName: customer.name,
+        phone: customer.phone,
+        balance: totals.debit - totals.credit,
+        riskTag: customer.riskTag,
+      }
+    })
     return { success: true, data: summaries.filter(s => s.balance !== 0) }
   })
 

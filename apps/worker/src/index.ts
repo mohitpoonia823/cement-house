@@ -20,14 +20,34 @@ cron.schedule('0 20 * * *', async () => {
   console.log('[cron] Checking overdue ledger balances...')
 
   const customers = await prisma.customer.findMany({ where: { isActive: true } })
+  const customerIds = customers.map((customer) => customer.id)
+  const entries = customerIds.length > 0
+    ? await prisma.ledgerEntry.findMany({
+        where: { customerId: { in: customerIds } },
+        select: { customerId: true, type: true, amount: true, createdAt: true },
+      })
+    : []
+  const ledgerMap = new Map<string, { balance: number; oldestDebitAt: Date | null }>()
+  for (const entry of entries) {
+    const current = ledgerMap.get(entry.customerId) ?? { balance: 0, oldestDebitAt: null }
+    const amount = Number(entry.amount ?? 0)
+    if (entry.type === 'DEBIT') {
+      current.balance += amount
+      if (!current.oldestDebitAt || entry.createdAt < current.oldestDebitAt) current.oldestDebitAt = entry.createdAt
+    } else {
+      current.balance -= amount
+    }
+    ledgerMap.set(entry.customerId, current)
+  }
+
   for (const customer of customers) {
-    const entries = await prisma.ledgerEntry.findMany({ where: { customerId: customer.id } })
-    const balance = entries.reduce((s, e) => s + (e.type === 'DEBIT' ? Number(e.amount) : -Number(e.amount)), 0)
+    const snapshot = ledgerMap.get(customer.id)
+    const balance = Number(snapshot?.balance ?? 0)
     if (balance <= 0) continue
 
-    const oldest = entries.filter(e => e.type === 'DEBIT').sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0]
+    const oldest = snapshot?.oldestDebitAt
     if (!oldest) continue
-    const days = daysSince(oldest.createdAt)
+    const days = daysSince(oldest)
 
     // Queue reminders at 7, 15, 30-day thresholds
     if (days === 7 || days === 15 || days === 30) {

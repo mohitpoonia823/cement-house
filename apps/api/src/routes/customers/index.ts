@@ -36,17 +36,29 @@ export async function customerRoutes(app: FastifyInstance) {
       },
     })
 
-    // Attach outstanding balance to each customer
-    const withBalance = await Promise.all(customers.map(async (c) => {
-      const agg = await prisma.ledgerEntry.groupBy({
-        by: ['type'],
-        where: { customerId: c.id },
-        _sum: { amount: true },
-      })
-      const debit  = Number(agg.find(a => a.type === 'DEBIT')?._sum.amount  ?? 0)
-      const credit = Number(agg.find(a => a.type === 'CREDIT')?._sum.amount ?? 0)
-      return { ...c, balance: debit - credit, orderCount: c._count.orders }
-    }))
+    const customerIds = customers.map((customer) => customer.id)
+    const ledgerAgg = customerIds.length > 0
+      ? await prisma.ledgerEntry.groupBy({
+          by: ['customerId', 'type'],
+          where: { customerId: { in: customerIds } },
+          _sum: { amount: true },
+        })
+      : []
+    const ledgerMap = new Map<string, { debit: number; credit: number }>()
+    for (const row of ledgerAgg) {
+      const current = ledgerMap.get(row.customerId) ?? { debit: 0, credit: 0 }
+      if (row.type === 'DEBIT') current.debit = Number(row._sum.amount ?? 0)
+      if (row.type === 'CREDIT') current.credit = Number(row._sum.amount ?? 0)
+      ledgerMap.set(row.customerId, current)
+    }
+    const withBalance = customers.map((customer) => {
+      const totals = ledgerMap.get(customer.id) ?? { debit: 0, credit: 0 }
+      return {
+        ...customer,
+        balance: totals.debit - totals.credit,
+        orderCount: customer._count.orders,
+      }
+    })
 
     return { success: true, data: withBalance }
   })
@@ -70,11 +82,11 @@ export async function customerRoutes(app: FastifyInstance) {
     if (!customer) return reply.status(404).send({ success: false, error: 'Customer not found' })
 
     // Compute lifetime stats
-    const allOrders = await prisma.order.findMany({
+    const orderTotals = await prisma.order.aggregate({
       where: { customerId: id, status: { not: 'CANCELLED' }, isDeleted: false },
-      select: { totalAmount: true, amountPaid: true },
+      _sum: { totalAmount: true },
     })
-    const lifetimeBusiness = allOrders.reduce((s, o) => s + Number(o.totalAmount), 0)
+    const lifetimeBusiness = Number(orderTotals._sum.totalAmount ?? 0)
 
     const agg = await prisma.ledgerEntry.groupBy({
       by: ['type'], where: { customerId: id }, _sum: { amount: true },

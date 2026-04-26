@@ -2,8 +2,22 @@ import type { BillingInterval, Business, PaymentMethod, PlatformSetting, Prisma,
 import { prisma } from '@cement-house/db'
 
 const PLATFORM_SETTINGS_ID = 'default'
+const PLATFORM_SETTINGS_CACHE_TTL_MS = 60_000
 
 type DbLike = PrismaClient | Prisma.TransactionClient
+let platformSettingsCache: PlatformSetting | null = null
+let platformSettingsCacheTs = 0
+let platformSettingsInFlight: Promise<PlatformSetting> | null = null
+
+function platformSettingsCacheFresh() {
+  return platformSettingsCache && (Date.now() - platformSettingsCacheTs) < PLATFORM_SETTINGS_CACHE_TTL_MS
+}
+
+export function invalidatePlatformSettingsCache() {
+  platformSettingsCache = null
+  platformSettingsCacheTs = 0
+  platformSettingsInFlight = null
+}
 
 export type BusinessWithBilling = Pick<
   Business,
@@ -21,18 +35,35 @@ export type BusinessWithBilling = Pick<
 >
 
 export async function ensurePlatformSettings(db: DbLike = prisma) {
-  return db.platformSetting.upsert({
-    where: { id: PLATFORM_SETTINGS_ID },
-    update: {},
-    create: {
-      id: PLATFORM_SETTINGS_ID,
-      trialDays: 7,
-      monthlyPrice: 200,
-      yearlyPrice: 2100,
-      currency: 'INR',
-      trialRequiresCard: true,
-    },
-  })
+  const load = () =>
+    db.platformSetting.upsert({
+      where: { id: PLATFORM_SETTINGS_ID },
+      update: {},
+      create: {
+        id: PLATFORM_SETTINGS_ID,
+        trialDays: 7,
+        monthlyPrice: 200,
+        yearlyPrice: 2100,
+        currency: 'INR',
+        trialRequiresCard: true,
+      },
+    })
+
+  // Cache only for shared root Prisma client. Transaction-bound clients must read fresh data.
+  if (db !== prisma) return load()
+  if (platformSettingsCacheFresh()) return platformSettingsCache as PlatformSetting
+  if (!platformSettingsInFlight) {
+    platformSettingsInFlight = load()
+      .then((settings) => {
+        platformSettingsCache = settings
+        platformSettingsCacheTs = Date.now()
+        return settings
+      })
+      .finally(() => {
+        platformSettingsInFlight = null
+      })
+  }
+  return platformSettingsInFlight
 }
 
 export function addDays(date: Date, days: number) {

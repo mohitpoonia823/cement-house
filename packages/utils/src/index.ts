@@ -8,15 +8,23 @@ export function formatRupees(amount: number): string {
 }
 
 /** Generate order number: ORD-2026-0841 */
-export function generateOrderNumber(seq: number): string {
+export function generateOrderNumber(seq?: number): string {
   const year = new Date().getFullYear()
-  return `ORD-${year}-${String(seq).padStart(4, '0')}`
+  if (typeof seq === 'number') {
+    return `ORD-${year}-${String(seq).padStart(4, '0')}`
+  }
+  const nonce = `${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`
+  return `ORD-${year}-${nonce}`
 }
 
 /** Generate challan number: CH-2026-0839 */
-export function generateChallanNumber(seq: number): string {
+export function generateChallanNumber(seq?: number): string {
   const year = new Date().getFullYear()
-  return `CH-${year}-${String(seq).padStart(4, '0')}`
+  if (typeof seq === 'number') {
+    return `CH-${year}-${String(seq).padStart(4, '0')}`
+  }
+  const nonce = `${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`
+  return `CH-${year}-${nonce}`
 }
 
 /** Calculate margin percentage */

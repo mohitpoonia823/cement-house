@@ -149,6 +149,7 @@ model Business {
   paymentMethods PaymentMethod[]
   paymentTransactions PaymentTransaction[]
 
+  @@index([isActive, subscriptionStatus])
   @@map("businesses")
 }
 
@@ -178,6 +179,8 @@ model User {
   stockMovements   StockMovement[] @relation("StockRecordedBy")
   auditLogs        AuditLog[]      @relation("AuditActor")
 
+  @@index([businessId, role, isActive])
+  @@index([lastSeenAt])
   @@map("users")
 }
 
@@ -210,6 +213,9 @@ model Customer {
   ledgerEntries  LedgerEntry[]
   reminders      Reminder[]
 
+  @@index([businessId, isActive, name])
+  @@index([businessId, riskTag, isActive])
+  @@index([phone, businessId])
   @@map("customers")
 }
 
@@ -239,6 +245,8 @@ model Material {
   stockMovements  StockMovement[]
   deliveryItems   DeliveryItem[]
 
+  @@index([businessId, isActive, name])
+  @@index([businessId, isActive, stockQty])
   @@map("materials")
 }
 
@@ -275,6 +283,10 @@ model Order {
   ledgerEntries  LedgerEntry[]
   stockMovements StockMovement[]
 
+  @@index([businessId, isDeleted, createdAt])
+  @@index([businessId, status, isDeleted, createdAt])
+  @@index([businessId, customerId, isDeleted, createdAt])
+  @@index([customerId, createdAt])
   @@map("orders")
 }
 
@@ -293,6 +305,8 @@ model OrderItem {
   purchasePrice  Decimal  @db.Decimal(10, 2)  // cost at time of order (snapshot)
   lineTotal      Decimal  @db.Decimal(12, 2)  // quantity × unitPrice
 
+  @@index([orderId])
+  @@index([materialId])
   @@map("order_items")
 }
 
@@ -320,6 +334,10 @@ model LedgerEntry {
   business     Business        @relation(fields: [businessId], references: [id])
   businessId   String
 
+  @@index([businessId, customerId, createdAt])
+  @@index([customerId, type])
+  @@index([businessId, type, createdAt])
+  @@index([orderId])
   @@map("ledger_entries")
 }
 
@@ -344,6 +362,8 @@ model Delivery {
   // Relations
   items  DeliveryItem[]
 
+  @@index([orderId, createdAt])
+  @@index([status, createdAt])
   @@map("deliveries")
 }
 
@@ -361,6 +381,8 @@ model DeliveryItem {
   orderedQty   Decimal  @db.Decimal(12, 3)
   deliveredQty Decimal  @db.Decimal(12, 3)
 
+  @@index([deliveryId])
+  @@index([materialId])
   @@map("delivery_items")
 }
 
@@ -387,6 +409,9 @@ model StockMovement {
   business     Business          @relation(fields: [businessId], references: [id])
   businessId   String
 
+  @@index([businessId, materialId, createdAt])
+  @@index([materialId, createdAt])
+  @@index([orderId])
   @@map("stock_movements")
 }
 
@@ -406,6 +431,9 @@ model Reminder {
   sentAt       DateTime?
   createdAt    DateTime        @default(now())
 
+  @@index([customerId, createdAt])
+  @@index([status, createdAt])
+  @@index([scheduledAt])
   @@map("reminders")
 }
 

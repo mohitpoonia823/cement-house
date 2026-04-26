@@ -66,8 +66,7 @@ export async function deliveryRoutes(app: FastifyInstance) {
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
     if (order.status === 'CANCELLED') return reply.status(400).send({ success: false, error: 'Cannot deliver a cancelled order' })
 
-    const count = await prisma.delivery.count()
-    const challanNumber = generateChallanNumber(count + 1)
+    const challanNumber = generateChallanNumber()
 
     const delivery = await prisma.$transaction(async (tx) => {
       const d = await tx.delivery.create({
