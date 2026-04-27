@@ -1,6 +1,7 @@
 # ─────────────────────────────────────────────────────────────
 # CD Pipeline — Build Docker Images → Push to Docker Hub → Deploy to Render
 # Runs only after CI passes on master branch
+# Web (apps/web) is deployed via Vercel automatically
 # ─────────────────────────────────────────────────────────────
 
 name: CD
@@ -94,11 +95,6 @@ jobs:
           curl -s "${{ secrets.RENDER_DEPLOY_HOOK_WORKER }}"
           echo "✅ Worker deploy triggered"
 
-      - name: Trigger Render Deploy — Web
-        run: |
-          curl -s "${{ secrets.RENDER_DEPLOY_HOOK_WEB }}"
-          echo "✅ Web deploy triggered"
-
       - name: Summary
         run: |
           echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
@@ -107,4 +103,4 @@ jobs:
           echo "|---------|-------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| API     | \`${{ env.DOCKERHUB_REPO }}:api-latest\` | ✅ Deployed |" >> $GITHUB_STEP_SUMMARY
           echo "| Worker  | \`${{ env.DOCKERHUB_REPO }}:worker-latest\` | ✅ Deployed |" >> $GITHUB_STEP_SUMMARY
-          echo "| Web     | \`${{ env.DOCKERHUB_REPO }}:web-latest\` | ✅ Deployed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Web     | \`${{ env.DOCKERHUB_REPO }}:web-latest\` | ✅ Vercel (auto-deployed) |" >> $GITHUB_STEP_SUMMARY

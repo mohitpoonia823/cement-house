@@ -1,25 +1,10 @@
 # ─────────────────────────────────────────────────────────────
 # Render Blueprint — Infrastructure as Code
-# Defines all 3 services from one monorepo
+# Defines all 2 services from one monorepo (web moved to Vercel)
 # Docs: https://render.com/docs/blueprint-spec
 # ─────────────────────────────────────────────────────────────
 
 services:
-  # ── Next.js Frontend ──────────────────────────────────────
-  - type: web
-    name: cement-house-web
-    runtime: docker
-    dockerfilePath: ./apps/web/Dockerfile
-    dockerContext: .
-    plan: free
-    envVars:
-      - key: NEXT_PUBLIC_API_URL
-        value: https://cement-house-api.onrender.com
-    buildFilter:
-      paths:
-        - apps/web/**
-        - packages/**
-
   # ── Fastify API ───────────────────────────────────────────
   - type: web
     name: cement-house-api
@@ -29,7 +14,7 @@ services:
     plan: free
     envVars:
       - key: DATABASE_URL
-        sync: false    # set manually in Render dashboard
+        sync: false
       - key: DIRECT_URL
         sync: false
       - key: REDIS_URL
@@ -45,7 +30,7 @@ services:
       - key: PORT
         value: 4000
       - key: WEB_URL
-        value: https://cement-house-web.onrender.com
+        value: https://cement-house-web.vercel.app  # ✅ Updated
       - key: WHATSAPP_PHONE_NUMBER_ID
         sync: false
       - key: WHATSAPP_ACCESS_TOKEN
