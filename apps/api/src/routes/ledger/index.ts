@@ -13,7 +13,7 @@ const RecordPaymentSchema = z.object({
 })
 
 export async function ledgerRoutes(app: FastifyInstance) {
-  // GET /api/ledger/:customerId — full ledger for one customer
+  // GET /api/ledger/:customerId - full ledger for one customer
   app.get('/:customerId', async (req) => {
     const { customerId } = req.params as any
     const entries = await prisma.ledgerEntry.findMany({
@@ -24,7 +24,7 @@ export async function ledgerRoutes(app: FastifyInstance) {
 
     // Compute running balance
     let balance = 0
-    const withBalance = entries.map(e => {
+    const withBalance = entries.map((e) => {
       balance += e.type === 'DEBIT' ? Number(e.amount) : -Number(e.amount)
       return { ...e, runningBalance: balance }
     })
@@ -32,7 +32,7 @@ export async function ledgerRoutes(app: FastifyInstance) {
     return { success: true, data: { entries: withBalance, currentBalance: balance } }
   })
 
-  // GET /api/ledger/summary/all — all customers with outstanding balance (scoped to business)
+  // GET /api/ledger/summary/all - all customers with outstanding balance (scoped to business)
   app.get('/summary/all', async (req) => {
     const bizId = getBizId(req)
     const customers = await prisma.customer.findMany({ where: { isActive: true, businessId: bizId } })
@@ -61,10 +61,10 @@ export async function ledgerRoutes(app: FastifyInstance) {
         riskTag: customer.riskTag,
       }
     })
-    return { success: true, data: summaries.filter(s => s.balance !== 0) }
+    return { success: true, data: summaries.filter((s) => s.balance !== 0) }
   })
 
-  // POST /api/ledger/payment — record a payment
+  // POST /api/ledger/payment - record a payment
   app.post('/payment', async (req, reply) => {
     const user = req.user as { id: string }
     const bizId = getBizId(req)
@@ -93,7 +93,7 @@ export async function ledgerRoutes(app: FastifyInstance) {
           data:  { amountPaid: { increment: body.data.amount } },
         })
       } else {
-        // General payment — distribute to oldest unpaid orders (FIFO)
+        // General payment - distribute to oldest unpaid orders (FIFO)
         const unpaidOrders = await tx.order.findMany({
           where: {
             customerId: body.data.customerId,
@@ -122,9 +122,17 @@ export async function ledgerRoutes(app: FastifyInstance) {
   })
 }
 
-// GET /api/ledger/:customerId/statement  — stream PDF statement
-import { streamStatement } from '../../services/pdf'
+function csvCell(value: string | number) {
+  const str = String(value)
+  if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`
+  return str
+}
 
+function toCsv(rows: Array<Array<string | number>>) {
+  return rows.map((row) => row.map(csvCell).join(',')).join('\n')
+}
+
+// GET /api/ledger/:customerId/statement - download CSV statement
 export async function ledgerStatementRoute(app: FastifyInstance) {
   app.get('/:customerId/statement', async (req, reply) => {
     const { customerId } = req.params as any
@@ -138,28 +146,42 @@ export async function ledgerStatementRoute(app: FastifyInstance) {
     })
 
     let balance = 0
-    const rows = entries.map(e => {
+    const rows = entries.map((e) => {
       const amt = Number(e.amount)
       balance += e.type === 'DEBIT' ? amt : -amt
       return {
-        date:        e.createdAt,
+        date: e.createdAt,
         description: e.notes ?? (e.order ? `Order ${e.order.orderNumber}` : e.type),
-        debit:       e.type === 'DEBIT'  ? amt : null,
-        credit:      e.type === 'CREDIT' ? amt : null,
+        debit: e.type === 'DEBIT' ? amt : null,
+        credit: e.type === 'CREDIT' ? amt : null,
         balance,
       }
     })
 
-    const jwtUser = req.user as any
+    const csvRows: Array<Array<string | number>> = [
+      ['Customer', customer.name],
+      ['Phone', customer.phone ?? '-'],
+      ['Generated At', new Date().toISOString()],
+      ['Current Balance', balance],
+      [],
+      ['Date', 'Description', 'Debit (sale)', 'Credit (paid)', 'Balance'],
+      ...rows.map((entry) => [
+        new Date(entry.date).toISOString(),
+        entry.description,
+        entry.debit ?? '',
+        entry.credit ?? '',
+        entry.balance,
+      ]),
+    ]
 
-    streamStatement({
-      customerName:   customer.name,
-      customerPhone:  customer.phone,
-      generatedAt:    new Date(),
-      currentBalance: balance,
-      businessName:   jwtUser.businessName ?? 'Cement House',
-      businessCity:   jwtUser.businessCity ?? '',
-      entries:        rows,
-    }, reply)
+    const fileSafeName = customer.name.trim().replace(/\s+/g, '-').toLowerCase() || 'customer'
+    const csv = toCsv(csvRows)
+
+    reply
+      .header('Access-Control-Allow-Origin', process.env.WEB_URL ?? 'http://localhost:3000')
+      .header('Access-Control-Expose-Headers', 'Content-Disposition')
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="statement-${fileSafeName}.csv"`)
+      .send(csv)
   })
 }

@@ -39,7 +39,7 @@ function exportLabel(page: string) {
 export function Topbar() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { user } = useAuthStore()
+  const { user, logout } = useAuthStore()
   const isOwner = user?.role === 'OWNER'
   const title = pageTitles[pathname] ?? 'Cement House'
   const page = exportPageForPath(pathname)
@@ -185,10 +185,22 @@ export function Topbar() {
           </button>
           <Link
             href="/orders/new"
-            className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
+            className="hidden rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400 xl:inline-flex"
           >
             + New order
           </Link>
+          <Link
+            href="/orders?openNewOrder=1"
+            className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400 xl:hidden"
+          >
+            + New order
+          </Link>
+          <button
+            onClick={logout}
+            className="rounded-full border border-rose-200 px-4 py-2 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-50 dark:border-rose-400/40 dark:text-rose-200 dark:hover:bg-rose-500/10 xl:hidden"
+          >
+            Sign out
+          </button>
         </div>
       </div>
       <div className="mt-3 flex gap-2 overflow-x-auto xl:hidden">

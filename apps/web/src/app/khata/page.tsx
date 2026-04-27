@@ -4,6 +4,7 @@ import { Card, MetricCard, MetricGrid, SectionHeader } from '@/components/ui/Car
 import { PageLoader } from '@/components/ui/Spinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useLedger, useLedgerSummary, useRecordPayment } from '@/hooks/useLedger'
+import { api } from '@/lib/api'
 import { fmt, fmtDate } from '@/lib/utils'
 import { useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
@@ -28,6 +29,7 @@ function KhataContent() {
   const [payMode, setPayMode] = useState('CASH')
   const [payRef, setPayRef] = useState('')
   const [payError, setPayError] = useState('')
+  const [isDownloadingStatement, setIsDownloadingStatement] = useState(false)
 
   const { data: summary, isLoading: sLoading } = useLedgerSummary()
   const { data: ledger, isLoading: lLoading } = useLedger(selectedId)
@@ -51,6 +53,29 @@ function KhataContent() {
       setPayRef('')
     } catch (err: any) {
       setPayError(err.response?.data?.error ?? 'Failed to record payment')
+    }
+  }
+
+  async function handleStatementDownload() {
+    if (!selectedId || isDownloadingStatement) return
+    try {
+      setIsDownloadingStatement(true)
+      const response = await api.get(`/api/ledger/${selectedId}/statement`, { responseType: 'blob' })
+      const disposition = String(response.headers['content-disposition'] ?? '')
+      const match = disposition.match(/filename="([^"]+)"/i)
+      const fallback = `statement-${selected?.customerName?.replace(/\s+/g, '-').toLowerCase() ?? 'customer'}.csv`
+      const filename = match?.[1] ?? fallback
+
+      const blobUrl = window.URL.createObjectURL(new Blob([response.data], { type: 'text/csv;charset=utf-8;' }))
+      const link = document.createElement('a')
+      link.href = blobUrl
+      link.setAttribute('download', filename)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(blobUrl)
+    } finally {
+      setIsDownloadingStatement(false)
     }
   }
 
@@ -148,10 +173,11 @@ function KhataContent() {
                     + Record payment
                   </button>
                   <button
+                    disabled={isDownloadingStatement}
                     className="rounded-md border border-stone-200 px-3 py-1.5 text-xs hover:bg-stone-50 dark:border-stone-700 dark:hover:bg-stone-800"
-                    onClick={() => window.open(`${process.env.NEXT_PUBLIC_API_URL}/api/ledger/${selectedId}/statement`, '_blank')}
+                    onClick={handleStatementDownload}
                   >
-                    Download statement PDF
+                    {isDownloadingStatement ? 'Downloading...' : 'Download statement CSV'}
                   </button>
                 </div>
               </div>
