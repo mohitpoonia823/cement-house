@@ -6,12 +6,19 @@ import { PageLoader } from '@/components/ui/Spinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useOrders, useDeleteOrder, useBulkDeleteOrders } from '@/hooks/useOrders'
 import { fmt, fmtDate } from '@/lib/utils'
-import { NewOrderForm } from '@/components/orders/NewOrderForm'
 import Link from 'next/link'
 import { Suspense, useEffect, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 const STATUSES = ['ALL', 'CONFIRMED', 'DISPATCHED', 'DELIVERED', 'CANCELLED']
+const NewOrderForm = dynamic(
+  () => import('@/components/orders/NewOrderForm').then((mod) => mod.NewOrderForm),
+  {
+    ssr: false,
+    loading: () => <PageLoader />,
+  }
+)
 
 export default function OrdersPage() {
   return (

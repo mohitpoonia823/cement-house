@@ -1,0 +1,224 @@
+apps/worker/src\index.ts:22:  const customers = await prisma.customer.findMany({ where: { isActive: true } })
+apps/worker/src\index.ts:25:    ? await prisma.ledgerEntry.findMany({
+apps/worker/src\processors\stock-alert.ts:4:  const businesses = await prisma.business.findMany({ where: { isActive: true } })
+apps/worker/src\processors\stock-alert.ts:8:    ? await prisma.material.findMany({
+apps/worker/src\processors\stock-alert.ts:15:    ? await prisma.user.findMany({
+apps/worker/src\processors\reminder.ts:31:  await prisma.reminder.create({
+apps/worker/src\processors\daily-report.ts:8:  const businesses = await prisma.business.findMany({ where: { isActive: true } })
+apps/worker/src\processors\daily-report.ts:12:    ? await prisma.order.groupBy({
+apps/worker/src\processors\daily-report.ts:25:    ? await prisma.user.findMany({
+apps/api/src\services\billing.ts:236:  return db.paymentMethod.findFirst({
+apps/api/src\middleware\auth.ts:39:    const user = await prisma.user.findUnique({
+apps/api/src\middleware\auth.ts:41:      include: { business: true },
+apps/api/src\middleware\auth.ts:86:      prisma.user.update({
+apps/api/src\services\audit.ts:11:  return prisma.auditLog.create({
+apps/api/src\routes\customers\index.ts:31:    const customers = await prisma.customer.findMany({
+apps/api/src\routes\customers\index.ts:34:      include: {
+apps/api/src\routes\customers\index.ts:41:      ? await prisma.ledgerEntry.groupBy({
+apps/api/src\routes\customers\index.ts:69:    const customer = await prisma.customer.findUnique({
+apps/api/src\routes\customers\index.ts:71:      include: {
+apps/api/src\routes\customers\index.ts:75:          take: 10,
+apps/api/src\routes\customers\index.ts:76:          include: { items: { include: { material: true } } },
+apps/api/src\routes\customers\index.ts:78:        reminders: { orderBy: { createdAt: 'desc' }, take: 5 },
+apps/api/src\routes\customers\index.ts:85:    const orderTotals = await prisma.order.aggregate({
+apps/api/src\routes\customers\index.ts:91:    const agg = await prisma.ledgerEntry.groupBy({
+apps/api/src\routes\customers\index.ts:111:    const existing = await prisma.customer.findFirst({ where: { phone: body.data.phone, businessId: bizId } })
+apps/api/src\routes\customers\index.ts:114:    const customer = await prisma.customer.create({ data: { ...body.data, businessId: bizId } })
+apps/api/src\routes\customers\index.ts:124:    const customer = await prisma.customer.update({ where: { id }, data: body.data })
+apps/api/src\routes\customers\index.ts:133:    const customer = await prisma.customer.update({ where: { id }, data: { riskTag } })
+apps/api/src\routes\customers\index.ts:141:    await prisma.customer.update({ where: { id }, data: { isActive: false } })
+apps/api/src\routes\customers\index.ts:150:    await prisma.customer.updateMany({ where: { id: { in: ids } }, data: { isActive: false } })
+apps/api/src\routes\delivery\index.ts:35:    const deliveries = await prisma.delivery.findMany({
+apps/api/src\routes\delivery\index.ts:37:      include: {
+apps/api/src\routes\delivery\index.ts:38:        order: { include: { customer: { select: { name: true, phone: true, address: true } } } },
+apps/api/src\routes\delivery\index.ts:39:        items: { include: { material: true } },
+apps/api/src\routes\delivery\index.ts:48:    const delivery = await prisma.delivery.findUnique({
+apps/api/src\routes\delivery\index.ts:50:      include: {
+apps/api/src\routes\delivery\index.ts:51:        order: { include: { customer: true } },
+apps/api/src\routes\delivery\index.ts:52:        items: { include: { material: true } },
+apps/api/src\routes\delivery\index.ts:65:    const order = await prisma.order.findFirst({ where: { id: body.data.orderId, businessId: bizId, isDeleted: false } })
+apps/api/src\routes\delivery\index.ts:71:    const delivery = await prisma.$transaction(async (tx) => {
+apps/api/src\routes\delivery\index.ts:81:        include: { items: { include: { material: true } } },
+apps/api/src\routes\delivery\index.ts:94:    const delivery = await prisma.delivery.update({
+apps/api/src\routes\delivery\index.ts:106:    const delivery = await prisma.delivery.findUnique({
+apps/api/src\routes\delivery\index.ts:107:      where: { id }, include: { items: true },
+apps/api/src\routes\delivery\index.ts:111:    const updated = await prisma.$transaction(async (tx) => {
+apps/api/src\routes\delivery\index.ts:133:    const delivery = await prisma.delivery.update({
+apps/api/src\routes\delivery\index.ts:137:    await prisma.order.update({ where: { id: delivery.orderId }, data: { status: 'CONFIRMED' } })
+apps/api/src\routes\delivery\index.ts:146:    const deliveries = await prisma.delivery.findMany({
+apps/api/src\routes\delivery\index.ts:148:      include: { order: { include: { customer: { select: { name: true, address: true } } } } },
+apps/api/src\routes\inventory\index.ts:23:    const materials = await prisma.material.findMany({ where: { isActive: true, businessId: bizId } })
+apps/api/src\routes\inventory\index.ts:40:    const mat = await prisma.material.findUnique({ where: { id: body.data.materialId } })
+apps/api/src\routes\inventory\index.ts:44:    const [updated] = await prisma.$transaction([
+apps/api/src\routes\inventory\index.ts:45:      prisma.material.update({
+apps/api/src\routes\inventory\index.ts:49:      prisma.stockMovement.create({
+apps/api/src\routes\inventory\index.ts:64:    const mat = await prisma.material.findUnique({ where: { id: body.data.materialId } })
+apps/api/src\routes\inventory\index.ts:68:    await prisma.$transaction([
+apps/api/src\routes\inventory\index.ts:69:      prisma.material.update({ where: { id: body.data.materialId }, data: { stockQty: body.data.newQty } }),
+apps/api/src\routes\inventory\index.ts:70:      prisma.stockMovement.create({
+apps/api/src\routes\inventory\index.ts:83:    const movements = await prisma.stockMovement.findMany({
+apps/api/src\routes\inventory\index.ts:84:      where: { materialId: id, businessId: bizId }, orderBy: { createdAt: 'desc' }, take: 50,
+apps/api/src\routes\inventory\index.ts:85:      include: { order: { select: { orderNumber: true } } },
+apps/api/src\routes\inventory\index.ts:105:    const material = await prisma.material.create({ data: { ...body.data, businessId: bizId } })
+apps/api/src\routes\inventory\index.ts:112:    await prisma.material.update({ where: { id }, data: { isActive: false } })
+apps/api/src\routes\inventory\index.ts:120:    await prisma.material.updateMany({ where: { id: { in: ids } }, data: { isActive: false } })
+apps/api/src\routes\ledger\index.ts:19:    const entries = await prisma.ledgerEntry.findMany({
+apps/api/src\routes\ledger\index.ts:22:      include: { order: { select: { orderNumber: true } } },
+apps/api/src\routes\ledger\index.ts:38:    const customers = await prisma.customer.findMany({ where: { isActive: true, businessId: bizId } })
+apps/api/src\routes\ledger\index.ts:41:      ? await prisma.ledgerEntry.groupBy({
+apps/api/src\routes\ledger\index.ts:74:    const entry = await prisma.$transaction(async (tx) => {
+apps/api/src\routes\ledger\index.ts:97:        const unpaidOrders = await tx.order.findMany({
+apps/api/src\routes\ledger\index.ts:139:    const customer = await prisma.customer.findUnique({ where: { id: customerId } })
+apps/api/src\routes\ledger\index.ts:142:    const entries = await prisma.ledgerEntry.findMany({
+apps/api/src\routes\ledger\index.ts:145:      include: { order: { select: { orderNumber: true } } },
+apps/api/src\routes\reminders\index.ts:74:    const reminders = await prisma.reminder.findMany({
+apps/api/src\routes\reminders\index.ts:75:      where, orderBy: { createdAt: 'desc' }, take: 50,
+apps/api/src\routes\reminders\index.ts:76:      include: { customer: { select: { name: true, phone: true } } },
+apps/api/src\routes\reminders\index.ts:88:    const customer = await prisma.customer.findUnique({ where: { id: body.data.customerId } })
+apps/api/src\routes\reminders\index.ts:101:    const reminder = await prisma.reminder.create({
+apps/api/src\routes\reminders\index.ts:135:    const customers = await prisma.customer.findMany({ where: { isActive: true, businessId: bizId } })
+apps/api/src\routes\reminders\index.ts:138:      ? await prisma.ledgerEntry.findMany({
+apps/api/src\routes\reminders\index.ts:165:      await prisma.reminder.create({
+apps/api/src\routes\reminders\index.ts:202:    const customers = await prisma.customer.findMany({
+apps/api/src\routes\reminders\index.ts:207:      ? await prisma.ledgerEntry.findMany({
+apps/api/src\routes\reminders\index.ts:232:      await prisma.reminder.create({
+apps/api/src\routes\super-admin\index.ts:112:    const profile = await prisma.user.findUnique({
+apps/api/src\routes\super-admin\index.ts:138:    const existing = await prisma.user.findUnique({
+apps/api/src\routes\super-admin\index.ts:146:    const updated = await prisma.user.update({
+apps/api/src\routes\super-admin\index.ts:196:    const currentUser = await prisma.user.findUnique({
+apps/api/src\routes\super-admin\index.ts:208:    await prisma.user.update({
+apps/api/src\routes\super-admin\index.ts:237:    const settings = await prisma.platformSetting.upsert({
+apps/api/src\routes\super-admin\index.ts:291:      prisma.business.findMany({
+apps/api/src\routes\super-admin\index.ts:316:      prisma.user.count({ where: { isActive: true, role: 'OWNER' } }),
+apps/api/src\routes\super-admin\index.ts:317:      prisma.user.count({ where: { isActive: true, role: 'MUNIM' } }),
+apps/api/src\routes\super-admin\index.ts:318:      prisma.user.count({
+apps/api/src\routes\super-admin\index.ts:324:      prisma.order.aggregate({
+apps/api/src\routes\super-admin\index.ts:328:      prisma.order.aggregate({
+apps/api/src\routes\super-admin\index.ts:335:      prisma.order.groupBy({
+apps/api/src\routes\super-admin\index.ts:341:      prisma.ledgerEntry.groupBy({
+apps/api/src\routes\super-admin\index.ts:346:      prisma.ledgerEntry.groupBy({
+apps/api/src\routes\super-admin\index.ts:351:      prisma.reminder.count({
+apps/api/src\routes\super-admin\index.ts:354:      prisma.reminder.findMany({
+apps/api/src\routes\super-admin\index.ts:356:        include: { customer: { select: { name: true, business: { select: { name: true } } } } },
+apps/api/src\routes\super-admin\index.ts:358:        take: 6,
+apps/api/src\routes\super-admin\index.ts:360:      prisma.auditLog.count({
+apps/api/src\routes\super-admin\index.ts:366:      prisma.auditLog.findMany({
+apps/api/src\routes\super-admin\index.ts:368:        take: 10,
+apps/api/src\routes\super-admin\index.ts:369:        include: {
+apps/api/src\routes\super-admin\index.ts:462:    const skip = (page - 1) * pageSize
+apps/api/src\routes\super-admin\index.ts:476:      prisma.business.findMany({
+apps/api/src\routes\super-admin\index.ts:478:        skip,
+apps/api/src\routes\super-admin\index.ts:479:        take: pageSize,
+apps/api/src\routes\super-admin\index.ts:481:        include: {
+apps/api/src\routes\super-admin\index.ts:485:      prisma.business.count({ where }),
+apps/api/src\routes\super-admin\index.ts:486:      prisma.order.groupBy({
+apps/api/src\routes\super-admin\index.ts:491:      prisma.ledgerEntry.groupBy({
+apps/api/src\routes\super-admin\index.ts:496:      prisma.ledgerEntry.groupBy({
+apps/api/src\routes\super-admin\index.ts:501:      prisma.user.findMany({
+apps/api/src\routes\super-admin\index.ts:555:    const skip = (page - 1) * pageSize
+apps/api/src\routes\super-admin\index.ts:568:      prisma.user.findMany({
+apps/api/src\routes\super-admin\index.ts:570:        skip,
+apps/api/src\routes\super-admin\index.ts:571:        take: pageSize,
+apps/api/src\routes\super-admin\index.ts:573:        include: {
+apps/api/src\routes\super-admin\index.ts:579:      prisma.user.count({ where }),
+apps/api/src\routes\super-admin\index.ts:614:    const current = await prisma.business.findUnique({ where: { id } })
+apps/api/src\routes\super-admin\index.ts:621:    const business = await prisma.business.update({
+apps/api/src\routes\super-admin\index.ts:662:    const business = await prisma.business.findUnique({
+apps/api/src\routes\super-admin\index.ts:664:      include: {
+apps/api/src\routes\settings\index.ts:145:      prisma.business.findUnique({ where: { id: bizId } }),
+apps/api/src\routes\settings\index.ts:146:      prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, phone: true, role: true } }),
+apps/api/src\routes\settings\index.ts:190:      prisma.business.findUnique({ where: { id: bizId } }),
+apps/api/src\routes\settings\index.ts:192:      prisma.paymentTransaction.findMany({
+apps/api/src\routes\settings\index.ts:195:        take: 8,
+apps/api/src\routes\settings\index.ts:248:    const business = await prisma.business.findUnique({ where: { id: bizId } })
+apps/api/src\routes\settings\index.ts:293:    const transaction = await prisma.paymentTransaction.create({
+apps/api/src\routes\settings\index.ts:353:      await prisma.paymentTransaction.updateMany({
+apps/api/src\routes\settings\index.ts:368:    const transaction = await prisma.paymentTransaction.findFirst({
+apps/api/src\routes\settings\index.ts:370:      include: { business: true },
+apps/api/src\routes\settings\index.ts:393:    await prisma.$transaction(async (tx) => {
+apps/api/src\routes\settings\index.ts:421:    const refreshedUser = await prisma.user.findUnique({
+apps/api/src\routes\settings\index.ts:423:      include: { business: true },
+apps/api/src\routes\settings\index.ts:457:    const business = await prisma.business.findUnique({ where: { id: bizId } })
+apps/api/src\routes\settings\index.ts:463:    const updated = await prisma.business.update({
+apps/api/src\routes\settings\index.ts:470:    const refreshedUser = await prisma.user.findUnique({
+apps/api/src\routes\settings\index.ts:472:      include: { business: true },
+apps/api/src\routes\settings\index.ts:509:    const business = await prisma.business.update({
+apps/api/src\routes\settings\index.ts:522:    const business = await prisma.business.update({
+apps/api/src\routes\settings\index.ts:536:      const existing = await prisma.user.findUnique({ where: { phone: body.data.phone } })
+apps/api/src\routes\settings\index.ts:542:    const user = await prisma.user.update({
+apps/api/src\routes\settings\index.ts:556:    const user = await prisma.user.findUnique({ where: { id: userId } })
+apps/api/src\routes\settings\index.ts:563:    await prisma.user.update({ where: { id: userId }, data: { passwordHash } })
+apps/api/src\routes\settings\index.ts:571:    const staff = await prisma.user.findMany({
+apps/api/src\routes\settings\index.ts:584:    const existing = await prisma.user.findUnique({ where: { phone: body.data.phone } })
+apps/api/src\routes\settings\index.ts:588:    const staff = await prisma.user.create({
+apps/api/src\routes\settings\index.ts:609:      const existing = await prisma.user.findUnique({ where: { phone: body.data.phone } })
+apps/api/src\routes\settings\index.ts:615:    const staff = await prisma.user.update({
+apps/api/src\routes\settings\index.ts:626:    await prisma.user.update({ where: { id }, data: { isActive: false } })
+apps/api/src\routes\reports\index.ts:254:  const orders = await prisma.order.findMany({
+apps/api/src\routes\reports\index.ts:261:    include: {
+apps/api/src\routes\reports\index.ts:299:    prisma.order.findMany({
+apps/api/src\routes\reports\index.ts:302:    prisma.ledgerEntry.findMany({
+apps/api/src\routes\reports\index.ts:305:    prisma.order.findMany({
+apps/api/src\routes\reports\index.ts:307:      include: {
+apps/api/src\routes\reports\index.ts:313:    prisma.ledgerEntry.findMany({
+apps/api/src\routes\reports\index.ts:316:    prisma.order.findMany({
+apps/api/src\routes\reports\index.ts:319:    prisma.ledgerEntry.findMany({
+apps/api/src\routes\reports\index.ts:322:    prisma.material.findMany({ where: { isActive: true, businessId: bizId } }),
+apps/api/src\routes\reports\index.ts:323:    prisma.customer.findMany({
+apps/api/src\routes\reports\index.ts:325:      include: { _count: { select: { orders: { where: { isDeleted: false } } } } },
+apps/api/src\routes\reports\index.ts:327:    prisma.delivery.findMany({
+apps/api/src\routes\reports\index.ts:329:      include: { order: { include: { customer: { select: { name: true } } } } },
+apps/api/src\routes\reports\index.ts:640:      const orders = await prisma.order.findMany({
+apps/api/src\routes\reports\index.ts:642:        include: { customer: { select: { name: true } }, items: true },
+apps/api/src\routes\reports\index.ts:665:      const customers = await prisma.customer.findMany({
+apps/api/src\routes\reports\index.ts:667:        include: { _count: { select: { orders: { where: { isDeleted: false } } } } },
+apps/api/src\routes\reports\index.ts:672:        ? await prisma.ledgerEntry.groupBy({
+apps/api/src\routes\reports\index.ts:705:      const materials = await prisma.material.findMany({
+apps/api/src\routes\reports\index.ts:730:      const deliveries = await prisma.delivery.findMany({
+apps/api/src\routes\reports\index.ts:732:        include: { order: { include: { customer: { select: { name: true, address: true } } } } },
+apps/api/src\routes\reports\index.ts:754:      const customers = await prisma.customer.findMany({ where: { isActive: true, businessId: bizId }, orderBy: { name: 'asc' } })
+apps/api/src\routes\reports\index.ts:757:        ? await prisma.ledgerEntry.groupBy({
+apps/api/src\routes\reports\index.ts:782:      const business = await prisma.business.findUnique({ where: { id: bizId }, include: { users: { where: { isActive: true } } } })
+apps/api/src\routes\reports\index.ts:824:    const exports = await prisma.auditLog.findMany({
+apps/api/src\routes\reports\index.ts:831:      take: 50,
+apps/api/src\routes\orders\index.ts:34:    const take = 20, skip = (page - 1) * take
+apps/api/src\routes\orders\index.ts:39:      prisma.order.findMany({ where, skip, take, orderBy: { createdAt: 'desc' },
+apps/api/src\routes\orders\index.ts:40:        include: { customer: { select: { name: true } }, items: true } }),
+apps/api/src\routes\orders\index.ts:41:      prisma.order.count({ where }),
+apps/api/src\routes\orders\index.ts:43:    return { success: true, data: { items, total, page, pageSize: take } }
+apps/api/src\routes\orders\index.ts:50:    const order = await prisma.order.findFirst({ where: { id, businessId: bizId, isDeleted: false },
+apps/api/src\routes\orders\index.ts:51:      include: { customer: true, items: { include: { material: true } }, deliveries: true } })
+apps/api/src\routes\orders\index.ts:69:    const order = await prisma.$transaction(async (tx) => {
+apps/api/src\routes\orders\index.ts:96:        const mat = await tx.material.findUnique({ where: { id: item.materialId } })
+apps/api/src\routes\orders\index.ts:122:    const order = await prisma.order.findFirst({ where: { id, businessId: bizId, isDeleted: false }, include: { items: true } })
+apps/api/src\routes\orders\index.ts:125:    await prisma.$transaction(async (tx) => {
+apps/api/src\routes\orders\index.ts:164:      const mat = await tx.material.findUnique({ where: { id: itemData.materialId } })
+apps/api/src\routes\orders\index.ts:193:      const order = await prisma.order.findFirst({ where: { id, businessId: bizId, isDeleted: false }, include: { items: true, deliveries: true } })
+apps/api/src\routes\orders\index.ts:199:        await prisma.$transaction(async (tx) => {
+apps/api/src\routes\orders\index.ts:219:      const order = await prisma.order.findFirst({ where: { id, businessId: bizId, isDeleted: false }, include: { deliveries: true } })
+apps/api/src\routes\orders\index.ts:222:      await prisma.$transaction(async (tx) => {
+apps/api/src\routes\orders\index.ts:233:    const existing = await prisma.order.findFirst({ where: { id, businessId: bizId, isDeleted: false }, select: { id: true } })
+apps/api/src\routes\orders\index.ts:235:    const order = await prisma.order.update({ where: { id }, data: { status } })
+apps/api/src\routes\orders\index.ts:243:    const order = await prisma.order.findFirst({ where: { id, businessId: bizId, isDeleted: false }, include: { items: true } })
+apps/api/src\routes\orders\index.ts:246:    await prisma.$transaction(async (tx) => {
+apps/api/src\routes\orders\index.ts:269:    const orders = await prisma.order.findMany({
+apps/api/src\routes\orders\index.ts:271:      include: { items: true },
+apps/api/src\routes\orders\index.ts:274:    await prisma.$transaction(async (tx) => {
+apps/api/src\routes\orders\index.ts:301:    const order = await prisma.order.findFirst({
+apps/api/src\routes\orders\index.ts:303:      include: {
+apps/api/src\routes\orders\index.ts:305:        items:    { include: { material: true } },
+apps/api/src\routes\orders\index.ts:306:        deliveries: { orderBy: { createdAt: 'desc' }, take: 1, include: { items: { include: { material: true } } } },
+apps/api/src\routes\auth\index.ts:118:    const existingCount = await prisma.user.count({ where: { role: 'SUPER_ADMIN' } })
+apps/api/src\routes\auth\index.ts:143:    const existingSuperAdmin = await prisma.user.count({ where: { role: 'SUPER_ADMIN' } })
+apps/api/src\routes\auth\index.ts:148:    const existing = await prisma.user.findUnique({ where: { phone: body.data.phone } })
+apps/api/src\routes\auth\index.ts:154:    const user = await prisma.user.create({
+apps/api/src\routes\auth\index.ts:179:    const user = await prisma.user.findUnique({
+apps/api/src\routes\auth\index.ts:181:      include: { business: true },
+apps/api/src\routes\auth\index.ts:218:    const existing = await prisma.user.findUnique({ where: { phone: body.data.phone } })
+apps/api/src\routes\auth\index.ts:228:    const { business, user } = await prisma.$transaction(async (tx) => {
+apps/api/src\routes\auth\index.ts:276:    const user = await prisma.user.findUnique({
+apps/api/src\routes\auth\index.ts:278:      include: { business: true },
+apps/api/src\routes\auth\index.ts:289:    const result = await prisma.$transaction(async (tx) => {
+apps/api/src\routes\auth\index.ts:290:      const business = await tx.business.findUnique({ where: { id: user.businessId! } })
+apps/api/src\routes\auth\index.ts:317:    const refreshedUser = await prisma.user.findUnique({
+apps/api/src\routes\auth\index.ts:319:      include: { business: true },

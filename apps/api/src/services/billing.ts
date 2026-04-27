@@ -1,4 +1,4 @@
-import type { BillingInterval, Business, PaymentMethod, PlatformSetting, Prisma, PrismaClient, SubscriptionStatus } from '@cement-house/db'
+import type { BillingInterval, PaymentMethod, PlatformSetting, Prisma, PrismaClient, SubscriptionStatus } from '@cement-house/db'
 import { prisma } from '@cement-house/db'
 
 const PLATFORM_SETTINGS_ID = 'default'
@@ -19,20 +19,21 @@ export function invalidatePlatformSettingsCache() {
   platformSettingsInFlight = null
 }
 
-export type BusinessWithBilling = Pick<
-  Business,
-  | 'id'
-  | 'name'
-  | 'subscriptionStatus'
-  | 'subscriptionEndsAt'
-  | 'trialStartedAt'
-  | 'trialDaysOverride'
-  | 'subscriptionInterval'
-  | 'monthlySubscriptionAmount'
-  | 'yearlySubscriptionAmount'
-  | 'isActive'
-  | 'suspendedReason'
->
+type DecimalLike = number | { toString(): string }
+
+export interface BusinessWithBilling {
+  id: string
+  name: string
+  subscriptionStatus: SubscriptionStatus
+  subscriptionEndsAt: Date | null
+  trialStartedAt: Date | null
+  trialDaysOverride: number | null
+  subscriptionInterval: BillingInterval | null
+  monthlySubscriptionAmount: DecimalLike
+  yearlySubscriptionAmount: DecimalLike
+  isActive: boolean
+  suspendedReason: string | null
+}
 
 export async function ensurePlatformSettings(db: DbLike = prisma) {
   const load = () =>

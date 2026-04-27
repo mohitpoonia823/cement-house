@@ -1,13 +1,11 @@
-import { PrismaClient } from '@prisma/client'
-
-const globalForPrisma = globalThis as unknown as { prisma: PrismaClient }
-
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'warn', 'error'] : ['error'],
-  })
-
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
-
+export { prisma } from './client'
+export * as reportsRepository from './repositories/reports'
+export * as settingsRepository from './repositories/settings'
+export * as customersRepository from './repositories/customers'
+export * as inventoryRepository from './repositories/inventory'
+export * as ledgerRepository from './repositories/ledger'
+export * as remindersRepository from './repositories/reminders'
+export * as deliveryRepository from './repositories/delivery'
+export * as ordersRepository from './repositories/orders'
+export * as superAdminRepository from './repositories/super-admin'
 export * from '@prisma/client'

@@ -3,13 +3,13 @@ import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { createHmac } from 'node:crypto'
 import { Buffer } from 'node:buffer'
-import { prisma } from '@cement-house/db'
+import { settingsRepository } from '@cement-house/db'
 import { getBizId, requireOwner } from '../../middleware/auth'
 import {
+  type BusinessWithBilling,
   computeSubscriptionAmount,
   computeBusinessAccess,
   ensurePlatformSettings,
-  getDefaultPaymentMethod,
 } from '../../services/billing'
 
 const UpdateBusinessSchema = z.object({
@@ -138,20 +138,33 @@ function isActivePaidCycle(business: { subscriptionEndsAt: Date | null; subscrip
 export async function settingsRoutes(app: FastifyInstance) {
   app.get('/', async (req) => {
     const bizId = getBizId(req)
-    const userId = (req.user as any).id
+    const userId = (req.user as { id: string }).id
 
     const [platform, business, user, paymentMethod] = await Promise.all([
       ensurePlatformSettings(),
-      prisma.business.findUnique({ where: { id: bizId } }),
-      prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, phone: true, role: true } }),
-      getDefaultPaymentMethod(prisma, bizId),
+      settingsRepository.getSettingsBusinessById(bizId),
+      settingsRepository.getSettingsUserById(userId),
+      settingsRepository.getDefaultPaymentMethodByBusiness(bizId),
     ])
 
     if (!business || !user) {
       return { success: false, error: 'Workspace not found' }
     }
 
-    const access = computeBusinessAccess(business, platform)
+    const accessBusiness: BusinessWithBilling = {
+      id: business.id,
+      name: business.name,
+      subscriptionStatus: business.subscriptionStatus,
+      subscriptionEndsAt: business.subscriptionEndsAt,
+      trialStartedAt: business.trialStartedAt,
+      trialDaysOverride: business.trialDaysOverride,
+      subscriptionInterval: business.subscriptionInterval,
+      monthlySubscriptionAmount: business.monthlySubscriptionAmount,
+      yearlySubscriptionAmount: business.yearlySubscriptionAmount,
+      isActive: business.isActive,
+      suspendedReason: business.suspendedReason,
+    }
+    const access = computeBusinessAccess(accessBusiness, platform)
 
     return {
       success: true,
@@ -187,18 +200,27 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     const [platform, business, paymentMethod, transactions] = await Promise.all([
       ensurePlatformSettings(),
-      prisma.business.findUnique({ where: { id: bizId } }),
-      getDefaultPaymentMethod(prisma, bizId),
-      prisma.paymentTransaction.findMany({
-        where: { businessId: bizId },
-        orderBy: { createdAt: 'desc' },
-        take: 8,
-      }),
+      settingsRepository.getSettingsBusinessById(bizId),
+      settingsRepository.getDefaultPaymentMethodByBusiness(bizId),
+      settingsRepository.getRecentPaymentTransactionsByBusiness(bizId, 8),
     ])
 
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
 
-    const access = computeBusinessAccess(business, platform)
+    const accessBusiness: BusinessWithBilling = {
+      id: business.id,
+      name: business.name,
+      subscriptionStatus: business.subscriptionStatus,
+      subscriptionEndsAt: business.subscriptionEndsAt,
+      trialStartedAt: business.trialStartedAt,
+      trialDaysOverride: business.trialDaysOverride,
+      subscriptionInterval: business.subscriptionInterval,
+      monthlySubscriptionAmount: business.monthlySubscriptionAmount,
+      yearlySubscriptionAmount: business.yearlySubscriptionAmount,
+      isActive: business.isActive,
+      suspendedReason: business.suspendedReason,
+    }
+    const access = computeBusinessAccess(accessBusiness, platform)
 
     return {
       success: true,
@@ -215,7 +237,7 @@ export async function settingsRoutes(app: FastifyInstance) {
           { interval: 'MONTHLY', label: 'Monthly', amount: access.pricing.monthlyPrice, currency: platform.currency },
           { interval: 'YEARLY', label: 'Yearly', amount: access.pricing.yearlyPrice, currency: platform.currency },
         ],
-        recentPayments: transactions.map((transaction) => ({
+        recentPayments: transactions.map((transaction: settingsRepository.SettingsPaymentTransactionRow) => ({
           id: transaction.id,
           interval: transaction.interval,
           amount: Number(transaction.amount),
@@ -245,7 +267,7 @@ export async function settingsRoutes(app: FastifyInstance) {
       })
     }
 
-    const business = await prisma.business.findUnique({ where: { id: bizId } })
+    const business = await settingsRepository.getSettingsBusinessById(bizId)
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
     const hasActiveCycle = isActivePaidCycle(business)
     if (hasActiveCycle && business.subscriptionInterval === 'YEARLY' && body.data.interval === 'MONTHLY') {
@@ -256,7 +278,7 @@ export async function settingsRoutes(app: FastifyInstance) {
       })
     }
 
-    const paymentMethod = await getDefaultPaymentMethod(prisma, bizId)
+    const paymentMethod = await settingsRepository.getDefaultPaymentMethodByBusiness(bizId)
 
     const amount = computeSubscriptionAmount(business, platform, body.data.interval)
     const amountInPaise = Math.round(Number(amount) * 100)
@@ -290,21 +312,17 @@ export async function settingsRoutes(app: FastifyInstance) {
       })
     }
 
-    const transaction = await prisma.paymentTransaction.create({
-      data: {
-        businessId: bizId,
-        paymentMethodId: paymentMethod?.id ?? null,
-        provider: 'DUMMY',
-        interval: body.data.interval,
-        amount,
-        currency: platform.currency,
-        status: 'PENDING',
-        reference: orderPayload.id,
-        metadata: {
-          gateway: 'RAZORPAY',
-          receipt,
-          razorpayOrderId: orderPayload.id,
-        },
+    const transaction = await settingsRepository.createPendingPaymentTransaction({
+      businessId: bizId,
+      paymentMethodId: paymentMethod?.id ?? null,
+      interval: body.data.interval,
+      amount,
+      currency: platform.currency,
+      reference: orderPayload.id,
+      metadata: {
+        gateway: 'RAZORPAY',
+        receipt,
+        razorpayOrderId: orderPayload.id,
       },
     })
 
@@ -350,25 +368,16 @@ export async function settingsRoutes(app: FastifyInstance) {
       .update(`${body.data.razorpayOrderId}|${body.data.razorpayPaymentId}`)
       .digest('hex')
     if (expected !== body.data.razorpaySignature) {
-      await prisma.paymentTransaction.updateMany({
-        where: { id: body.data.transactionId, businessId: bizId, status: 'PENDING' },
-        data: {
-          status: 'FAILED',
-          failureReason: 'Signature verification failed',
-          metadata: {
-            gateway: 'RAZORPAY',
-            razorpayOrderId: body.data.razorpayOrderId,
-            razorpayPaymentId: body.data.razorpayPaymentId,
-          },
-        },
+      await settingsRepository.markTransactionFailedForSignature({
+        transactionId: body.data.transactionId,
+        businessId: bizId,
+        razorpayOrderId: body.data.razorpayOrderId,
+        razorpayPaymentId: body.data.razorpayPaymentId,
       })
       return reply.status(400).send({ success: false, error: 'Payment verification failed. Please try again.' })
     }
 
-    const transaction = await prisma.paymentTransaction.findFirst({
-      where: { id: body.data.transactionId, businessId: bizId },
-      include: { business: true },
-    })
+    const transaction = await settingsRepository.getSubscriptionTransactionForVerification(body.data.transactionId, bizId)
     if (!transaction) return reply.status(404).send({ success: false, error: 'Pending transaction not found' })
     if (transaction.status === 'SUCCEEDED') {
       return reply.status(409).send({ success: false, error: 'Payment already verified' })
@@ -380,52 +389,48 @@ export async function settingsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: 'Order reference mismatch' })
     }
 
-    const hasActiveCycle = isActivePaidCycle(transaction.business)
-    if (hasActiveCycle && transaction.business.subscriptionInterval === 'YEARLY' && body.data.interval === 'MONTHLY') {
+    const hasActiveCycle = isActivePaidCycle({
+      subscriptionEndsAt: transaction.businessSubscriptionEndsAt,
+      subscriptionInterval: transaction.businessSubscriptionInterval,
+    })
+    if (hasActiveCycle && transaction.businessSubscriptionInterval === 'YEARLY' && body.data.interval === 'MONTHLY') {
       return reply.status(409).send({
         success: false,
         error: 'Monthly downgrade is blocked while a yearly subscription cycle is active.',
       })
     }
 
-    const baseDateForRenewal = hasActiveCycle ? transaction.business.subscriptionEndsAt : null
+    const baseDateForRenewal = hasActiveCycle ? transaction.businessSubscriptionEndsAt : null
     const newEndDate = getNewSubscriptionEndDate(body.data.interval, baseDateForRenewal)
-    await prisma.$transaction(async (tx) => {
-      await tx.paymentTransaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: 'SUCCEEDED',
-          paidAt: new Date(),
-          reference: body.data.razorpayPaymentId,
-          metadata: {
-            gateway: 'RAZORPAY',
-            razorpayOrderId: body.data.razorpayOrderId,
-            razorpayPaymentId: body.data.razorpayPaymentId,
-          },
-        },
-      })
-
-      await tx.business.update({
-        where: { id: bizId },
-        data: {
-          subscriptionStatus: 'ACTIVE',
-          subscriptionPlan: 'STARTER',
-          subscriptionInterval: body.data.interval,
-          subscriptionEndsAt: newEndDate,
-          isActive: true,
-          suspendedReason: null,
-        },
-      })
+    await settingsRepository.finalizeSubscriptionPayment({
+      transactionId: transaction.id,
+      businessId: bizId,
+        interval: body.data.interval,
+      razorpayOrderId: body.data.razorpayOrderId,
+      razorpayPaymentId: body.data.razorpayPaymentId,
+      newEndDate,
     })
 
-    const refreshedUser = await prisma.user.findUnique({
-      where: { id: (req.user as any).id },
-      include: { business: true },
-    })
+    const refreshedUser = await settingsRepository.getSettingsSessionUserById((req.user as any).id)
     if (!refreshedUser) return reply.status(404).send({ success: false, error: 'User not found after payment verification' })
 
     const authUser = buildSettingsAuthUser({
-      ...refreshedUser,
+      id: refreshedUser.id,
+      name: refreshedUser.name,
+      role: refreshedUser.role,
+      businessId: refreshedUser.businessId,
+      permissions: refreshedUser.permissions,
+      business: refreshedUser.businessId ? {
+        name: refreshedUser.businessName,
+        city: refreshedUser.businessCity,
+        subscriptionStatus: refreshedUser.subscriptionStatus,
+        subscriptionEndsAt: refreshedUser.subscriptionEndsAt,
+        subscriptionInterval: refreshedUser.subscriptionInterval,
+        monthlySubscriptionAmount: refreshedUser.monthlySubscriptionAmount,
+        yearlySubscriptionAmount: refreshedUser.yearlySubscriptionAmount,
+        trialStartedAt: refreshedUser.trialStartedAt,
+        trialDaysOverride: refreshedUser.trialDaysOverride,
+      } : undefined,
       accessLocked: false,
       accessReason: '',
     })
@@ -454,29 +459,37 @@ export async function settingsRoutes(app: FastifyInstance) {
     const body = CancelSubscriptionSchema.safeParse(req.body ?? {})
     if (!body.success) return reply.status(400).send({ success: false, error: 'Invalid cancellation request' })
 
-    const business = await prisma.business.findUnique({ where: { id: bizId } })
+    const business = await settingsRepository.getSettingsBusinessById(bizId)
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
     if (!business.subscriptionInterval) {
       return reply.status(400).send({ success: false, error: 'No paid subscription is active to cancel.' })
     }
 
-    const updated = await prisma.business.update({
-      where: { id: bizId },
-      data: {
-        subscriptionStatus: 'CANCELLED',
-      },
-    })
+    const updated = await settingsRepository.cancelSubscriptionByBusiness(bizId)
+    if (!updated) return reply.status(404).send({ success: false, error: 'Business not found' })
 
-    const refreshedUser = await prisma.user.findUnique({
-      where: { id: (req.user as any).id },
-      include: { business: true },
-    })
+    const refreshedUser = await settingsRepository.getSettingsSessionUserById((req.user as any).id)
     if (!refreshedUser) return reply.status(404).send({ success: false, error: 'User not found after cancellation' })
 
     const settings = await ensurePlatformSettings()
     const access = computeBusinessAccess(updated, settings)
     const authUser = buildSettingsAuthUser({
-      ...refreshedUser,
+      id: refreshedUser.id,
+      name: refreshedUser.name,
+      role: refreshedUser.role,
+      businessId: refreshedUser.businessId,
+      permissions: refreshedUser.permissions,
+      business: refreshedUser.businessId ? {
+        name: refreshedUser.businessName,
+        city: refreshedUser.businessCity,
+        subscriptionStatus: refreshedUser.subscriptionStatus,
+        subscriptionEndsAt: refreshedUser.subscriptionEndsAt,
+        subscriptionInterval: refreshedUser.subscriptionInterval,
+        monthlySubscriptionAmount: refreshedUser.monthlySubscriptionAmount,
+        yearlySubscriptionAmount: refreshedUser.yearlySubscriptionAmount,
+        trialStartedAt: refreshedUser.trialStartedAt,
+        trialDaysOverride: refreshedUser.trialDaysOverride,
+      } : undefined,
       accessLocked: access.accessLocked,
       accessReason: access.reason,
     })
@@ -506,10 +519,8 @@ export async function settingsRoutes(app: FastifyInstance) {
     const body = UpdateBusinessSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const business = await prisma.business.update({
-      where: { id: bizId },
-      data: body.data,
-    })
+    const business = await settingsRepository.updateBusinessProfile(bizId, body.data)
+    if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
 
     return { success: true, data: business }
   })
@@ -519,10 +530,8 @@ export async function settingsRoutes(app: FastifyInstance) {
     const body = UpdateReminderRulesSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const business = await prisma.business.update({
-      where: { id: bizId },
-      data: body.data,
-    })
+    const business = await settingsRepository.updateBusinessReminders(bizId, body.data)
+    if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
 
     return { success: true, data: business }
   })
@@ -533,17 +542,14 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
     if (body.data.phone) {
-      const existing = await prisma.user.findUnique({ where: { phone: body.data.phone } })
+      const existing = await settingsRepository.findUserByPhone(body.data.phone)
       if (existing && existing.id !== userId) {
         return reply.status(409).send({ success: false, error: 'A user with this phone number already exists' })
       }
     }
 
-    const user = await prisma.user.update({
-      where: { id: userId },
-      data: body.data,
-      select: { id: true, name: true, phone: true, role: true },
-    })
+    const user = await settingsRepository.updateUserProfile(userId, body.data)
+    if (!user) return reply.status(404).send({ success: false, error: 'User not found' })
 
     return { success: true, data: user }
   })
@@ -553,14 +559,14 @@ export async function settingsRoutes(app: FastifyInstance) {
     const body = ChangePasswordSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const user = await prisma.user.findUnique({ where: { id: userId } })
+    const user = await settingsRepository.getUserPasswordById(userId)
     if (!user) return reply.status(404).send({ success: false, error: 'User not found' })
 
     const valid = await bcrypt.compare(body.data.currentPassword, user.passwordHash)
     if (!valid) return reply.status(401).send({ success: false, error: 'Current password is incorrect' })
 
     const passwordHash = await bcrypt.hash(body.data.newPassword, 10)
-    await prisma.user.update({ where: { id: userId }, data: { passwordHash } })
+    await settingsRepository.updateUserPassword(userId, passwordHash)
 
     return { success: true }
   })
@@ -568,10 +574,7 @@ export async function settingsRoutes(app: FastifyInstance) {
   app.get('/staff', async (req, reply) => {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
-    const staff = await prisma.user.findMany({
-      where: { businessId: bizId, role: 'MUNIM' },
-      select: { id: true, name: true, phone: true, role: true, permissions: true, isActive: true, createdAt: true },
-    })
+    const staff = await settingsRepository.getStaffByBusiness(bizId)
     return { success: true, data: staff }
   })
 
@@ -581,49 +584,44 @@ export async function settingsRoutes(app: FastifyInstance) {
     const body = CreateStaffSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const existing = await prisma.user.findUnique({ where: { phone: body.data.phone } })
+    const existing = await settingsRepository.findUserByPhone(body.data.phone)
     if (existing) return reply.status(409).send({ success: false, error: 'A user with this phone number already exists' })
 
     const passwordHash = await bcrypt.hash(body.data.password, 10)
-    const staff = await prisma.user.create({
-      data: {
-        name: body.data.name,
-        phone: body.data.phone,
-        passwordHash,
-        role: 'MUNIM',
-        permissions: body.data.permissions,
-        businessId: bizId,
-      },
-      select: { id: true, name: true, phone: true, role: true, permissions: true, isActive: true },
+    const staff = await settingsRepository.createStaff({
+      businessId: bizId,
+      name: body.data.name,
+      phone: body.data.phone,
+      passwordHash,
+      permissions: body.data.permissions,
     })
     return { success: true, data: staff }
   })
 
   app.patch('/staff/:id', async (req, reply) => {
     if (!requireOwner(req, reply)) return
+    const bizId = getBizId(req)
     const { id } = req.params as any
     const body = UpdateStaffSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
     if (body.data.phone) {
-      const existing = await prisma.user.findUnique({ where: { phone: body.data.phone } })
+      const existing = await settingsRepository.findUserByPhone(body.data.phone)
       if (existing && existing.id !== id) {
         return reply.status(409).send({ success: false, error: 'A user with this phone number already exists' })
       }
     }
 
-    const staff = await prisma.user.update({
-      where: { id },
-      data: body.data,
-      select: { id: true, name: true, phone: true, role: true, permissions: true, isActive: true },
-    })
+    const staff = await settingsRepository.updateStaff(id, bizId, body.data)
+    if (!staff) return reply.status(404).send({ success: false, error: 'Staff member not found' })
     return { success: true, data: staff }
   })
 
   app.delete('/staff/:id', async (req, reply) => {
     if (!requireOwner(req, reply)) return
+    const bizId = getBizId(req)
     const { id } = req.params as any
-    await prisma.user.update({ where: { id }, data: { isActive: false } })
+    await settingsRepository.deactivateStaff(id, bizId)
     return { success: true }
   })
 }

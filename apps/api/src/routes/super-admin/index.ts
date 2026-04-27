@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { prisma } from '@cement-house/db'
+import { superAdminRepository } from '@cement-house/db'
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { requireSuperAdmin } from '../../middleware/auth'
@@ -109,17 +109,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     if (!requireSuperAdmin(req, reply)) return
 
     const currentUserId = (req.user as any).id as string
-    const profile = await prisma.user.findUnique({
-      where: { id: currentUserId },
-      select: {
-        id: true,
-        name: true,
-        phone: true,
-        role: true,
-        createdAt: true,
-        lastSeenAt: true,
-      },
-    })
+    const profile = await superAdminRepository.getSuperAdminProfile(currentUserId)
 
     if (!profile || profile.role !== 'SUPER_ADMIN') {
       return reply.status(404).send({ success: false, error: 'Super Admin profile not found' })
@@ -135,29 +125,13 @@ export async function superAdminRoutes(app: FastifyInstance) {
     const body = UpdateSuperAdminProfileSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const existing = await prisma.user.findUnique({
-      where: { phone: body.data.phone },
-      select: { id: true },
-    })
+    const existing = await superAdminRepository.findUserByPhone(body.data.phone)
     if (existing && existing.id !== currentUserId) {
       return reply.status(409).send({ success: false, error: 'Phone number is already used by another user' })
     }
 
-    const updated = await prisma.user.update({
-      where: { id: currentUserId },
-      data: {
-        name: body.data.name,
-        phone: body.data.phone,
-      },
-      select: {
-        id: true,
-        name: true,
-        phone: true,
-        role: true,
-        permissions: true,
-        businessId: true,
-      },
-    })
+    const updated = await superAdminRepository.updateUserProfile(currentUserId, body.data.name, body.data.phone)
+    if (!updated) return reply.status(404).send({ success: false, error: 'Super Admin profile not found' })
 
     const authUser = authPayloadForUser({
       id: updated.id,
@@ -193,10 +167,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     const body = UpdateSuperAdminPasswordSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const currentUser = await prisma.user.findUnique({
-      where: { id: currentUserId },
-      select: { id: true, passwordHash: true, role: true },
-    })
+    const currentUser = await superAdminRepository.getSuperAdminPassword(currentUserId)
     if (!currentUser || currentUser.role !== 'SUPER_ADMIN') {
       return reply.status(404).send({ success: false, error: 'Super Admin profile not found' })
     }
@@ -205,10 +176,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     if (!valid) return reply.status(401).send({ success: false, error: 'Current password is incorrect' })
 
     const nextHash = await bcrypt.hash(body.data.newPassword, 10)
-    await prisma.user.update({
-      where: { id: currentUserId },
-      data: { passwordHash: nextHash },
-    })
+    await superAdminRepository.updateUserPassword(currentUserId, nextHash)
 
     return { success: true, data: { message: 'Password updated successfully' } }
   })
@@ -234,23 +202,12 @@ export async function superAdminRoutes(app: FastifyInstance) {
     const body = UpdateBillingConfigSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const settings = await prisma.platformSetting.upsert({
-      where: { id: 'default' },
-      update: {
-        trialDays: body.data.trialDays,
-        monthlyPrice: body.data.monthlyPrice,
-        yearlyPrice: body.data.yearlyPrice,
-        currency: body.data.currency.toUpperCase(),
-        trialRequiresCard: body.data.trialRequiresCard,
-      },
-      create: {
-        id: 'default',
-        trialDays: body.data.trialDays,
-        monthlyPrice: body.data.monthlyPrice,
-        yearlyPrice: body.data.yearlyPrice,
-        currency: body.data.currency.toUpperCase(),
-        trialRequiresCard: body.data.trialRequiresCard,
-      },
+    const settings = await superAdminRepository.upsertPlatformSettings({
+      trialDays: body.data.trialDays,
+      monthlyPrice: body.data.monthlyPrice,
+      yearlyPrice: body.data.yearlyPrice,
+      currency: body.data.currency.toUpperCase(),
+      trialRequiresCard: body.data.trialRequiresCard,
     })
     invalidatePlatformSettingsCache()
 
@@ -273,111 +230,8 @@ export async function superAdminRoutes(app: FastifyInstance) {
     const todayStart = startOfDay(now)
     const todayEnd = endOfDay(now)
 
-    const [
-      businesses,
-      totalOwners,
-      totalMunims,
-      activeUsersToday,
-      totalSales,
-      todaySales,
-      businessSales,
-      ledgerDebits,
-      ledgerCredits,
-      remindersToday,
-      failedReminders,
-      challansToday,
-      auditLogs,
-    ] = await Promise.all([
-      prisma.business.findMany({
-        select: {
-          id: true,
-          name: true,
-          city: true,
-          isActive: true,
-          subscriptionPlan: true,
-          subscriptionStatus: true,
-          monthlySubscriptionAmount: true,
-          yearlySubscriptionAmount: true,
-          subscriptionEndsAt: true,
-          subscriptionInterval: true,
-          trialDaysOverride: true,
-          suspendedReason: true,
-          createdAt: true,
-          _count: {
-            select: {
-              users: true,
-              customers: true,
-              orders: true,
-            },
-          },
-        },
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.user.count({ where: { isActive: true, role: 'OWNER' } }),
-      prisma.user.count({ where: { isActive: true, role: 'MUNIM' } }),
-      prisma.user.count({
-        where: {
-          isActive: true,
-          lastSeenAt: { gte: todayStart, lte: todayEnd },
-        },
-      }),
-      prisma.order.aggregate({
-        where: { status: { not: 'CANCELLED' } },
-        _sum: { totalAmount: true },
-      }),
-      prisma.order.aggregate({
-        where: {
-          status: { not: 'CANCELLED' },
-          createdAt: { gte: todayStart, lte: todayEnd },
-        },
-        _sum: { totalAmount: true },
-      }),
-      prisma.order.groupBy({
-        by: ['businessId'],
-        where: { status: { not: 'CANCELLED' } },
-        _sum: { totalAmount: true },
-        _count: { id: true },
-      }),
-      prisma.ledgerEntry.groupBy({
-        by: ['businessId'],
-        where: { type: 'DEBIT' },
-        _sum: { amount: true },
-      }),
-      prisma.ledgerEntry.groupBy({
-        by: ['businessId'],
-        where: { type: 'CREDIT' },
-        _sum: { amount: true },
-      }),
-      prisma.reminder.count({
-        where: { status: 'SENT', sentAt: { gte: todayStart, lte: todayEnd } },
-      }),
-      prisma.reminder.findMany({
-        where: { status: 'FAILED' },
-        include: { customer: { select: { name: true, business: { select: { name: true } } } } },
-        orderBy: { createdAt: 'desc' },
-        take: 6,
-      }),
-      prisma.auditLog.count({
-        where: {
-          action: 'CHALLAN_PDF_GENERATED',
-          createdAt: { gte: todayStart, lte: todayEnd },
-        },
-      }),
-      prisma.auditLog.findMany({
-        orderBy: { createdAt: 'desc' },
-        take: 10,
-        include: {
-          actor: { select: { name: true, role: true } },
-          business: { select: { name: true, city: true } },
-        },
-      }),
-    ])
-
-    const salesMap = new Map(businessSales.map((item) => [item.businessId, safeAmount(item._sum.totalAmount)]))
-    const debitMap = new Map(ledgerDebits.map((item) => [item.businessId, safeAmount(item._sum.amount)]))
-    const creditMap = new Map(ledgerCredits.map((item) => [item.businessId, safeAmount(item._sum.amount)]))
-
-    const businessRows = businesses.map((business) => ({
+    const overview = await superAdminRepository.getOverviewMetrics(todayStart, todayEnd)
+    const businessRows = overview.businesses.map((business) => ({
       id: business.id,
       name: business.name,
       city: business.city,
@@ -390,11 +244,11 @@ export async function superAdminRoutes(app: FastifyInstance) {
       monthlySubscriptionAmount: safeAmount(business.monthlySubscriptionAmount),
       yearlySubscriptionAmount: safeAmount(business.yearlySubscriptionAmount),
       suspendedReason: business.suspendedReason,
-      users: business._count.users,
-      customers: business._count.customers,
-      orders: business._count.orders,
-      gmv: salesMap.get(business.id) ?? 0,
-      outstanding: (debitMap.get(business.id) ?? 0) - (creditMap.get(business.id) ?? 0),
+      users: business.users,
+      customers: business.customers,
+      orders: business.orders,
+      gmv: safeAmount(business.gmv),
+      outstanding: safeAmount(business.outstanding),
       createdAt: business.createdAt,
     }))
 
@@ -403,20 +257,20 @@ export async function superAdminRoutes(app: FastifyInstance) {
       .reduce((sum, business) => sum + business.monthlySubscriptionAmount, 0)
 
     const activityFeed = [
-      ...auditLogs.map((log) => ({
+      ...overview.auditLogs.map((log) => ({
         id: log.id,
         kind: 'AUDIT',
-        title: log.action.replace(/_/g, ' '),
+        title: String(log.action).replace(/_/g, ' '),
         description: log.business?.name
-          ? `${log.business.name}${log.actor?.name ? ` â€¢ by ${log.actor.name}` : ''}`
+          ? `${log.business.name}${log.actor?.name ? ` • by ${log.actor.name}` : ''}`
           : log.actor?.name ?? 'Platform activity',
         createdAt: log.createdAt,
       })),
-      ...failedReminders.map((reminder) => ({
+      ...overview.failedReminders.map((reminder) => ({
         id: reminder.id,
         kind: 'ERROR',
         title: 'Failed WhatsApp reminder',
-        description: `${reminder.customer.business.name} â€¢ ${reminder.customer.name}`,
+        description: `${reminder.customer.business.name} • ${reminder.customer.name}`,
         createdAt: reminder.createdAt,
       })),
     ]
@@ -430,19 +284,19 @@ export async function superAdminRoutes(app: FastifyInstance) {
           totalBusinesses: businessRows.length,
           activeBusinesses: businessRows.filter((business) => business.isActive).length,
           suspendedBusinesses: businessRows.filter((business) => !business.isActive).length,
-          totalOwners,
-          totalMunims,
-          dailyActiveUsers: activeUsersToday,
+          totalOwners: overview.counts.totalOwners,
+          totalMunims: overview.counts.totalMunims,
+          dailyActiveUsers: overview.counts.activeUsersToday,
         },
         financialVolume: {
-          totalGMV: safeAmount(totalSales._sum.totalAmount),
-          todayGMV: safeAmount(todaySales._sum.totalAmount),
+          totalGMV: safeAmount(overview.totals.totalSales),
+          todayGMV: safeAmount(overview.totals.todaySales),
           monthlyRevenueRunRate: revenueRunRate,
           pastDueAccounts: businessRows.filter((business) => business.subscriptionStatus === 'PAST_DUE').length,
         },
         featureAdoption: {
-          challanPdfsToday: challansToday,
-          remindersSentToday: remindersToday,
+          challanPdfsToday: overview.challansToday,
+          remindersSentToday: overview.remindersToday,
           businessesOnPro: businessRows.filter((business) => business.subscriptionPlan === 'PRO').length,
           businessesInTrial: businessRows.filter((business) => business.subscriptionStatus === 'TRIAL').length,
         },
@@ -459,88 +313,16 @@ export async function superAdminRoutes(app: FastifyInstance) {
     if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
 
     const { page, pageSize, search, status } = query.data
-    const skip = (page - 1) * pageSize
-    const where: any = {}
-
-    if (status === 'ACTIVE') where.isActive = true
-    if (status === 'SUSPENDED') where.isActive = false
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { city: { contains: search, mode: 'insensitive' } },
-        { phone: { contains: search, mode: 'insensitive' } },
-      ]
-    }
-
-    const [businesses, total, sales, debits, credits, owners] = await Promise.all([
-      prisma.business.findMany({
-        where,
-        skip,
-        take: pageSize,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          _count: { select: { users: true, customers: true, orders: true } },
-        },
-      }),
-      prisma.business.count({ where }),
-      prisma.order.groupBy({
-        by: ['businessId'],
-        where: { status: { not: 'CANCELLED' } },
-        _sum: { totalAmount: true },
-      }),
-      prisma.ledgerEntry.groupBy({
-        by: ['businessId'],
-        where: { type: 'DEBIT' },
-        _sum: { amount: true },
-      }),
-      prisma.ledgerEntry.groupBy({
-        by: ['businessId'],
-        where: { type: 'CREDIT' },
-        _sum: { amount: true },
-      }),
-      prisma.user.findMany({
-        where: { role: 'OWNER', isActive: true },
-        select: { businessId: true, name: true, phone: true },
-      }),
-    ])
-
-    const salesMap = new Map(sales.map((item) => [item.businessId, safeAmount(item._sum.totalAmount)]))
-    const debitMap = new Map(debits.map((item) => [item.businessId, safeAmount(item._sum.amount)]))
-    const creditMap = new Map(credits.map((item) => [item.businessId, safeAmount(item._sum.amount)]))
-    const ownerMap = new Map(owners.filter((owner) => owner.businessId).map((owner) => [owner.businessId!, owner]))
+    const result = await superAdminRepository.listBusinesses({ page, pageSize, search, status })
 
     return {
       success: true,
       data: {
-        items: businesses.map((business) => ({
-          id: business.id,
-          name: business.name,
-          city: business.city,
-          phone: business.phone,
-          gstin: business.gstin,
-          isActive: business.isActive,
-          suspendedReason: business.suspendedReason,
-          subscriptionPlan: business.subscriptionPlan,
-          subscriptionStatus: business.subscriptionStatus,
-          subscriptionEndsAt: business.subscriptionEndsAt,
-          subscriptionInterval: business.subscriptionInterval,
-          trialDaysOverride: business.trialDaysOverride,
-          monthlySubscriptionAmount: safeAmount(business.monthlySubscriptionAmount),
-          yearlySubscriptionAmount: safeAmount(business.yearlySubscriptionAmount),
-          createdAt: business.createdAt,
-          updatedAt: business.updatedAt,
-          ownerName: ownerMap.get(business.id)?.name ?? null,
-          ownerPhone: ownerMap.get(business.id)?.phone ?? null,
-          totalUsers: business._count.users,
-          totalCustomers: business._count.customers,
-          totalOrders: business._count.orders,
-          gmv: salesMap.get(business.id) ?? 0,
-          outstanding: (debitMap.get(business.id) ?? 0) - (creditMap.get(business.id) ?? 0),
-        })),
-        total,
+        items: result.items,
+        total: result.total,
         page,
         pageSize,
-        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        totalPages: Math.max(1, Math.ceil(result.total / pageSize)),
       },
     }
   })
@@ -552,54 +334,16 @@ export async function superAdminRoutes(app: FastifyInstance) {
     if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
 
     const { page, pageSize, search, role } = query.data
-    const skip = (page - 1) * pageSize
-    const where: any = {}
-
-    if (role) where.role = role
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { phone: { contains: search, mode: 'insensitive' } },
-        { business: { name: { contains: search, mode: 'insensitive' } } },
-      ]
-    }
-
-    const [users, total] = await Promise.all([
-      prisma.user.findMany({
-        where,
-        skip,
-        take: pageSize,
-        orderBy: [{ createdAt: 'desc' }],
-        include: {
-          business: {
-            select: { id: true, name: true, city: true, isActive: true },
-          },
-        },
-      }),
-      prisma.user.count({ where }),
-    ])
+    const result = await superAdminRepository.listUsers({ page, pageSize, search, role })
 
     return {
       success: true,
       data: {
-        items: users.map((user) => ({
-          id: user.id,
-          name: user.name,
-          phone: user.phone,
-          role: user.role,
-          isActive: user.isActive,
-          permissions: user.permissions,
-          lastSeenAt: user.lastSeenAt,
-          createdAt: user.createdAt,
-          businessId: user.businessId,
-          businessName: user.business?.name ?? null,
-          businessCity: user.business?.city ?? null,
-          businessActive: user.business?.isActive ?? null,
-        })),
-        total,
+        items: result.items,
+        total: result.total,
         page,
         pageSize,
-        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        totalPages: Math.max(1, Math.ceil(result.total / pageSize)),
       },
     }
   })
@@ -611,37 +355,22 @@ export async function superAdminRoutes(app: FastifyInstance) {
     const body = UpdateBusinessSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const current = await prisma.business.findUnique({ where: { id } })
+    const current = await superAdminRepository.getBusinessById(id)
     if (!current) return reply.status(404).send({ success: false, error: 'Business not found' })
 
     const nextStatus =
       body.data.subscriptionStatus ??
-      (body.data.isActive === false ? 'SUSPENDED' : body.data.isActive === true && current.subscriptionStatus === 'SUSPENDED' ? 'ACTIVE' : undefined)
+      (body.data.isActive === false
+        ? 'SUSPENDED'
+        : body.data.isActive === true && current.subscriptionStatus === 'SUSPENDED'
+          ? 'ACTIVE'
+          : undefined)
 
-    const business = await prisma.business.update({
-      where: { id },
-      data: {
-        ...(body.data.isActive !== undefined ? { isActive: body.data.isActive } : {}),
-        ...(body.data.suspendedReason !== undefined ? { suspendedReason: body.data.suspendedReason } : {}),
-        ...(body.data.subscriptionPlan ? { subscriptionPlan: body.data.subscriptionPlan } : {}),
-        ...(nextStatus ? { subscriptionStatus: nextStatus } : {}),
-        ...(body.data.subscriptionEndsAt !== undefined
-          ? { subscriptionEndsAt: body.data.subscriptionEndsAt ? new Date(body.data.subscriptionEndsAt) : null }
-          : {}),
-        ...(body.data.subscriptionInterval !== undefined
-          ? { subscriptionInterval: body.data.subscriptionInterval }
-          : {}),
-        ...(body.data.trialDaysOverride !== undefined
-          ? { trialDaysOverride: body.data.trialDaysOverride }
-          : {}),
-        ...(body.data.monthlySubscriptionAmount !== undefined
-          ? { monthlySubscriptionAmount: body.data.monthlySubscriptionAmount }
-          : {}),
-        ...(body.data.yearlySubscriptionAmount !== undefined
-          ? { yearlySubscriptionAmount: body.data.yearlySubscriptionAmount }
-          : {}),
-      },
+    const business = await superAdminRepository.updateBusiness(id, {
+      ...body.data,
+      subscriptionStatus: nextStatus,
     })
+    if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
 
     await createAuditLog({
       actorId: (req.user as any).id,
@@ -659,19 +388,10 @@ export async function superAdminRoutes(app: FastifyInstance) {
     if (!requireSuperAdmin(req, reply)) return
 
     const { id } = req.params as { id: string }
-    const business = await prisma.business.findUnique({
-      where: { id },
-      include: {
-        users: {
-          where: { isActive: true },
-          orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
-        },
-      },
-    })
-
+    const business = await superAdminRepository.getBusinessForImpersonation(id)
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
 
-    const targetUser = business.users.find((user) => user.role === 'OWNER') ?? business.users[0]
+    const targetUser = business.users.find((user: any) => user.role === 'OWNER') ?? business.users[0]
     if (!targetUser) {
       return reply.status(404).send({ success: false, error: 'No active user available to impersonate' })
     }

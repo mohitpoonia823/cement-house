@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { prisma } from '@cement-house/db'
+import { reportsRepository } from '@cement-house/db'
 import { z } from 'zod'
 import { requireOwner, getBizId } from '../../middleware/auth'
 import { streamAnalyticsSnapshot } from '../../services/pdf'
@@ -251,24 +251,17 @@ async function loadReportSummary(bizId: string, queryInput: unknown) {
   if (!parsed.success) throw parsed.error
 
   const period = reportPeriodFromQuery(parsed.data)
-  const orders = await prisma.order.findMany({
-    where: {
-      businessId: bizId,
-      isDeleted: false,
-      status: { not: 'CANCELLED' },
-      createdAt: { gte: period.start, lte: period.end },
-    },
-    include: {
-      customer: { select: { name: true } },
-    },
-    orderBy: { createdAt: 'desc' },
+  const orders = await reportsRepository.getSummaryOrders({
+    businessId: bizId,
+    start: period.start,
+    end: period.end,
   })
 
-  const totalSales = orders.reduce((sum, order) => sum + Number(order.totalAmount), 0)
-  const totalMargin = orders.reduce((sum, order) => sum + Number(order.marginPct ?? 0), 0)
+  const totalSales = orders.reduce((sum: number, order: reportsRepository.SummaryOrderRow) => sum + Number(order.totalAmount), 0)
+  const totalMargin = orders.reduce((sum: number, order: reportsRepository.SummaryOrderRow) => sum + Number(order.marginPct ?? 0), 0)
   const avgMargin = orders.length ? totalMargin / orders.length : 0
-  const paidAmount = orders.reduce((sum, order) => sum + Number(order.amountPaid), 0)
-  const outstanding = orders.reduce((sum, order) => sum + (Number(order.totalAmount) - Number(order.amountPaid)), 0)
+  const paidAmount = orders.reduce((sum: number, order: reportsRepository.SummaryOrderRow) => sum + Number(order.amountPaid), 0)
+  const outstanding = orders.reduce((sum: number, order: reportsRepository.SummaryOrderRow) => sum + (Number(order.totalAmount) - Number(order.amountPaid)), 0)
 
   return {
     ...period,
@@ -277,10 +270,10 @@ async function loadReportSummary(bizId: string, queryInput: unknown) {
     avgMargin,
     paidAmount,
     outstanding,
-    recentOrders: orders.slice(0, 8).map((order) => ({
+    recentOrders: orders.slice(0, 8).map((order: reportsRepository.SummaryOrderRow) => ({
       id: order.id,
       orderNumber: order.orderNumber,
-      customerName: order.customer?.name ?? 'Unknown customer',
+      customerName: order.customerName ?? 'Unknown customer',
       totalAmount: Number(order.totalAmount),
       amountPaid: Number(order.amountPaid),
       status: order.status,
@@ -296,49 +289,50 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
   const range = dashboardRangeFromQuery(queryInput, now)
 
   const [todayOrders, todayCredits, rangeOrders, rangeCredits, previousOrders, previousCredits, materials, customers, deliveries] = await Promise.all([
-    prisma.order.findMany({
-      where: { createdAt: { gte: todayStart, lte: todayEnd }, businessId: bizId, isDeleted: false, status: { not: 'CANCELLED' } },
+    reportsRepository.getDashboardOrders({
+      businessId: bizId,
+      start: todayStart,
+      end: todayEnd,
     }),
-    prisma.ledgerEntry.findMany({
-      where: { createdAt: { gte: todayStart, lte: todayEnd }, businessId: bizId, type: 'CREDIT' },
+    reportsRepository.getCreditEntries({
+      businessId: bizId,
+      start: todayStart,
+      end: todayEnd,
     }),
-    prisma.order.findMany({
-      where: { createdAt: { gte: range.start, lte: range.end }, businessId: bizId, isDeleted: false, status: { not: 'CANCELLED' } },
-      include: {
-        customer: { select: { id: true, name: true, riskTag: true } },
-        items: { select: { quantity: true, material: { select: { name: true } } } },
-      },
-      orderBy: { createdAt: 'desc' },
+    reportsRepository.getDashboardOrders({
+      businessId: bizId,
+      start: range.start,
+      end: range.end,
     }),
-    prisma.ledgerEntry.findMany({
-      where: { createdAt: { gte: range.start, lte: range.end }, businessId: bizId, type: 'CREDIT' },
+    reportsRepository.getCreditEntries({
+      businessId: bizId,
+      start: range.start,
+      end: range.end,
     }),
-    prisma.order.findMany({
-      where: { createdAt: { gte: range.comparisonStart, lte: range.comparisonEnd }, businessId: bizId, isDeleted: false, status: { not: 'CANCELLED' } },
+    reportsRepository.getDashboardOrders({
+      businessId: bizId,
+      start: range.comparisonStart,
+      end: range.comparisonEnd,
     }),
-    prisma.ledgerEntry.findMany({
-      where: { createdAt: { gte: range.comparisonStart, lte: range.comparisonEnd }, businessId: bizId, type: 'CREDIT' },
+    reportsRepository.getCreditEntries({
+      businessId: bizId,
+      start: range.comparisonStart,
+      end: range.comparisonEnd,
     }),
-    prisma.material.findMany({ where: { isActive: true, businessId: bizId } }),
-    prisma.customer.findMany({
-      where: { isActive: true, businessId: bizId },
-      include: { _count: { select: { orders: { where: { isDeleted: false } } } } },
-    }),
-    prisma.delivery.findMany({
-      where: { order: { businessId: bizId, isDeleted: false } },
-      include: { order: { include: { customer: { select: { name: true } } } } },
-    }),
+    reportsRepository.getActiveMaterials(bizId),
+    reportsRepository.getActiveCustomersWithOrderCount(bizId),
+    reportsRepository.getDeliveriesForBusiness(bizId),
   ])
 
-  const totalSales = rangeOrders.reduce((sum, order) => sum + Number(order.totalAmount), 0)
-  const totalCollected = rangeCredits.reduce((sum, entry) => sum + Number(entry.amount), 0)
-  const totalOutstanding = rangeOrders.reduce((sum, order) => sum + (Number(order.totalAmount) - Number(order.amountPaid)), 0)
-  const todaySales = todayOrders.reduce((sum, order) => sum + Number(order.totalAmount), 0)
-  const todayCollected = todayCredits.reduce((sum, entry) => sum + Number(entry.amount), 0)
-  const previousSales = previousOrders.reduce((sum, order) => sum + Number(order.totalAmount), 0)
-  const previousCollected = previousCredits.reduce((sum, entry) => sum + Number(entry.amount), 0)
-  const previousOutstanding = previousOrders.reduce((sum, order) => sum + (Number(order.totalAmount) - Number(order.amountPaid)), 0)
-  const lowStockCount = materials.filter((material) => Number(material.stockQty) <= Number(material.minThreshold)).length
+  const totalSales = rangeOrders.reduce((sum: number, order: reportsRepository.DashboardOrderRow) => sum + Number(order.totalAmount), 0)
+  const totalCollected = rangeCredits.reduce((sum: number, entry: reportsRepository.AmountRow) => sum + Number(entry.amount), 0)
+  const totalOutstanding = rangeOrders.reduce((sum: number, order: reportsRepository.DashboardOrderRow) => sum + (Number(order.totalAmount) - Number(order.amountPaid)), 0)
+  const todaySales = todayOrders.reduce((sum: number, order: reportsRepository.DashboardOrderRow) => sum + Number(order.totalAmount), 0)
+  const todayCollected = todayCredits.reduce((sum: number, entry: reportsRepository.AmountRow) => sum + Number(entry.amount), 0)
+  const previousSales = previousOrders.reduce((sum: number, order: reportsRepository.DashboardOrderRow) => sum + Number(order.totalAmount), 0)
+  const previousCollected = previousCredits.reduce((sum: number, entry: reportsRepository.AmountRow) => sum + Number(entry.amount), 0)
+  const previousOutstanding = previousOrders.reduce((sum: number, order: reportsRepository.DashboardOrderRow) => sum + (Number(order.totalAmount) - Number(order.amountPaid)), 0)
+  const lowStockCount = materials.filter((material: reportsRepository.MaterialRow) => Number(material.stockQty) <= Number(material.minThreshold)).length
 
   const seriesBuckets = createSeriesBuckets(range)
   const orderSeriesMap = new Map<string, { sales: number; orders: number }>()
@@ -369,7 +363,7 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
   })
 
   const statusCounts = rangeOrders.reduce(
-    (acc, order) => {
+    (acc: Record<string, number>, order: reportsRepository.DashboardOrderRow) => {
       acc[order.status] = (acc[order.status] ?? 0) + 1
       return acc
     },
@@ -377,17 +371,17 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
   )
 
   const riskCounts = customers.reduce(
-    (acc, customer) => {
+    (acc: Record<string, number>, customer: reportsRepository.CustomerCountRow) => {
       acc[customer.riskTag] = (acc[customer.riskTag] ?? 0) + 1
       return acc
     },
     {} as Record<string, number>
   )
 
-  const customerPerformance = rangeOrders.reduce((acc, order) => {
-    const customerId = order.customer?.id ?? order.customerId
-    const customerName = order.customer?.name ?? 'Unknown customer'
-    const riskTag = order.customer?.riskTag ?? 'WATCH'
+  const customerPerformance = rangeOrders.reduce((acc, order: reportsRepository.DashboardOrderRow) => {
+    const customerId = order.customerId
+    const customerName = order.customerName ?? 'Unknown customer'
+    const riskTag = order.riskTag ?? 'WATCH'
     const current = acc.get(customerId) ?? {
       customerId,
       customerName,
@@ -409,7 +403,7 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
     .slice(0, 5)
 
   const stockAlerts = materials
-    .map((material) => {
+    .map((material: reportsRepository.MaterialRow) => {
       const qty = Number(material.stockQty)
       const min = Number(material.minThreshold)
       return {
@@ -423,12 +417,12 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
         status: qty <= 0 ? 'OUT_OF_STOCK' : qty <= min ? 'LOW' : 'OK',
       }
     })
-    .filter((material) => material.status !== 'OK')
-    .sort((a, b) => a.stockQty - b.stockQty)
+    .filter((material: { status: string }) => material.status !== 'OK')
+    .sort((a: { stockQty: number }, b: { stockQty: number }) => a.stockQty - b.stockQty)
     .slice(0, 6)
 
   const deliverySnapshot = deliveries.reduce(
-    (acc, delivery) => {
+    (acc: { total: number; SCHEDULED: number; IN_TRANSIT: number; DELIVERED: number; FAILED: number }, delivery: reportsRepository.DeliveryRow) => {
       acc.total += 1
       acc[delivery.status] += 1
       return acc
@@ -436,19 +430,24 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
     { total: 0, SCHEDULED: 0, IN_TRANSIT: 0, DELIVERED: 0, FAILED: 0 }
   )
 
-  const recentOrders = rangeOrders.slice(0, 6).map((order) => ({
+  const recentOrders = rangeOrders.slice(0, 6).map((order: reportsRepository.DashboardOrderRow) => ({
     id: order.id,
     orderNumber: order.orderNumber,
-    customerName: order.customer?.name ?? 'Unknown customer',
+    customerName: order.customerName ?? 'Unknown customer',
     totalAmount: Number(order.totalAmount),
     amountPaid: Number(order.amountPaid),
     status: order.status,
     createdAt: order.createdAt,
-    itemSummary: order.items.map((item) => item.material?.name).filter(Boolean).slice(0, 2).join(', '),
+    itemSummary: order.itemSummary
+      .split(',')
+      .map((part: string) => part.trim())
+      .filter(Boolean)
+      .slice(0, 2)
+      .join(', '),
   }))
 
   const strongestBucket = [...series].sort((a, b) => b.sales - a.sales)[0]
-  const activeCustomersInRange = new Set(rangeOrders.map((order) => order.customerId)).size
+  const activeCustomersInRange = new Set(rangeOrders.map((order: reportsRepository.DashboardOrderRow) => order.customerId)).size
 
   return {
     range: {
@@ -554,7 +553,7 @@ export async function reportRoutes(app: FastifyInstance) {
             {
               title: 'Recent orders',
               rows: dashboard.recentOrders.length > 0
-                ? dashboard.recentOrders.map((order) => ({
+                ? dashboard.recentOrders.map((order: { orderNumber: string; customerName: string; totalAmount: number }) => ({
                     label: `${order.orderNumber} - ${order.customerName}`,
                     value: `Rs. ${new Intl.NumberFormat('en-IN').format(order.totalAmount)}`,
                   }))
@@ -563,7 +562,7 @@ export async function reportRoutes(app: FastifyInstance) {
             {
               title: 'Top revenue accounts',
               rows: dashboard.topCustomers.length > 0
-                ? dashboard.topCustomers.map((customer) => ({
+                ? dashboard.topCustomers.map((customer: { customerName: string; totalSales: number }) => ({
                     label: customer.customerName,
                     value: `Rs. ${new Intl.NumberFormat('en-IN').format(customer.totalSales)}`,
                   }))
@@ -575,7 +574,7 @@ export async function reportRoutes(app: FastifyInstance) {
                 { label: 'Orders in selection', value: String(dashboard.summary.orderCount) },
                 { label: 'Active customers billed', value: String(dashboard.summary.activeCustomersInRange) },
                 { label: 'Active materials', value: String(dashboard.summary.activeMaterials) },
-                { label: 'Low stock watchlist', value: dashboard.stockAlerts.map((item) => item.name).slice(0, 5).join(', ') || 'None' },
+                { label: 'Low stock watchlist', value: dashboard.stockAlerts.map((item: { name: string }) => item.name).slice(0, 5).join(', ') || 'None' },
               ],
             },
           ],
@@ -624,7 +623,7 @@ export async function reportRoutes(app: FastifyInstance) {
             {
               title: 'Recent orders in selection',
               rows: summary.recentOrders.length > 0
-                ? summary.recentOrders.map((order) => ({
+                ? summary.recentOrders.map((order: { orderNumber: string; customerName: string; totalAmount: number }) => ({
                     label: `${order.orderNumber} • ${order.customerName}`,
                     value: `Rs. ${new Intl.NumberFormat('en-IN').format(order.totalAmount)}`,
                   }))
@@ -637,24 +636,20 @@ export async function reportRoutes(app: FastifyInstance) {
     }
 
     if (page === 'orders') {
-      const orders = await prisma.order.findMany({
-        where: { businessId: bizId, isDeleted: false },
-        include: { customer: { select: { name: true } }, items: true },
-        orderBy: { createdAt: 'desc' },
-      })
+      const orders = await reportsRepository.getOrdersSnapshot(bizId)
       return sendCsv(
         'orders-snapshot.csv',
         csv(
           ['Order Number', 'Date', 'Customer', 'Status', 'Items', 'Total Amount', 'Amount Paid', 'Due'],
-          orders.map((order) => [
+          orders.map((order: reportsRepository.OrderSnapshotRow) => [
             order.orderNumber,
             order.createdAt.toISOString(),
-            order.customer?.name ?? '',
+            order.customerName,
             order.status,
-            order.items.length,
-            Number(order.totalAmount),
-            Number(order.amountPaid),
-            Number(order.totalAmount) - Number(order.amountPaid),
+            order.itemCount,
+            order.totalAmount,
+            order.amountPaid,
+            order.dueAmount,
           ])
         ),
         'Orders snapshot'
@@ -662,62 +657,39 @@ export async function reportRoutes(app: FastifyInstance) {
     }
 
     if (page === 'customers') {
-      const customers = await prisma.customer.findMany({
-        where: { businessId: bizId, isActive: true },
-        include: { _count: { select: { orders: { where: { isDeleted: false } } } } },
-        orderBy: { name: 'asc' },
-      })
-      const customerIds = customers.map((customer) => customer.id)
-      const ledgerAgg = customerIds.length > 0
-        ? await prisma.ledgerEntry.groupBy({
-            by: ['customerId', 'type'],
-            where: { customerId: { in: customerIds } },
-            _sum: { amount: true },
-          })
-        : []
-      const balanceMap = new Map<string, { debit: number; credit: number }>()
-      for (const row of ledgerAgg) {
-        const current = balanceMap.get(row.customerId) ?? { debit: 0, credit: 0 }
-        if (row.type === 'DEBIT') current.debit = Number(row._sum.amount ?? 0)
-        if (row.type === 'CREDIT') current.credit = Number(row._sum.amount ?? 0)
-        balanceMap.set(row.customerId, current)
-      }
-      const rows = customers.map((customer) => {
-        const totals = balanceMap.get(customer.id) ?? { debit: 0, credit: 0 }
-        return [
-          customer.name,
-          customer.phone,
-          customer.riskTag,
-          customer.address ?? '',
-          customer._count.orders,
-          Number(customer.creditLimit),
-          totals.debit - totals.credit,
-        ]
-      })
+      const customers = await reportsRepository.getCustomersSnapshot(bizId)
       return sendCsv(
         'customers-snapshot.csv',
-        csv(['Name', 'Phone', 'Risk Tag', 'Address', 'Orders', 'Credit Limit', 'Outstanding'], rows),
+        csv(
+          ['Name', 'Phone', 'Risk Tag', 'Address', 'Orders', 'Credit Limit', 'Outstanding'],
+          customers.map((customer: reportsRepository.CustomerSnapshotRow) => [
+            customer.name,
+            customer.phone,
+            customer.riskTag,
+            customer.address ?? '',
+            customer.orderCount,
+            customer.creditLimit,
+            customer.outstanding,
+          ])
+        ),
         'Customers snapshot'
       )
     }
 
     if (page === 'inventory') {
-      const materials = await prisma.material.findMany({
-        where: { businessId: bizId, isActive: true },
-        orderBy: { name: 'asc' },
-      })
+      const materials = await reportsRepository.getInventorySnapshot(bizId)
       return sendCsv(
         'inventory-snapshot.csv',
         csv(
           ['Material', 'Unit', 'Stock Qty', 'Min Threshold', 'Max Threshold', 'Purchase Price', 'Sale Price'],
-          materials.map((material) => [
+          materials.map((material: reportsRepository.InventorySnapshotRow) => [
             material.name,
             material.unit,
-            Number(material.stockQty),
-            Number(material.minThreshold),
-            Number(material.maxThreshold ?? 0),
-            Number(material.purchasePrice),
-            Number(material.salePrice),
+            material.stockQty,
+            material.minThreshold,
+            material.maxThreshold,
+            material.purchasePrice,
+            material.salePrice,
           ])
         ),
         'Inventory snapshot'
@@ -727,20 +699,16 @@ export async function reportRoutes(app: FastifyInstance) {
     if (page === 'delivery') {
       const start = startOfDay(generatedAt)
       const end = endOfDay(generatedAt)
-      const deliveries = await prisma.delivery.findMany({
-        where: { createdAt: { gte: start, lte: end }, order: { businessId: bizId, isDeleted: false } },
-        include: { order: { include: { customer: { select: { name: true, address: true } } } } },
-        orderBy: { createdAt: 'asc' },
-      })
+      const deliveries = await reportsRepository.getDeliverySnapshotForRange({ businessId: bizId, start, end })
       return sendCsv(
         'delivery-board-snapshot.csv',
         csv(
           ['Challan Number', 'Created At', 'Customer', 'Address', 'Status', 'Driver', 'Vehicle'],
-          deliveries.map((delivery) => [
+          deliveries.map((delivery: reportsRepository.DeliverySnapshotRow) => [
             delivery.challanNumber,
             delivery.createdAt.toISOString(),
-            delivery.order?.customer?.name ?? '',
-            delivery.order?.customer?.address ?? '',
+            delivery.customerName,
+            delivery.customerAddress,
             delivery.status,
             delivery.driverName ?? '',
             delivery.vehicleNumber ?? '',
@@ -751,48 +719,39 @@ export async function reportRoutes(app: FastifyInstance) {
     }
 
     if (page === 'khata') {
-      const customers = await prisma.customer.findMany({ where: { isActive: true, businessId: bizId }, orderBy: { name: 'asc' } })
-      const customerIds = customers.map((customer) => customer.id)
-      const ledgerAgg = customerIds.length > 0
-        ? await prisma.ledgerEntry.groupBy({
-            by: ['customerId', 'type'],
-            where: { customerId: { in: customerIds } },
-            _sum: { amount: true },
-          })
-        : []
-      const balanceMap = new Map<string, { debit: number; credit: number }>()
-      for (const row of ledgerAgg) {
-        const current = balanceMap.get(row.customerId) ?? { debit: 0, credit: 0 }
-        if (row.type === 'DEBIT') current.debit = Number(row._sum.amount ?? 0)
-        if (row.type === 'CREDIT') current.credit = Number(row._sum.amount ?? 0)
-        balanceMap.set(row.customerId, current)
-      }
-      const rows = customers.map((customer) => {
-        const totals = balanceMap.get(customer.id) ?? { debit: 0, credit: 0 }
-        return [customer.name, customer.phone, customer.riskTag, totals.debit, totals.credit, totals.debit - totals.credit]
-      })
+      const rows = await reportsRepository.getKhataSnapshot(bizId)
       return sendCsv(
         'khata-snapshot.csv',
-        csv(['Customer', 'Phone', 'Risk Tag', 'Total Debit', 'Total Credit', 'Outstanding'], rows),
+        csv(
+          ['Customer', 'Phone', 'Risk Tag', 'Total Debit', 'Total Credit', 'Outstanding'],
+          rows.map((row: reportsRepository.KhataSnapshotRow) => [
+            row.name,
+            row.phone,
+            row.riskTag,
+            row.debit,
+            row.credit,
+            row.outstanding,
+          ])
+        ),
         'Khata snapshot'
       )
     }
 
     if (page === 'settings') {
-      const business = await prisma.business.findUnique({ where: { id: bizId }, include: { users: { where: { isActive: true } } } })
-      if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
+      const rows = await reportsRepository.getWorkspaceSnapshotRows(bizId)
+      if (rows.length === 0) return reply.status(404).send({ success: false, error: 'Business not found' })
       return sendCsv(
         'workspace-snapshot.csv',
         csv(
           ['Business Name', 'City', 'Phone', 'GSTIN', 'User Name', 'Role', 'Permissions'],
-          business.users.map((user) => [
-            business.name,
-            business.city,
-            business.phone ?? '',
-            business.gstin ?? '',
-            user.name,
-            user.role,
-            (user.permissions ?? []).join(' | '),
+          rows.map((row: reportsRepository.WorkspaceSnapshotRow) => [
+            row.businessName,
+            row.city,
+            row.phone ?? '',
+            row.gstin ?? '',
+            row.userName ?? '',
+            row.role ?? '',
+            row.permissions,
           ])
         ),
         'Workspace snapshot'
@@ -819,30 +778,26 @@ export async function reportRoutes(app: FastifyInstance) {
 
   app.get('/history', async (req) => {
     const bizId = getBizId(req)
-    const userId = (req.user as any).id
+    const userId = (req.user as { id: string }).id
 
-    const exports = await prisma.auditLog.findMany({
-      where: {
-        businessId: bizId,
-        actorId: userId,
-        action: 'REPORT_EXPORTED',
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
+    const exports = await reportsRepository.getReportExportHistory({
+      businessId: bizId,
+      actorId: userId,
+      limit: 50,
     })
 
     return {
       success: true,
-      data: exports.map((entry) => {
-        const meta = (entry.metadata ?? {}) as Record<string, any>
+      data: exports.map((entry: reportsRepository.AuditHistoryRow) => {
+        const meta = (entry.metadata ?? {}) as Record<string, unknown>
         return {
           id: entry.id,
-          report: meta.page ?? 'unknown',
-          label: meta.label ?? 'Report export',
-          format: meta.format ?? 'file',
-          fileName: meta.fileName ?? 'export',
+          report: typeof meta.page === 'string' ? meta.page : 'unknown',
+          label: typeof meta.label === 'string' ? meta.label : 'Report export',
+          format: typeof meta.format === 'string' ? meta.format : 'file',
+          fileName: typeof meta.fileName === 'string' ? meta.fileName : 'export',
           exportedAt: entry.createdAt,
-          query: meta.query ?? {},
+          query: typeof meta.query === 'object' && meta.query !== null ? meta.query : {},
         }
       }),
     }

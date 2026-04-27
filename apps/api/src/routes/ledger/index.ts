@@ -1,123 +1,56 @@
 import type { FastifyInstance } from 'fastify'
-import { z }         from 'zod'
-import { prisma }    from '@cement-house/db'
-import { getBizId }  from '../../middleware/auth'
+import { z } from 'zod'
+import { ledgerRepository } from '@cement-house/db'
+import { getBizId } from '../../middleware/auth'
+
+const CustomerIdParamsSchema = z.object({
+  customerId: z.string().uuid(),
+})
 
 const RecordPaymentSchema = z.object({
-  customerId:  z.string().uuid(),
-  amount:      z.number().positive(),
-  paymentMode: z.enum(['CASH','UPI','CHEQUE','CREDIT','PARTIAL']),
-  reference:   z.string().optional(),   // UPI txn ID, cheque number
-  notes:       z.string().optional(),
-  orderId:     z.string().uuid().optional(),
+  customerId: z.string().uuid(),
+  amount: z.number().positive(),
+  paymentMode: z.enum(['CASH', 'UPI', 'CHEQUE', 'CREDIT', 'PARTIAL']),
+  reference: z.string().optional(),
+  notes: z.string().optional(),
+  orderId: z.string().uuid().optional(),
 })
 
 export async function ledgerRoutes(app: FastifyInstance) {
-  // GET /api/ledger/:customerId - full ledger for one customer
-  app.get('/:customerId', async (req) => {
-    const { customerId } = req.params as any
-    const entries = await prisma.ledgerEntry.findMany({
-      where: { customerId },
-      orderBy: { createdAt: 'asc' },
-      include: { order: { select: { orderNumber: true } } },
-    })
+  app.get('/summary/all', async (req) => {
+    const bizId = getBizId(req)
+    const summaries = await ledgerRepository.getLedgerSummaryAll(bizId)
+    return { success: true, data: summaries }
+  })
 
-    // Compute running balance
+  app.get('/:customerId', async (req, reply) => {
+    const bizId = getBizId(req)
+    const params = CustomerIdParamsSchema.safeParse(req.params)
+    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+
+    const entries = await ledgerRepository.getLedgerEntriesByCustomer(params.data.customerId, bizId)
+
     let balance = 0
-    const withBalance = entries.map((e) => {
-      balance += e.type === 'DEBIT' ? Number(e.amount) : -Number(e.amount)
-      return { ...e, runningBalance: balance }
+    const withBalance = entries.map((entry) => {
+      balance += entry.type === 'DEBIT' ? Number(entry.amount) : -Number(entry.amount)
+      return { ...entry, runningBalance: balance }
     })
 
     return { success: true, data: { entries: withBalance, currentBalance: balance } }
   })
 
-  // GET /api/ledger/summary/all - all customers with outstanding balance (scoped to business)
-  app.get('/summary/all', async (req) => {
-    const bizId = getBizId(req)
-    const customers = await prisma.customer.findMany({ where: { isActive: true, businessId: bizId } })
-    const customerIds = customers.map((customer) => customer.id)
-    const ledgerAgg = customerIds.length > 0
-      ? await prisma.ledgerEntry.groupBy({
-          by: ['customerId', 'type'],
-          where: { customerId: { in: customerIds } },
-          _sum: { amount: true },
-        })
-      : []
-    const ledgerMap = new Map<string, { debit: number; credit: number }>()
-    for (const row of ledgerAgg) {
-      const current = ledgerMap.get(row.customerId) ?? { debit: 0, credit: 0 }
-      if (row.type === 'DEBIT') current.debit = Number(row._sum.amount ?? 0)
-      if (row.type === 'CREDIT') current.credit = Number(row._sum.amount ?? 0)
-      ledgerMap.set(row.customerId, current)
-    }
-    const summaries = customers.map((customer) => {
-      const totals = ledgerMap.get(customer.id) ?? { debit: 0, credit: 0 }
-      return {
-        customerId: customer.id,
-        customerName: customer.name,
-        phone: customer.phone,
-        balance: totals.debit - totals.credit,
-        riskTag: customer.riskTag,
-      }
-    })
-    return { success: true, data: summaries.filter((s) => s.balance !== 0) }
-  })
-
-  // POST /api/ledger/payment - record a payment
   app.post('/payment', async (req, reply) => {
     const user = req.user as { id: string }
     const bizId = getBizId(req)
     const body = RecordPaymentSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const entry = await prisma.$transaction(async (tx) => {
-      const ledger = await tx.ledgerEntry.create({
-        data: {
-          customerId:  body.data.customerId,
-          orderId:     body.data.orderId,
-          type:        'CREDIT',
-          amount:      body.data.amount,
-          paymentMode: body.data.paymentMode,
-          reference:   body.data.reference,
-          notes:       body.data.notes,
-          recordedById: user.id,
-          businessId:  bizId,
-        },
-      })
-
-      // Keep order.amountPaid in sync with ledger credits
-      if (body.data.orderId) {
-        await tx.order.update({
-          where: { id: body.data.orderId },
-          data:  { amountPaid: { increment: body.data.amount } },
-        })
-      } else {
-        // General payment - distribute to oldest unpaid orders (FIFO)
-        const unpaidOrders = await tx.order.findMany({
-          where: {
-            customerId: body.data.customerId,
-            status:     { not: 'CANCELLED' },
-          },
-          orderBy: { createdAt: 'asc' },
-        })
-
-        let remaining = body.data.amount
-        for (const order of unpaidOrders) {
-          if (remaining <= 0) break
-          const due = Number(order.totalAmount) - Number(order.amountPaid)
-          if (due <= 0) continue
-          const applied = Math.min(remaining, due)
-          await tx.order.update({
-            where: { id: order.id },
-            data:  { amountPaid: { increment: applied } },
-          })
-          remaining -= applied
-        }
-      }
-
-      return ledger
+    const entry = await ledgerRepository.recordPaymentAndApply({
+      ...body.data,
+      recordedById: user.id,
+      businessId: bizId,
     })
+
     return { success: true, data: entry }
   })
 }
@@ -132,28 +65,26 @@ function toCsv(rows: Array<Array<string | number>>) {
   return rows.map((row) => row.map(csvCell).join(',')).join('\n')
 }
 
-// GET /api/ledger/:customerId/statement - download CSV statement
 export async function ledgerStatementRoute(app: FastifyInstance) {
   app.get('/:customerId/statement', async (req, reply) => {
-    const { customerId } = req.params as any
-    const customer = await prisma.customer.findUnique({ where: { id: customerId } })
+    const bizId = getBizId(req)
+    const params = CustomerIdParamsSchema.safeParse(req.params)
+    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+
+    const customer = await ledgerRepository.getCustomerBasicById(params.data.customerId, bizId)
     if (!customer) return reply.status(404).send({ success: false, error: 'Customer not found' })
 
-    const entries = await prisma.ledgerEntry.findMany({
-      where: { customerId },
-      orderBy: { createdAt: 'asc' },
-      include: { order: { select: { orderNumber: true } } },
-    })
+    const entries = await ledgerRepository.getLedgerEntriesByCustomer(params.data.customerId, bizId)
 
     let balance = 0
-    const rows = entries.map((e) => {
-      const amt = Number(e.amount)
-      balance += e.type === 'DEBIT' ? amt : -amt
+    const rows = entries.map((entry) => {
+      const amount = Number(entry.amount)
+      balance += entry.type === 'DEBIT' ? amount : -amount
       return {
-        date: e.createdAt,
-        description: e.notes ?? (e.order ? `Order ${e.order.orderNumber}` : e.type),
-        debit: e.type === 'DEBIT' ? amt : null,
-        credit: e.type === 'CREDIT' ? amt : null,
+        date: entry.createdAt,
+        description: entry.notes ?? (entry.order ? `Order ${entry.order.orderNumber}` : entry.type),
+        debit: entry.type === 'DEBIT' ? amount : null,
+        credit: entry.type === 'CREDIT' ? amount : null,
         balance,
       }
     })

@@ -1,153 +1,158 @@
 import type { FastifyInstance } from 'fastify'
-import { z }               from 'zod'
-import { prisma }          from '@cement-house/db'
+import { z } from 'zod'
+import { customersRepository } from '@cement-house/db'
 import { requireOwner, getBizId } from '../../middleware/auth'
 
+const RiskTagSchema = z.enum(['RELIABLE', 'WATCH', 'BLOCKED'])
+
+const ListCustomersQuerySchema = z.object({
+  search: z.string().trim().optional(),
+  riskTag: RiskTagSchema.optional(),
+})
+
+const CustomerIdParamsSchema = z.object({
+  id: z.string().uuid(),
+})
+
 const CreateCustomerSchema = z.object({
-  name:        z.string().min(2),
-  phone:       z.string().min(10).max(10),
-  altPhone:    z.string().optional(),
-  address:     z.string().optional(),
+  name: z.string().min(2),
+  phone: z.string().min(10).max(10),
+  altPhone: z.string().optional(),
+  address: z.string().optional(),
   siteAddress: z.string().optional(),
-  gstin:       z.string().optional(),
+  gstin: z.string().optional(),
   creditLimit: z.number().min(0).default(0),
-  notes:       z.string().optional(),
+  notes: z.string().optional(),
 })
 
 const UpdateCustomerSchema = CreateCustomerSchema.partial().extend({
-  riskTag: z.enum(['RELIABLE','WATCH','BLOCKED']).optional(),
+  riskTag: RiskTagSchema.optional(),
   isActive: z.boolean().optional(),
 })
 
+const UpdateRiskSchema = z.object({
+  riskTag: RiskTagSchema,
+})
+
+const BulkDeleteSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1),
+})
+
 export async function customerRoutes(app: FastifyInstance) {
-  // GET /api/customers  — list all active customers for this business
-  app.get('/', async (req) => {
+  app.get('/', async (req, reply) => {
     const bizId = getBizId(req)
-    const { search, riskTag } = req.query as any
-    const where: any = { isActive: true, businessId: bizId }
-    if (riskTag)  where.riskTag = riskTag
-    if (search)   where.name    = { contains: search, mode: 'insensitive' }
+    const query = ListCustomersQuerySchema.safeParse(req.query)
+    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
 
-    const customers = await prisma.customer.findMany({
-      where,
-      orderBy: { name: 'asc' },
-      include: {
-        _count: { select: { orders: { where: { isDeleted: false } } } },
-      },
+    const customers = await customersRepository.listActiveCustomersWithStats({
+      businessId: bizId,
+      search: query.data.search,
+      riskTag: query.data.riskTag,
     })
 
-    const customerIds = customers.map((customer) => customer.id)
-    const ledgerAgg = customerIds.length > 0
-      ? await prisma.ledgerEntry.groupBy({
-          by: ['customerId', 'type'],
-          where: { customerId: { in: customerIds } },
-          _sum: { amount: true },
-        })
-      : []
-    const ledgerMap = new Map<string, { debit: number; credit: number }>()
-    for (const row of ledgerAgg) {
-      const current = ledgerMap.get(row.customerId) ?? { debit: 0, credit: 0 }
-      if (row.type === 'DEBIT') current.debit = Number(row._sum.amount ?? 0)
-      if (row.type === 'CREDIT') current.credit = Number(row._sum.amount ?? 0)
-      ledgerMap.set(row.customerId, current)
-    }
-    const withBalance = customers.map((customer) => {
-      const totals = ledgerMap.get(customer.id) ?? { debit: 0, credit: 0 }
-      return {
+    return {
+      success: true,
+      data: customers.map((customer) => ({
         ...customer,
-        balance: totals.debit - totals.credit,
-        orderCount: customer._count.orders,
-      }
-    })
-
-    return { success: true, data: withBalance }
+        _count: { orders: customer.orderCount },
+      })),
+    }
   })
 
-  // GET /api/customers/:id  — single customer with full stats
   app.get('/:id', async (req, reply) => {
-    const { id } = req.params as any
-    const customer = await prisma.customer.findUnique({
-      where: { id },
-      include: {
-        orders: {
-          where: { isDeleted: false },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-          include: { items: { include: { material: true } } },
-        },
-        reminders: { orderBy: { createdAt: 'desc' }, take: 5 },
-        _count: { select: { orders: { where: { isDeleted: false } } } },
-      },
-    })
+    const bizId = getBizId(req)
+    const params = CustomerIdParamsSchema.safeParse(req.params)
+    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+
+    const customer = await customersRepository.getCustomerById(params.data.id, bizId)
     if (!customer) return reply.status(404).send({ success: false, error: 'Customer not found' })
 
-    // Compute lifetime stats
-    const orderTotals = await prisma.order.aggregate({
-      where: { customerId: id, status: { not: 'CANCELLED' }, isDeleted: false },
-      _sum: { totalAmount: true },
-    })
-    const lifetimeBusiness = Number(orderTotals._sum.totalAmount ?? 0)
+    const [orders, reminders, orderCount, lifetimeBusiness, ledger] = await Promise.all([
+      customersRepository.getRecentOrdersWithItems(params.data.id, 10),
+      customersRepository.getRecentReminders(params.data.id, 5),
+      customersRepository.getCustomerOrderCount(params.data.id),
+      customersRepository.getCustomerLifetimeBusiness(params.data.id),
+      customersRepository.getCustomerLedgerTotals(params.data.id),
+    ])
 
-    const agg = await prisma.ledgerEntry.groupBy({
-      by: ['type'], where: { customerId: id }, _sum: { amount: true },
-    })
-    const debit  = Number(agg.find(a => a.type === 'DEBIT')?._sum.amount  ?? 0)
-    const credit = Number(agg.find(a => a.type === 'CREDIT')?._sum.amount ?? 0)
+    const balance = ledger.debit - ledger.credit
 
-    return { success: true, data: {
-      ...customer,
-      balance: debit - credit,
-      lifetimeBusiness,
-      availableCredit: Number(customer.creditLimit) - (debit - credit),
-    }}
+    return {
+      success: true,
+      data: {
+        ...customer,
+        orders,
+        reminders,
+        _count: { orders: orderCount },
+        balance,
+        lifetimeBusiness,
+        availableCredit: Number(customer.creditLimit) - balance,
+      },
+    }
   })
 
-  // POST /api/customers  — create
   app.post('/', async (req, reply) => {
     const bizId = getBizId(req)
     const body = CreateCustomerSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const existing = await prisma.customer.findFirst({ where: { phone: body.data.phone, businessId: bizId } })
+    const existing = await customersRepository.findCustomerByPhoneInBusiness(body.data.phone, bizId)
     if (existing) return reply.status(409).send({ success: false, error: 'Customer with this phone already exists' })
 
-    const customer = await prisma.customer.create({ data: { ...body.data, businessId: bizId } })
+    const customer = await customersRepository.createCustomer({
+      ...body.data,
+      businessId: bizId,
+    })
+
     return { success: true, data: customer }
   })
 
-  // PATCH /api/customers/:id  — update
   app.patch('/:id', async (req, reply) => {
-    const { id } = req.params as any
+    const bizId = getBizId(req)
+    const params = CustomerIdParamsSchema.safeParse(req.params)
+    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+
     const body = UpdateCustomerSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const customer = await prisma.customer.update({ where: { id }, data: body.data })
+    const customer = await customersRepository.updateCustomer(params.data.id, bizId, body.data)
+    if (!customer) return reply.status(404).send({ success: false, error: 'Customer not found' })
+
     return { success: true, data: customer }
   })
 
-  // PATCH /api/customers/:id/risk  — owner-only: change risk tag
   app.patch('/:id/risk', async (req, reply) => {
     if (!requireOwner(req, reply)) return
-    const { id } = req.params as any
-    const { riskTag } = req.body as any
-    const customer = await prisma.customer.update({ where: { id }, data: { riskTag } })
+    const bizId = getBizId(req)
+    const params = CustomerIdParamsSchema.safeParse(req.params)
+    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+
+    const body = UpdateRiskSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    const customer = await customersRepository.updateCustomer(params.data.id, bizId, { riskTag: body.data.riskTag })
+    if (!customer) return reply.status(404).send({ success: false, error: 'Customer not found' })
+
     return { success: true, data: customer }
   })
 
-  // DELETE /api/customers/:id  — soft delete (owner only)
   app.delete('/:id', async (req, reply) => {
     if (!requireOwner(req, reply)) return
-    const { id } = req.params as any
-    await prisma.customer.update({ where: { id }, data: { isActive: false } })
+    const bizId = getBizId(req)
+    const params = CustomerIdParamsSchema.safeParse(req.params)
+    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+
+    await customersRepository.softDeleteCustomer(params.data.id, bizId)
     return { success: true }
   })
 
-  // POST /api/customers/bulk-delete — soft-delete multiple customers
   app.post('/bulk-delete', async (req, reply) => {
     if (!requireOwner(req, reply)) return
-    const { ids } = req.body as { ids: string[] }
-    if (!ids?.length) return reply.status(400).send({ success: false, error: 'No customer IDs provided' })
-    await prisma.customer.updateMany({ where: { id: { in: ids } }, data: { isActive: false } })
-    return { success: true, data: { deleted: ids.length } }
+    const bizId = getBizId(req)
+    const body = BulkDeleteSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    const deleted = await customersRepository.bulkSoftDeleteCustomers(body.data.ids, bizId)
+    return { success: true, data: { deleted } }
   })
 }

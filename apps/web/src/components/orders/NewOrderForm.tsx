@@ -27,8 +27,8 @@ interface NewOrderFormProps {
 
 export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: NewOrderFormProps) {
   const router = useRouter()
-  const { data: customers } = useCustomers()
-  const { data: materials } = useInventory()
+  const { data: customers, isLoading: customersLoading } = useCustomers()
+  const { data: materials, isLoading: materialsLoading } = useInventory()
   const createOrder = useCreateOrder()
 
   const [customerId, setCustomerId] = useState('')
@@ -100,6 +100,23 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
       return
     }
     router.back()
+  }
+
+  if (customersLoading || materialsLoading) {
+    return (
+      <div className="max-w-3xl space-y-4">
+        {[0, 1, 2].map((index) => (
+          <Card key={index}>
+            <div className="mb-3 h-4 w-36 animate-pulse rounded bg-slate-100 dark:bg-slate-800/60" />
+            <div className="space-y-3">
+              <div className="h-10 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800/60" />
+              <div className="h-10 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800/60" />
+              <div className="h-10 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800/60" />
+            </div>
+          </Card>
+        ))}
+      </div>
+    )
   }
 
   return (
