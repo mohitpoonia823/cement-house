@@ -8,12 +8,20 @@ import { useOrders, useDeleteOrder, useBulkDeleteOrders } from '@/hooks/useOrder
 import { fmt, fmtDate } from '@/lib/utils'
 import { NewOrderForm } from '@/components/orders/NewOrderForm'
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 const STATUSES = ['ALL', 'CONFIRMED', 'DISPATCHED', 'DELIVERED', 'CANCELLED']
 
 export default function OrdersPage() {
+  return (
+    <Suspense fallback={<AppShell><PageLoader /></AppShell>}>
+      <OrdersContent />
+    </Suspense>
+  )
+}
+
+function OrdersContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [status, setStatus] = useState('ALL')
