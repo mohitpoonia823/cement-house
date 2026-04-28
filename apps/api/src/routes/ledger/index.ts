@@ -3,6 +3,28 @@ import { z } from 'zod'
 import { ledgerRepository } from '@cement-house/db'
 import { getBizId } from '../../middleware/auth'
 
+const LEDGER_SUMMARY_CACHE_TTL_MS = 10_000
+const LEDGER_DETAIL_CACHE_TTL_MS = 10_000
+const ledgerSummaryCache = new Map<string, { expiresAt: number; value: any }>()
+const ledgerSummaryInFlight = new Map<string, Promise<any>>()
+const ledgerDetailCache = new Map<string, { expiresAt: number; value: any }>()
+const ledgerDetailInFlight = new Map<string, Promise<any>>()
+
+function invalidateLedgerCacheForBusiness(businessId: string) {
+  for (const key of ledgerSummaryCache.keys()) {
+    if (key.startsWith(`${businessId}:`)) ledgerSummaryCache.delete(key)
+  }
+  for (const key of ledgerSummaryInFlight.keys()) {
+    if (key.startsWith(`${businessId}:`)) ledgerSummaryInFlight.delete(key)
+  }
+  for (const key of ledgerDetailCache.keys()) {
+    if (key.startsWith(`${businessId}:`)) ledgerDetailCache.delete(key)
+  }
+  for (const key of ledgerDetailInFlight.keys()) {
+    if (key.startsWith(`${businessId}:`)) ledgerDetailInFlight.delete(key)
+  }
+}
+
 const CustomerIdParamsSchema = z.object({
   customerId: z.string().uuid(),
 })
@@ -19,7 +41,20 @@ const RecordPaymentSchema = z.object({
 export async function ledgerRoutes(app: FastifyInstance) {
   app.get('/summary/all', async (req) => {
     const bizId = getBizId(req)
-    const summaries = await ledgerRepository.getLedgerSummaryAll(bizId)
+    const cacheKey = `${bizId}:summary`
+    const now = Date.now()
+    const cached = ledgerSummaryCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) return { success: true, data: cached.value }
+
+    const inFlight = ledgerSummaryInFlight.get(cacheKey)
+    if (inFlight) return { success: true, data: await inFlight }
+
+    const compute = ledgerRepository
+      .getLedgerSummaryAll(bizId)
+      .finally(() => ledgerSummaryInFlight.delete(cacheKey))
+    ledgerSummaryInFlight.set(cacheKey, compute)
+    const summaries = await compute
+    ledgerSummaryCache.set(cacheKey, { expiresAt: Date.now() + LEDGER_SUMMARY_CACHE_TTL_MS, value: summaries })
     return { success: true, data: summaries }
   })
 
@@ -28,7 +63,19 @@ export async function ledgerRoutes(app: FastifyInstance) {
     const params = CustomerIdParamsSchema.safeParse(req.params)
     if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
 
-    const entries = await ledgerRepository.getLedgerEntriesByCustomer(params.data.customerId, bizId)
+    const cacheKey = `${bizId}:customer:${params.data.customerId}`
+    const now = Date.now()
+    const cached = ledgerDetailCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) return { success: true, data: cached.value }
+
+    const inFlight = ledgerDetailInFlight.get(cacheKey)
+    if (inFlight) return { success: true, data: await inFlight }
+
+    const entriesPromise = ledgerRepository
+      .getLedgerEntriesByCustomer(params.data.customerId, bizId)
+      .finally(() => ledgerDetailInFlight.delete(cacheKey))
+    ledgerDetailInFlight.set(cacheKey, entriesPromise)
+    const entries = await entriesPromise
 
     let balance = 0
     const withBalance = entries.map((entry) => {
@@ -36,7 +83,9 @@ export async function ledgerRoutes(app: FastifyInstance) {
       return { ...entry, runningBalance: balance }
     })
 
-    return { success: true, data: { entries: withBalance, currentBalance: balance } }
+    const data = { entries: withBalance, currentBalance: balance }
+    ledgerDetailCache.set(cacheKey, { expiresAt: Date.now() + LEDGER_DETAIL_CACHE_TTL_MS, value: data })
+    return { success: true, data }
   })
 
   app.post('/payment', async (req, reply) => {
@@ -51,6 +100,7 @@ export async function ledgerRoutes(app: FastifyInstance) {
       businessId: bizId,
     })
 
+    invalidateLedgerCacheForBusiness(bizId)
     return { success: true, data: entry }
   })
 }

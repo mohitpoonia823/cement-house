@@ -1,10 +1,17 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 
-export function useCustomers(filters?: { search?: string; riskTag?: string }) {
+export function useCustomers(
+  filters?: { search?: string; riskTag?: string },
+  options?: { enabled?: boolean }
+) {
   return useQuery({
     queryKey: ['customers', filters],
     queryFn:  () => api.get('/api/customers', { params: filters }).then(r => r.data.data),
+    enabled: options?.enabled ?? true,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 
@@ -13,6 +20,9 @@ export function useCustomer(id: string) {
     queryKey: ['customers', id],
     queryFn:  () => api.get(`/api/customers/${id}`).then(r => r.data.data),
     enabled:  !!id,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 
@@ -68,4 +78,3 @@ export function useSendReminders() {
     },
   })
 }
-

@@ -8,6 +8,7 @@ import { api } from '@/lib/api'
 import { fmt, fmtDate } from '@/lib/utils'
 import { useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { useI18n } from '@/lib/i18n'
 
 const PAYMENT_MODES = ['CASH', 'UPI', 'CHEQUE']
 
@@ -20,6 +21,8 @@ export default function KhataPage() {
 }
 
 function KhataContent() {
+  const { language } = useI18n()
+  const t = (en: string, hi: string, hinglish?: string) => (language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en)
   const params = useSearchParams()
   const initId = params.get('customer') ?? ''
   const [selectedId, setSelectedId] = useState(initId)
@@ -82,16 +85,16 @@ function KhataContent() {
   return (
     <AppShell>
       <SectionHeader
-        eyebrow="Collection analytics"
-        title="Khata and collections"
-        description="Focus collections on the right parties with a clear balance view, searchable ledger, and fast payment capture."
+        eyebrow={t('Collection analytics', 'कलेक्शन एनालिटिक्स')}
+        title={language === 'hi' ? 'खाता और कलेक्शन' : language === 'hinglish' ? 'Khata and collections' : 'Khata and collections'}
+        description={language === 'hi' ? 'सही पार्टियों से कलेक्शन फोकस करें, साफ बैलेंस व्यू और तेज पेमेंट एंट्री के साथ।' : language === 'hinglish' ? 'Right parties par collection focus karo with clear balance view.' : 'Focus collections on the right parties with a clear balance view, searchable ledger, and fast payment capture.'}
       />
 
       <MetricGrid className="mb-6">
-        <MetricCard label="Customers with dues" value={String((summary ?? []).filter((c: any) => c.balance > 0).length)} hint="Accounts needing follow-up" tone="warning" />
-        <MetricCard label="Open balance" value={fmt((summary ?? []).reduce((sum: number, c: any) => sum + Math.max(0, Number(c.balance)), 0))} hint="Net receivables across the ledger" tone="danger" />
-        <MetricCard label="Search results" value={String(filtered.length)} hint="Filtered customer list" />
-        <MetricCard label="Selected account" value={selected?.customerName ?? 'None'} hint={selected ? `Current balance ${fmt(Math.abs(selected.balance ?? 0))}` : 'Pick a party to review entries'} tone="brand" />
+        <MetricCard label={t('Customers with dues', 'बकाया वाले ग्राहक')} value={String((summary ?? []).filter((c: any) => c.balance > 0).length)} hint={t('Accounts needing follow-up', 'जिन खातों को फॉलो-अप चाहिए')} tone="warning" />
+        <MetricCard label={t('Open balance', 'ओपन बैलेंस')} value={fmt((summary ?? []).reduce((sum: number, c: any) => sum + Math.max(0, Number(c.balance)), 0))} hint={t('Net receivables across the ledger', 'लेजर में कुल प्राप्तियां')} tone="danger" />
+        <MetricCard label={t('Search results', 'सर्च परिणाम')} value={String(filtered.length)} hint={t('Filtered customer list', 'फिल्टर की गई ग्राहक सूची')} />
+        <MetricCard label={t('Selected account', 'चयनित खाता')} value={selected?.customerName ?? t('None', 'कोई नहीं')} hint={selected ? `${t('Current balance', 'वर्तमान बैलेंस')} ${fmt(Math.abs(selected.balance ?? 0))}` : t('Pick a party to review entries', 'एंट्री देखने के लिए पार्टी चुनें')} tone="brand" />
       </MetricGrid>
 
       <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
@@ -99,15 +102,15 @@ function KhataContent() {
           <Card className="flex min-h-[520px] flex-col">
             <div className="mb-4">
               <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
-                Party ledger
+                {language === 'hi' ? 'पार्टी लेजर' : 'Party ledger'}
               </div>
-              <div className="mt-2 text-lg font-semibold text-slate-950 dark:text-white">Customer balances</div>
+              <div className="mt-2 text-lg font-semibold text-slate-950 dark:text-white">{language === 'hi' ? 'ग्राहक बैलेंस' : 'Customer balances'}</div>
             </div>
 
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search party..."
+              placeholder={t('Search party...', 'पार्टी खोजें...')}
               className="mb-4 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
 
@@ -115,7 +118,7 @@ function KhataContent() {
               {sLoading ? (
                 <PageLoader />
               ) : filtered.length === 0 ? (
-                <EmptyState title="No dues" sub="All accounts are clear" />
+                <EmptyState title={t('No dues', 'कोई बकाया नहीं')} sub={t('All accounts are clear', 'सभी खाते क्लियर हैं')} />
               ) : (
                 filtered.map((c: any) => (
                   <button
@@ -153,7 +156,7 @@ function KhataContent() {
         <div className="min-w-0">
           {!selectedId ? (
             <Card className="flex min-h-[520px] items-center justify-center">
-              <EmptyState title="Select a party" sub="Choose a customer from the left to view their khata" />
+              <EmptyState title={t('Select a party', 'एक पार्टी चुनें')} sub={t('Choose a customer from the left to view their khata', 'खाता देखने के लिए बाएं से ग्राहक चुनें')} />
             </Card>
           ) : (
             <Card className="flex min-h-[520px] flex-col">
@@ -161,7 +164,7 @@ function KhataContent() {
                 <div>
                   <div className="font-medium text-stone-900 dark:text-stone-100">{selected?.customerName}</div>
                   <div className={`mt-0.5 text-sm font-medium ${(selected?.balance ?? 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                    {(selected?.balance ?? 0) > 0 ? 'Outstanding: ' : 'No dues - '}
+                    {(selected?.balance ?? 0) > 0 ? `${t('Outstanding', 'बकाया')}: ` : `${t('No dues', 'कोई बकाया नहीं')} - `}
                     {fmt(Math.abs(selected?.balance ?? 0))}
                   </div>
                 </div>
@@ -170,14 +173,14 @@ function KhataContent() {
                     onClick={() => setShowPayForm(true)}
                     className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
                   >
-                    + Record payment
+                    {t('+ Record payment', '+ भुगतान दर्ज करें')}
                   </button>
                   <button
                     disabled={isDownloadingStatement}
                     className="rounded-md border border-stone-200 px-3 py-1.5 text-xs hover:bg-stone-50 dark:border-stone-700 dark:hover:bg-stone-800"
                     onClick={handleStatementDownload}
                   >
-                    {isDownloadingStatement ? 'Downloading...' : 'Download statement CSV'}
+                    {isDownloadingStatement ? t('Downloading...', 'डाउनलोड हो रहा है...') : t('Download statement CSV', 'स्टेटमेंट CSV डाउनलोड करें')}
                   </button>
                 </div>
               </div>
@@ -187,7 +190,7 @@ function KhataContent() {
                   onSubmit={handlePay}
                   className="mb-4 rounded-xl border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950"
                 >
-                  <div className="mb-2 text-xs font-medium text-green-800 dark:text-green-200">Record payment</div>
+                  <div className="mb-2 text-xs font-medium text-green-800 dark:text-green-200">{t('Record payment', 'भुगतान दर्ज करें')}</div>
                   <div className="mb-2 flex gap-2">
                     {PAYMENT_MODES.map((m) => (
                       <button
@@ -207,7 +210,7 @@ function KhataContent() {
                       type="number"
                       value={payAmount}
                       onChange={(e) => setPayAmount(e.target.value)}
-                      placeholder="Amount (INR)"
+                      placeholder={t('Amount (INR)', 'राशि (INR)')}
                       min={1}
                       required
                       className="flex-1 rounded-lg border border-green-300 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-green-700 dark:bg-slate-900 dark:text-slate-100"
@@ -216,7 +219,7 @@ function KhataContent() {
                       type="text"
                       value={payRef}
                       onChange={(e) => setPayRef(e.target.value)}
-                      placeholder="Ref / cheque no (optional)"
+                      placeholder={t('Ref / cheque no (optional)', 'रेफ / चेक नंबर (वैकल्पिक)')}
                       className="flex-1 rounded-lg border border-green-300 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-green-700 dark:bg-slate-900 dark:text-slate-100"
                     />
                     <button
@@ -224,14 +227,14 @@ function KhataContent() {
                       disabled={recordPayment.isPending}
                       className="rounded-lg bg-green-600 px-3 py-1.5 text-xs text-white hover:bg-green-700 disabled:opacity-50"
                     >
-                      Save
+                      {t('Save', 'सेव करें')}
                     </button>
                     <button
                       type="button"
                       onClick={() => setShowPayForm(false)}
                       className="px-2 py-1.5 text-xs text-stone-500 hover:text-stone-700"
                     >
-                      Cancel
+                      {t('Cancel', 'रद्द करें')}
                     </button>
                   </div>
                   {payError && <div className="mt-1 text-[10px] text-red-600">{payError}</div>}
@@ -246,7 +249,7 @@ function KhataContent() {
                     <table className="w-full min-w-[700px] text-xs">
                     <thead className="sticky top-0 bg-white dark:bg-slate-900">
                       <tr className="border-b border-stone-100 dark:border-stone-800">
-                        {['Date', 'Description', 'Debit (sale)', 'Credit (paid)', 'Balance'].map((h) => (
+                        {[t('Date', 'तारीख'), t('Description', 'विवरण'), t('Debit (sale)', 'डेबिट (बिक्री)'), t('Credit (paid)', 'क्रेडिट (भुगतान)'), t('Balance', 'बैलेंस')].map((h) => (
                           <th key={h} className="py-2 pr-4 text-left font-normal text-stone-400 dark:text-slate-300">
                             {h}
                           </th>
@@ -268,7 +271,7 @@ function KhataContent() {
                             {e.type === 'CREDIT' ? fmt(Number(e.amount)) : '-'}
                           </td>
                           <td className={`py-2 font-medium ${e.runningBalance > 0 ? 'text-red-600 dark:text-red-400' : 'text-stone-500 dark:text-slate-300'}`}>
-                            {e.runningBalance > 0 ? `-${fmt(e.runningBalance)}` : 'Clear'}
+                            {e.runningBalance > 0 ? `-${fmt(e.runningBalance)}` : t('Clear', 'क्लियर')}
                           </td>
                         </tr>
                       ))}
@@ -277,7 +280,7 @@ function KhataContent() {
                       <tfoot>
                         <tr className="border-t border-stone-200 bg-stone-50 dark:border-slate-600 dark:bg-slate-800/65">
                           <td colSpan={4} className="py-2 pr-4 text-xs font-medium text-stone-600 dark:text-stone-300">
-                            Current outstanding
+                            {t('Current outstanding', 'वर्तमान बकाया')}
                           </td>
                           <td className="py-2 text-sm font-medium text-red-600 dark:text-red-400">{fmt(ledger.currentBalance)}</td>
                         </tr>

@@ -5,6 +5,9 @@ export function useOrders(filters?: { status?: string; customerId?: string }) {
   return useQuery({
     queryKey: ['orders', filters],
     queryFn:  () => api.get('/api/orders', { params: filters }).then(r => r.data.data),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 
@@ -13,6 +16,9 @@ export function useOrder(id: string) {
     queryKey: ['orders', id],
     queryFn:  () => api.get(`/api/orders/${id}`).then(r => r.data.data),
     enabled:  !!id,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 

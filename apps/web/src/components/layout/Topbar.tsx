@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/store/auth'
 import { getDeferredInstallPrompt } from '@/lib/pwa-install'
 import { NotificationBell } from './NotificationBell'
+import { useI18n } from '@/lib/i18n'
+import { LanguageSelect } from '@/components/common/LanguageSelect'
 
 type InstallTarget = 'android' | 'ios' | 'desktop' | 'other'
 
@@ -32,21 +34,19 @@ function exportPageForPath(pathname: string) {
   return 'dashboard'
 }
 
-function exportLabel(page: string) {
-  return 'Export CSV'
-}
-
 export function Topbar() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { user, logout } = useAuthStore()
   const isOwner = user?.role === 'OWNER'
-  const title = pageTitles[pathname] ?? 'Cement House'
+  const { t, language } = useI18n()
+  const titleKey = pageTitles[pathname] ?? 'brand.cementHouse'
   const page = exportPageForPath(pathname)
   const [isExporting, setIsExporting] = useState(false)
   const [installTarget, setInstallTarget] = useState<InstallTarget>('other')
   const [isDarkMode, setIsDarkMode] = useState(false)
-  const today = new Date().toLocaleDateString('en-IN', {
+  const locale = language === 'hi' ? 'hi-IN' : 'en-IN'
+  const today = new Date().toLocaleDateString(locale, {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -138,7 +138,7 @@ export function Topbar() {
       window.URL.revokeObjectURL(url)
     } catch (error) {
       console.error(error)
-      window.alert('Export failed. Please try again.')
+      window.alert(language === 'hi' ? 'एक्सपोर्ट विफल हुआ। कृपया फिर से प्रयास करें।' : language === 'hinglish' ? 'Export fail hua. Please dobara try karo.' : 'Export failed. Please try again.')
     } finally {
       setIsExporting(false)
     }
@@ -176,19 +176,20 @@ export function Topbar() {
       <div className="flex flex-col gap-3 rounded-[28px] border border-white/60 bg-white/75 px-4 py-4 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:px-5 dark:border-white/10 dark:bg-slate-950/60">
         <div className="min-w-0">
           <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500 dark:text-slate-400">
-            Analytics workspace
+            {t('top.analyticsWorkspace')}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-3">
-            <span className="text-xl font-semibold tracking-tight text-slate-950 dark:text-white">{title}</span>
+            <span className="text-xl font-semibold tracking-tight text-slate-950 dark:text-white">{t(titleKey)}</span>
             <span className="text-sm text-slate-500 dark:text-slate-300">{today}</span>
           </div>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          <LanguageSelect compact />
           <button
             onClick={toggleTheme}
             className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-            title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-            aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={isDarkMode ? t('theme.light') : t('theme.dark')}
+            aria-label={isDarkMode ? t('theme.light') : t('theme.dark')}
           >
             {isDarkMode ? (
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -207,7 +208,7 @@ export function Topbar() {
                 onClick={handleDesktopInstall}
                 className="inline-flex rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
               >
-                {installTarget === 'ios' ? 'Add to Home' : 'Install App'}
+                {installTarget === 'ios' ? 'Add to Home' : t('top.installApp')}
               </button>
               <div className="pointer-events-none absolute left-1/2 top-[calc(100%+10px)] z-30 hidden -translate-x-1/2 whitespace-nowrap rounded-xl border border-white/60 bg-white/95 px-3 py-2 text-[11px] font-medium text-slate-700 shadow-[0_14px_30px_rgba(15,23,42,0.14)] backdrop-blur group-hover:block group-focus-within:block dark:border-white/10 dark:bg-slate-950/95 dark:text-slate-200">
                 {installTooltip}
@@ -219,26 +220,26 @@ export function Topbar() {
             disabled={isExporting}
             className="hidden rounded-full border border-slate-200 px-4 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 md:inline-flex"
           >
-            {isExporting ? 'Exporting...' : exportLabel(page)}
+            {isExporting ? t('top.exporting') : t('top.exportCsv')}
           </button>
           <NotificationBell />
           <Link
             href="/orders/new"
             className="hidden rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400 xl:inline-flex"
           >
-            + New order
+            {t('top.newOrder')}
           </Link>
           <Link
             href="/orders?openNewOrder=1"
             className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400 xl:hidden"
           >
-            + New order
+            {t('top.newOrder')}
           </Link>
           <button
             onClick={logout}
             className="rounded-full border border-rose-200 px-4 py-2 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-50 dark:border-rose-400/40 dark:text-rose-200 dark:hover:bg-rose-500/10 xl:hidden"
           >
-            Sign out
+            {t('common.signOut')}
           </button>
         </div>
       </div>
@@ -260,7 +261,7 @@ export function Topbar() {
                   : 'rounded-full border border-slate-200 bg-white/75 px-4 py-2 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200'
               }
             >
-              {item.label}
+              {t(item.label)}
             </Link>
           )
         })}

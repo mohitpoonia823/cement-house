@@ -5,6 +5,12 @@ import bcrypt from 'bcryptjs'
 import { requireSuperAdmin } from '../../middleware/auth'
 import { createAuditLog } from '../../services/audit'
 import { ensurePlatformSettings, invalidatePlatformSettingsCache } from '../../services/billing'
+const OVERVIEW_CACHE_TTL_MS = 15_000
+const ANALYTICS_CACHE_TTL_MS = 20_000
+const superAdminOverviewCache = new Map<string, { expiresAt: number; value: any }>()
+const superAdminOverviewInFlight = new Map<string, Promise<any>>()
+const superAdminAnalyticsCache = new Map<string, { expiresAt: number; value: any }>()
+const superAdminAnalyticsInFlight = new Map<string, Promise<any>>()
 
 const UpdateBusinessSchema = z.object({
   isActive: z.boolean().optional(),
@@ -251,60 +257,70 @@ export async function superAdminRoutes(app: FastifyInstance) {
   app.get('/overview', async (req, reply) => {
     if (!requireSuperAdmin(req, reply)) return
 
+    const cacheKey = 'overview'
+    const nowMs = Date.now()
+    const cached = superAdminOverviewCache.get(cacheKey)
+    if (cached && cached.expiresAt > nowMs) {
+      return { success: true, data: cached.value }
+    }
+    const inflight = superAdminOverviewInFlight.get(cacheKey)
+    if (inflight) {
+      const value = await inflight
+      return { success: true, data: value }
+    }
+
     const now = new Date()
     const todayStart = startOfDay(now)
     const todayEnd = endOfDay(now)
+    const compute = (async () => {
+      const overview = await superAdminRepository.getOverviewMetrics(todayStart, todayEnd)
+      const businessRows = overview.businesses.map((business) => ({
+        id: business.id,
+        name: business.name,
+        city: business.city,
+        isActive: business.isActive,
+        subscriptionPlan: business.subscriptionPlan,
+        subscriptionStatus: business.subscriptionStatus,
+        subscriptionEndsAt: business.subscriptionEndsAt,
+        subscriptionInterval: business.subscriptionInterval,
+        trialDaysOverride: business.trialDaysOverride,
+        monthlySubscriptionAmount: safeAmount(business.monthlySubscriptionAmount),
+        yearlySubscriptionAmount: safeAmount(business.yearlySubscriptionAmount),
+        suspendedReason: business.suspendedReason,
+        users: business.users,
+        customers: business.customers,
+        orders: business.orders,
+        gmv: safeAmount(business.gmv),
+        outstanding: safeAmount(business.outstanding),
+        createdAt: business.createdAt,
+      }))
 
-    const overview = await superAdminRepository.getOverviewMetrics(todayStart, todayEnd)
-    const businessRows = overview.businesses.map((business) => ({
-      id: business.id,
-      name: business.name,
-      city: business.city,
-      isActive: business.isActive,
-      subscriptionPlan: business.subscriptionPlan,
-      subscriptionStatus: business.subscriptionStatus,
-      subscriptionEndsAt: business.subscriptionEndsAt,
-      subscriptionInterval: business.subscriptionInterval,
-      trialDaysOverride: business.trialDaysOverride,
-      monthlySubscriptionAmount: safeAmount(business.monthlySubscriptionAmount),
-      yearlySubscriptionAmount: safeAmount(business.yearlySubscriptionAmount),
-      suspendedReason: business.suspendedReason,
-      users: business.users,
-      customers: business.customers,
-      orders: business.orders,
-      gmv: safeAmount(business.gmv),
-      outstanding: safeAmount(business.outstanding),
-      createdAt: business.createdAt,
-    }))
+      const revenueRunRate = businessRows
+        .filter((business) => ['TRIAL', 'ACTIVE', 'PAST_DUE'].includes(business.subscriptionStatus))
+        .reduce((sum, business) => sum + business.monthlySubscriptionAmount, 0)
 
-    const revenueRunRate = businessRows
-      .filter((business) => ['TRIAL', 'ACTIVE', 'PAST_DUE'].includes(business.subscriptionStatus))
-      .reduce((sum, business) => sum + business.monthlySubscriptionAmount, 0)
+      const activityFeed = [
+        ...overview.auditLogs.map((log) => ({
+          id: log.id,
+          kind: 'AUDIT',
+          title: String(log.action).replace(/_/g, ' '),
+          description: log.business?.name
+            ? `${log.business.name}${log.actor?.name ? ` • by ${log.actor.name}` : ''}`
+            : log.actor?.name ?? 'Platform activity',
+          createdAt: log.createdAt,
+        })),
+        ...overview.failedReminders.map((reminder) => ({
+          id: reminder.id,
+          kind: 'ERROR',
+          title: 'Failed WhatsApp reminder',
+          description: `${reminder.customer.business.name} • ${reminder.customer.name}`,
+          createdAt: reminder.createdAt,
+        })),
+      ]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 12)
 
-    const activityFeed = [
-      ...overview.auditLogs.map((log) => ({
-        id: log.id,
-        kind: 'AUDIT',
-        title: String(log.action).replace(/_/g, ' '),
-        description: log.business?.name
-          ? `${log.business.name}${log.actor?.name ? ` • by ${log.actor.name}` : ''}`
-          : log.actor?.name ?? 'Platform activity',
-        createdAt: log.createdAt,
-      })),
-      ...overview.failedReminders.map((reminder) => ({
-        id: reminder.id,
-        kind: 'ERROR',
-        title: 'Failed WhatsApp reminder',
-        description: `${reminder.customer.business.name} • ${reminder.customer.name}`,
-        createdAt: reminder.createdAt,
-      })),
-    ]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 12)
-
-    return {
-      success: true,
-      data: {
+      return {
         platformHealth: {
           totalBusinesses: businessRows.length,
           activeBusinesses: businessRows.filter((business) => business.isActive).length,
@@ -329,8 +345,12 @@ export async function superAdminRoutes(app: FastifyInstance) {
         },
         topBusinesses: businessRows.sort((a, b) => b.gmv - a.gmv).slice(0, 5),
         activityFeed,
-      },
-    }
+      }
+    })()
+    superAdminOverviewInFlight.set(cacheKey, compute)
+    const data = await compute.finally(() => superAdminOverviewInFlight.delete(cacheKey))
+    superAdminOverviewCache.set(cacheKey, { expiresAt: Date.now() + OVERVIEW_CACHE_TTL_MS, value: data })
+    return { success: true, data }
   })
 
 
@@ -370,7 +390,43 @@ export async function superAdminRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: 'startDate cannot be after endDate' })
     }
 
-    const analytics = await superAdminRepository.getOverviewAnalytics(startDate, endDate)
+    const cacheKey = `${query.data.range}:${startDate.toISOString()}:${endDate.toISOString()}`
+    const nowMs = Date.now()
+    const cached = superAdminAnalyticsCache.get(cacheKey)
+    if (cached && cached.expiresAt > nowMs) {
+      return {
+        success: true,
+        data: {
+          range: query.data.range,
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          summary: cached.value.summary,
+          points: cached.value.points,
+        },
+      }
+    }
+    const inflight = superAdminAnalyticsInFlight.get(cacheKey)
+    if (inflight) {
+      const value = await inflight
+      return {
+        success: true,
+        data: {
+          range: query.data.range,
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          summary: value.summary,
+          points: value.points,
+        },
+      }
+    }
+
+    const compute = superAdminRepository.getOverviewAnalytics(startDate, endDate)
+    superAdminAnalyticsInFlight.set(cacheKey, compute)
+    const analytics = await compute.finally(() => superAdminAnalyticsInFlight.delete(cacheKey))
+    superAdminAnalyticsCache.set(cacheKey, {
+      expiresAt: Date.now() + ANALYTICS_CACHE_TTL_MS,
+      value: analytics,
+    })
 
     return {
       success: true,

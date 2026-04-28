@@ -97,6 +97,10 @@ export function useSuperAdminOverview() {
     queryKey: ['super-admin', 'overview'],
     queryFn: () => api.get('/api/super-admin/overview').then((res) => res.data.data),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    staleTime: 30_000,
+    retry: 1,
   })
 }
 
@@ -110,6 +114,9 @@ export function useSuperAdminOverviewAnalytics(params: {
     queryKey: ['super-admin', 'overview-analytics', query],
     queryFn: () => api.get(`/api/super-admin/overview-analytics?${query}`).then((res) => res.data.data as SuperAdminOverviewAnalytics),
     placeholderData: (prev) => prev,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 
@@ -117,6 +124,9 @@ export function useSuperAdminBillingConfig() {
   return useQuery({
     queryKey: ['super-admin', 'billing-config'],
     queryFn: () => api.get('/api/super-admin/billing-config').then((res) => res.data.data as BillingConfig),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 
@@ -131,6 +141,9 @@ export function useSuperAdminBusinesses(params: {
     queryKey: ['super-admin', 'businesses', query],
     queryFn: () => api.get(`/api/super-admin/businesses?${query}`).then((res) => res.data.data as PaginatedResponse<BusinessListItem>),
     placeholderData: (prev) => prev,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 
@@ -147,5 +160,8 @@ export function useSuperAdminUsers(params: {
     queryKey: ['super-admin', 'users', query],
     queryFn: () => api.get(`/api/super-admin/users?${query}`).then((res) => res.data.data as PaginatedResponse<UserListItem>),
     placeholderData: (prev) => prev,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }

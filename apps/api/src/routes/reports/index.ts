@@ -230,6 +230,40 @@ function csv(headers: string[], rows: Array<Array<string | number>>) {
   return [headers.map(escape).join(','), ...rows.map((row) => row.map(escape).join(','))].join('\n')
 }
 
+const DASHBOARD_CACHE_TTL_MS = 10_000
+const dashboardCache = new Map<string, { expiresAt: number; value: any }>()
+const dashboardInFlight = new Map<string, Promise<any>>()
+
+function dashboardCacheKey(bizId: string, queryInput: unknown) {
+  const normalizedQuery =
+    typeof queryInput === 'object' && queryInput !== null
+      ? JSON.stringify(queryInput)
+      : String(queryInput ?? '')
+  return `${bizId}:${normalizedQuery}`
+}
+
+async function loadDashboardDataCached(bizId: string, queryInput: unknown) {
+  const key = dashboardCacheKey(bizId, queryInput)
+  const now = Date.now()
+  const cached = dashboardCache.get(key)
+  if (cached && cached.expiresAt > now) return cached.value
+
+  const inflight = dashboardInFlight.get(key)
+  if (inflight) return inflight
+
+  const promise = loadDashboardData(bizId, queryInput)
+    .then((value) => {
+      dashboardCache.set(key, { expiresAt: Date.now() + DASHBOARD_CACHE_TTL_MS, value })
+      return value
+    })
+    .finally(() => {
+      dashboardInFlight.delete(key)
+    })
+
+  dashboardInFlight.set(key, promise)
+  return promise
+}
+
 async function createExportAuditLog(req: FastifyRequest, input: {
   page: string
   format: 'pdf' | 'csv'
@@ -301,37 +335,36 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
   const stockAlertsLimit = clampListLimit(query.stockAlertsLimit, 5)
   const range = dashboardRangeFromQuery(queryInput, now)
 
-  const [todayOrders, todayCredits, rangeOrders, rangeCredits, previousOrders, previousCredits, materials, customers, deliveries] = await Promise.all([
-    reportsRepository.getDashboardOrders({
+  const [windowedOrders, windowedCredits] = await Promise.all([
+    reportsRepository.getWindowedDashboardOrders({
       businessId: bizId,
-      start: todayStart,
-      end: todayEnd,
+      todayStart,
+      todayEnd,
+      rangeStart: range.start,
+      rangeEnd: range.end,
+      previousStart: range.comparisonStart,
+      previousEnd: range.comparisonEnd,
     }),
-    reportsRepository.getCreditEntries({
+    reportsRepository.getWindowedCreditEntries({
       businessId: bizId,
-      start: todayStart,
-      end: todayEnd,
+      todayStart,
+      todayEnd,
+      rangeStart: range.start,
+      rangeEnd: range.end,
+      previousStart: range.comparisonStart,
+      previousEnd: range.comparisonEnd,
     }),
-    reportsRepository.getDashboardOrders({
-      businessId: bizId,
-      start: range.start,
-      end: range.end,
-    }),
-    reportsRepository.getCreditEntries({
-      businessId: bizId,
-      start: range.start,
-      end: range.end,
-    }),
-    reportsRepository.getDashboardOrders({
-      businessId: bizId,
-      start: range.comparisonStart,
-      end: range.comparisonEnd,
-    }),
-    reportsRepository.getCreditEntries({
-      businessId: bizId,
-      start: range.comparisonStart,
-      end: range.comparisonEnd,
-    }),
+  ])
+
+  const todayOrders = windowedOrders.filter((row) => row.windowKey === 'TODAY')
+  const rangeOrders = windowedOrders.filter((row) => row.windowKey === 'RANGE')
+  const previousOrders = windowedOrders.filter((row) => row.windowKey === 'PREVIOUS')
+  const todayCredits = windowedCredits.filter((row) => row.windowKey === 'TODAY')
+  const rangeCredits = windowedCredits.filter((row) => row.windowKey === 'RANGE')
+  const previousCredits = windowedCredits.filter((row) => row.windowKey === 'PREVIOUS')
+
+  // Keep this as a second wave, after windowed aggregates, to avoid long burst fan-out.
+  const [materials, customers, deliveries] = await Promise.all([
     reportsRepository.getActiveMaterials(bizId),
     reportsRepository.getActiveCustomersWithOrderCount(bizId),
     reportsRepository.getDeliveriesForBusiness(bizId),
@@ -756,7 +789,7 @@ export async function reportRoutes(app: FastifyInstance) {
     const bizId = getBizId(req)
     return {
       success: true,
-      data: await loadDashboardData(bizId, req.query),
+      data: await loadDashboardDataCached(bizId, req.query),
     }
   })
 

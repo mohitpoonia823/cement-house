@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../client'
+import { randomUUID } from 'node:crypto'
 
 export type RiskTag = 'RELIABLE' | 'WATCH' | 'BLOCKED'
 
@@ -309,8 +310,10 @@ export async function findCustomerByPhoneInBusiness(phone: string, businessId: s
 }
 
 export async function createCustomer(input: CreateCustomerInput) {
+  const customerId = randomUUID()
   const rows = await prisma.$queryRaw<CustomerRow[]>(Prisma.sql`
     INSERT INTO customers (
+      id,
       name,
       phone,
       "altPhone",
@@ -326,6 +329,7 @@ export async function createCustomer(input: CreateCustomerInput) {
       "createdAt",
       "updatedAt"
     ) VALUES (
+      ${customerId},
       ${input.name},
       ${input.phone},
       ${input.altPhone ?? null},

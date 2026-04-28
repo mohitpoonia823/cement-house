@@ -5,6 +5,8 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import Link from 'next/link'
 import { fmt } from '@/lib/utils'
+import { useI18n } from '@/lib/i18n'
+import { LanguageSelect } from '@/components/common/LanguageSelect'
 
 interface RegistrationConfig {
   trialDays: number
@@ -30,14 +32,18 @@ export default function RegisterPage() {
   const [config, setConfig] = useState<RegistrationConfig | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const { t, language } = useI18n()
+  const tr = (en: string, hi: string, hinglish?: string) =>
+    language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en
   const { login } = useAuthStore()
   const router = useRouter()
 
   useEffect(() => {
-    api.get('/api/auth/registration-config', {
-      params: { t: Date.now() },
-      headers: { 'Cache-Control': 'no-cache' },
-    })
+    api
+      .get('/api/auth/registration-config', {
+        params: { t: Date.now() },
+        headers: { 'Cache-Control': 'no-cache' },
+      })
       .then((res) => setConfig(res.data.data))
       .catch(() => undefined)
   }, [])
@@ -45,9 +51,12 @@ export default function RegisterPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    if (password.length < 6) return setError('Password must be at least 6 characters')
-    if (!/^\d{10}$/.test(onlyDigits(phone, 10))) return setError('Phone number must be exactly 10 digits')
-    if (businessPhone && !/^\d{10}$/.test(onlyDigits(businessPhone, 10))) return setError('Business phone must be exactly 10 digits')
+    if (password.length < 6)
+      return setError(tr('Password must be at least 6 characters', 'पासवर्ड कम से कम 6 अक्षर का होना चाहिए', 'Password kam se kam 6 characters ka hona chahiye'))
+    if (!/^\d{10}$/.test(onlyDigits(phone, 10)))
+      return setError(tr('Phone number must be exactly 10 digits', 'फोन नंबर ठीक 10 अंकों का होना चाहिए', 'Phone number exactly 10 digits ka hona chahiye'))
+    if (businessPhone && !/^\d{10}$/.test(onlyDigits(businessPhone, 10)))
+      return setError(tr('Business phone must be exactly 10 digits', 'बिज़नेस फोन ठीक 10 अंकों का होना चाहिए', 'Business phone exactly 10 digits ka hona chahiye'))
 
     setLoading(true)
     try {
@@ -65,7 +74,7 @@ export default function RegisterPage() {
       login(res.data.data.token, res.data.data.user)
       router.replace('/dashboard')
     } catch (err: any) {
-      setError(err.response?.data?.error ?? 'Registration failed. Try again.')
+      setError(err.response?.data?.error ?? tr('Registration failed. Try again.', 'रजिस्ट्रेशन विफल रहा। फिर से प्रयास करें।', 'Registration failed. Dobara try karo.'))
     } finally {
       setLoading(false)
     }
@@ -80,28 +89,41 @@ export default function RegisterPage() {
 
       <div className="relative grid w-full max-w-6xl gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
         <div className="max-w-xl">
-          <div className="mb-3 inline-flex items-center rounded-full border border-slate-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
-            Cement House
+          <div className="mb-3 flex items-center gap-3">
+            <div className="inline-flex items-center rounded-full border border-slate-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+              {t('brand.cementHouse')}
+            </div>
+            <LanguageSelect />
           </div>
-          <div className="text-4xl font-semibold tracking-tight text-slate-950 dark:text-white">Start your free trial</div>
+          <div className="text-4xl font-semibold tracking-tight text-slate-950 dark:text-white">
+            {tr('Start your free trial', 'अपना मुफ्त ट्रायल शुरू करें', 'Apna free trial start karo')}
+          </div>
           <div className="mt-3 text-base text-slate-600 dark:text-slate-300">
-            Create the owner account and launch your free-trial workspace in seconds.
+            {tr(
+              'Create the owner account and launch your free-trial workspace in seconds.',
+              'ओनर अकाउंट बनाएं और कुछ सेकंड में अपना फ्री-ट्रायल वर्कस्पेस शुरू करें।',
+              'Owner account banao aur kuch seconds me free-trial workspace start karo.'
+            )}
           </div>
 
           <div className="mt-8 rounded-[32px] border border-white/70 bg-white/82 p-6 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur dark:border-white/10 dark:bg-slate-950/72">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Trial summary</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{tr('Trial summary', 'ट्रायल सारांश', 'Trial summary')}</div>
             <div className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">
-              {config ? `${config.trialDays} days free` : 'Free trial'}
+              {config ? `${config.trialDays} ${tr('days free', 'दिन मुफ्त', 'din free')}` : tr('Free trial', 'मुफ्त ट्रायल', 'Free trial')}
             </div>
             <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-              After the trial ends, the workspace locks automatically and the owner is redirected to subscription renewal.
+              {tr(
+                'After the trial ends, the workspace locks automatically and the owner is redirected to subscription renewal.',
+                'ट्रायल खत्म होने के बाद वर्कस्पेस अपने आप लॉक हो जाएगा और ओनर को सब्सक्रिप्शन रिन्यूअल पर भेजा जाएगा।',
+                'Trial khatam hone ke baad workspace auto-lock hoga aur owner subscription renewal par redirect hoga.'
+              )}
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <PlanTile title="Monthly" price={fmt(config?.monthlyPrice ?? 200)} sub="Good for ongoing local trading operations" />
-              <PlanTile title="Yearly" price={fmt(config?.yearlyPrice ?? 2100)} sub="Best value for full-season teams" />
+              <PlanTile title={tr('Monthly', 'मंथली', 'Monthly')} price={fmt(config?.monthlyPrice ?? 200)} sub={tr('Good for ongoing local trading operations', 'लगातार स्थानीय ट्रेडिंग ऑपरेशंस के लिए बेहतर', 'Ongoing local trading operations ke liye sahi')} />
+              <PlanTile title={tr('Yearly', 'ईयरली', 'Yearly')} price={fmt(config?.yearlyPrice ?? 2100)} sub={tr('Best value for full-season teams', 'पूरे सीज़न के लिए सबसे बेहतर वैल्यू', 'Full-season teams ke liye best value')} />
             </div>
             <div className="mt-4 text-xs text-slate-500 dark:text-slate-400">
-              Paid renewal and subscription checkout are handled directly via Razorpay.
+              {tr('Paid renewal and subscription checkout are handled directly via Razorpay.', 'पेड रिन्यूअल और सब्सक्रिप्शन चेकआउट सीधे Razorpay से होता है।', 'Paid renewal aur subscription checkout direct Razorpay se hota hai.')}
             </div>
           </div>
         </div>
@@ -109,37 +131,37 @@ export default function RegisterPage() {
         <div className="rounded-[28px] border border-white/70 bg-white/86 p-6 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur dark:border-white/10 dark:bg-slate-950/72 dark:shadow-[0_24px_60px_rgba(2,6,23,0.40)]">
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Business details</div>
+              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{tr('Business details', 'बिज़नेस डिटेल्स', 'Business details')}</div>
               <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <Field label="Business name *">
-                  <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} required placeholder="e.g. Sharma Cement Store" className={inputCls} />
+                <Field label={tr('Business name *', 'बिज़नेस नाम *', 'Business name *')}>
+                  <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} required placeholder={tr('e.g. Sharma Cement Store', 'जैसे: शर्मा सीमेंट स्टोर', 'e.g. Sharma Cement Store')} className={inputCls} />
                 </Field>
-                <Field label="City *">
-                  <input value={city} onChange={(e) => setCity(e.target.value)} required placeholder="e.g. Hisar" className={inputCls} />
+                <Field label={tr('City *', 'शहर *', 'City *')}>
+                  <input value={city} onChange={(e) => setCity(e.target.value)} required placeholder={tr('e.g. Hisar', 'जैसे: हिसार', 'e.g. Hisar')} className={inputCls} />
                 </Field>
-                <Field label="Business phone">
-                  <input value={businessPhone} onChange={(e) => setBusinessPhone(onlyDigits(e.target.value, 10))} placeholder="Optional if same as owner" maxLength={10} className={inputCls} />
+                <Field label={tr('Business phone', 'बिज़नेस फोन', 'Business phone')}>
+                  <input value={businessPhone} onChange={(e) => setBusinessPhone(onlyDigits(e.target.value, 10))} placeholder={tr('Optional if same as owner', 'यदि ओनर जैसा हो तो वैकल्पिक', 'Owner ke jaisa ho to optional')} maxLength={10} className={inputCls} />
                 </Field>
-                <Field label="Address">
-                  <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Optional business address" className={inputCls} />
+                <Field label={tr('Address', 'पता', 'Address')}>
+                  <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder={tr('Optional business address', 'वैकल्पिक बिज़नेस पता', 'Optional business address')} className={inputCls} />
                 </Field>
               </div>
             </div>
 
             <div className="border-t border-slate-200/70 pt-5 dark:border-slate-800">
-              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Owner account</div>
+              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{tr('Owner account', 'ओनर अकाउंट', 'Owner account')}</div>
               <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <Field label="Owner name *">
-                  <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Ramesh Kumar" className={inputCls} />
+                <Field label={tr('Owner name *', 'ओनर नाम *', 'Owner name *')}>
+                  <input value={name} onChange={(e) => setName(e.target.value)} required placeholder={tr('Ramesh Kumar', 'रमेश कुमार', 'Ramesh Kumar')} className={inputCls} />
                 </Field>
-                <Field label="Phone number *">
+                <Field label={tr('Phone number *', 'फोन नंबर *', 'Phone number *')}>
                   <input value={phone} onChange={(e) => setPhone(onlyDigits(e.target.value, 10))} required maxLength={10} placeholder="9876543210" className={inputCls} />
                 </Field>
-                <Field label="Email *">
+                <Field label={tr('Email *', 'ईमेल *', 'Email *')}>
                   <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="owner@business.com" className={inputCls} />
                 </Field>
-                <Field label="Password *">
-                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Min 6 characters" className={inputCls} />
+                <Field label={tr('Password *', 'पासवर्ड *', 'Password *')}>
+                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder={tr('Min 6 characters', 'कम से कम 6 अक्षर', 'Min 6 characters')} className={inputCls} />
                 </Field>
               </div>
             </div>
@@ -150,20 +172,24 @@ export default function RegisterPage() {
               disabled={loading}
               className="w-full rounded-2xl bg-slate-950 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
             >
-              {loading ? 'Creating trial workspace...' : config ? `Start ${config.trialDays}-day free trial` : 'Start free trial'}
+              {loading
+                ? tr('Creating trial workspace...', 'ट्रायल वर्कस्पेस बनाया जा रहा है...', 'Trial workspace create ho raha hai...')
+                : config
+                  ? `${tr('Start', 'शुरू करें', 'Start')} ${config.trialDays}-${tr('day free trial', 'दिन का फ्री ट्रायल', 'day free trial')}`
+                  : tr('Start free trial', 'फ्री ट्रायल शुरू करें', 'Free trial start karo')}
             </button>
           </form>
 
           <div className="mt-5 text-center text-sm text-slate-600 dark:text-slate-300">
-            Already have an account?{' '}
+            {tr('Already have an account?', 'पहले से अकाउंट है?', 'Already account hai?')}{' '}
             <Link href="/auth/login" className="font-semibold text-sky-600 hover:underline dark:text-sky-400">
-              Sign in
+              {t('auth.signIn')}
             </Link>
           </div>
           <div className="mt-2 text-center text-sm text-slate-600 dark:text-slate-300">
-            Need platform access?{' '}
+            {tr('Need platform access?', 'प्लेटफ़ॉर्म एक्सेस चाहिए?', 'Platform access chahiye?')}{' '}
             <Link href="/auth/admin-setup" className="font-semibold text-emerald-700 hover:underline dark:text-emerald-300">
-              Create Super Admin
+              {t('auth.createSuperAdmin')}
             </Link>
           </div>
         </div>

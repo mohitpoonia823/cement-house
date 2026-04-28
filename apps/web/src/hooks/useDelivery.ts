@@ -5,6 +5,9 @@ export function useDeliveries(filters?: { status?: string; date?: string }) {
   return useQuery({
     queryKey: ['deliveries', filters],
     queryFn:  () => api.get('/api/delivery', { params: filters }).then(r => r.data.data),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 
@@ -13,6 +16,9 @@ export function useDelivery(id: string) {
     queryKey: ['deliveries', id],
     queryFn:  () => api.get(`/api/delivery/${id}`).then(r => r.data.data),
     enabled:  !!id,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 
@@ -21,6 +27,10 @@ export function useTodayDeliveries() {
     queryKey: ['deliveries', 'today'],
     queryFn:  () => api.get('/api/delivery/today/summary').then(r => r.data.data),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 

@@ -46,7 +46,11 @@ export function useSupportTickets(enabled = true) {
     queryKey: ['support', 'tickets'],
     queryFn: () => api.get('/api/support/tickets').then((res) => res.data.data as SupportTicket[]),
     enabled,
-    refetchInterval: 15_000,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 
@@ -55,7 +59,11 @@ export function useSupportTicket(ticketId: string | null, enabled = true) {
     queryKey: ['support', 'ticket', ticketId],
     queryFn: () => api.get(`/api/support/tickets/${ticketId}`).then((res) => res.data.data as { ticket: SupportTicket; messages: SupportMessage[] }),
     enabled: enabled && Boolean(ticketId),
-    refetchInterval: 10_000,
+    staleTime: 20_000,
+    refetchInterval: 20_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 
@@ -64,7 +72,11 @@ export function useSupportUnreadCount(enabled = true) {
     queryKey: ['support', 'notifications', 'unread-count'],
     queryFn: () => api.get('/api/support/notifications/unread-count').then((res) => Number(res.data.data?.count ?? 0)),
     enabled,
-    refetchInterval: 12_000,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 
@@ -73,7 +85,10 @@ export function useSupportNotifications(enabled = true) {
     queryKey: ['support', 'notifications'],
     queryFn: () => api.get('/api/support/notifications?limit=12').then((res) => res.data.data as SupportNotification[]),
     enabled,
-    refetchInterval: 12_000,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
-

@@ -5,14 +5,16 @@ import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/store/auth'
 import { cn } from '@/lib/utils'
 import { NotificationBell } from './NotificationBell'
+import { useI18n } from '@/lib/i18n'
+import { LanguageSelect } from '@/components/common/LanguageSelect'
 
 const navItems = [
-  { label: 'Platform Overview', href: '/super-admin' },
-  { label: 'Businesses', href: '/super-admin/businesses' },
-  { label: 'Users', href: '/super-admin/users' },
-  { label: 'Metrics', href: '/super-admin/metrics' },
-  { label: 'Tickets', href: '/super-admin/tickets' },
-  { label: 'Settings', href: '/super-admin/settings' },
+  { label: 'Platform Overview', href: '/super-admin', key: 'superadmin.overview' },
+  { label: 'Businesses', href: '/super-admin/businesses', key: 'superadmin.businesses' },
+  { label: 'Users', href: '/super-admin/users', key: 'superadmin.users' },
+  { label: 'Metrics', href: '/super-admin/metrics', key: 'superadmin.metrics' },
+  { label: 'Tickets', href: '/super-admin/tickets', key: 'nav.tickets' },
+  { label: 'Settings', href: '/super-admin/settings', key: 'nav.settings' },
 ]
 
 function NavIcon({ href, className = '' }: { href: string; className?: string }) {
@@ -65,6 +67,7 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
   const { token, user, logout } = useAuthStore()
   const [mounted, setMounted] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(false)
+  const { t, language } = useI18n()
 
   useEffect(() => {
     setMounted(true)
@@ -99,7 +102,8 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
     setIsDarkMode(next)
   }
 
-  const today = new Date().toLocaleDateString('en-IN', {
+  const locale = language === 'hi' ? 'hi-IN' : 'en-IN'
+  const today = new Date().toLocaleDateString(locale, {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -111,7 +115,7 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
       <div className="mx-auto flex min-h-screen max-w-[1600px] gap-4 px-3 py-4 sm:px-4 md:gap-5 md:px-6 md:py-5">
         <aside className="sticky top-5 hidden h-[calc(100vh-2.5rem)] w-[300px] shrink-0 flex-col overflow-hidden rounded-[32px] border border-white/70 bg-slate-950 p-5 text-white shadow-[0_28px_80px_rgba(15,23,42,0.28)] xl:flex">
           <div className="rounded-[22px] border border-white/10 bg-white/5 p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-200/80">Super Admin</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-200/80">{language === 'hi' ? 'सुपर एडमिन' : 'Super Admin'}</div>
             <div className="mt-2 text-[30px] font-semibold tracking-tight leading-tight">Platform</div>
           </div>
 
@@ -129,7 +133,33 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
                 >
                   <span className="flex items-center gap-2.5">
                     <NavIcon href={item.href} className="h-4 w-4" />
-                    <span className="font-medium">{item.label}</span>
+                    <span className="font-medium">
+                      {item.key === 'superadmin.overview'
+                        ? language === 'hi'
+                          ? 'प्लेटफ़ॉर्म ओवरव्यू'
+                          : language === 'hinglish'
+                            ? 'Platform Overview'
+                            : 'Platform Overview'
+                        : item.key === 'superadmin.businesses'
+                          ? language === 'hi'
+                            ? 'बिज़नेस'
+                            : language === 'hinglish'
+                              ? 'Businesses'
+                              : 'Businesses'
+                          : item.key === 'superadmin.users'
+                            ? language === 'hi'
+                              ? 'यूज़र्स'
+                              : language === 'hinglish'
+                                ? 'Users'
+                                : 'Users'
+                            : item.key === 'superadmin.metrics'
+                              ? language === 'hi'
+                                ? 'मेट्रिक्स'
+                                : language === 'hinglish'
+                                  ? 'Metrics'
+                                  : 'Metrics'
+                              : t(item.key)}
+                    </span>
                   </span>
                   <span className={cn('h-2.5 w-2.5 rounded-full', active ? 'bg-emerald-200' : 'bg-slate-500')} />
                 </Link>
@@ -145,7 +175,7 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
                 onClick={logout}
                 className="mt-4 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/10"
               >
-                Sign out
+                {t('common.signOut')}
               </button>
             </div>
           </div>
@@ -155,16 +185,17 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
           <header className="sticky top-4 z-20 mb-5 rounded-[30px] border border-white/70 bg-white/82 px-5 py-4 shadow-[0_20px_60px_rgba(15,23,42,0.10)] backdrop-blur dark:border-white/10 dark:bg-slate-950/72">
             <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500 dark:text-slate-400">Platform control center</div>
-                <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">Super Admin Portal</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500 dark:text-slate-400">{language === 'hi' ? 'प्लेटफ़ॉर्म कंट्रोल सेंटर' : 'Platform control center'}</div>
+                <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{language === 'hi' ? 'सुपर एडमिन पोर्टल' : language === 'hinglish' ? 'Super Admin Portal' : 'Super Admin Portal'}</div>
                 <div className="mt-1 text-sm text-slate-500 dark:text-slate-300">{today}</div>
               </div>
               <div className="flex items-center gap-2">
+                <LanguageSelect compact />
                 <button
                   onClick={toggleTheme}
                   className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                  title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-                  aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+                  title={isDarkMode ? t('theme.light') : t('theme.dark')}
+                  aria-label={isDarkMode ? t('theme.light') : t('theme.dark')}
                 >
                   {isDarkMode ? (
                     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -179,13 +210,31 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
                 </button>
                 <NotificationBell isSuperAdmin />
                 <div className="rounded-full bg-emerald-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200">
-                  Platform live
+                  {t('top.platformLive')}
                 </div>
               </div>
             </div>
             <div className="mt-4 flex gap-2 overflow-x-auto xl:hidden">
               {navItems.map((item) => {
                 const active = pathname === item.href
+                const mobileLabel =
+                  item.key === 'superadmin.overview'
+                    ? language === 'hi'
+                      ? 'प्लेटफ़ॉर्म ओवरव्यू'
+                      : 'Platform Overview'
+                    : item.key === 'superadmin.businesses'
+                      ? language === 'hi'
+                        ? 'बिज़नेस'
+                        : 'Businesses'
+                      : item.key === 'superadmin.users'
+                        ? language === 'hi'
+                          ? 'यूज़र्स'
+                          : 'Users'
+                        : item.key === 'superadmin.metrics'
+                          ? language === 'hi'
+                            ? 'मेट्रिक्स'
+                            : 'Metrics'
+                          : t(item.key)
                 return (
                   <Link
                     key={item.href}
@@ -197,7 +246,7 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
                         : 'border-slate-200 bg-white/80 text-slate-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200'
                     )}
                   >
-                    {item.label}
+                    {mobileLabel}
                   </Link>
                 )
               })}
@@ -205,7 +254,7 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
                 onClick={logout}
                 className="whitespace-nowrap rounded-full border border-rose-300 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200"
               >
-                Sign out
+                {t('common.signOut')}
               </button>
             </div>
           </header>

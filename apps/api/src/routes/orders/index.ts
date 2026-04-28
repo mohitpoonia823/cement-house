@@ -5,6 +5,28 @@ import { generateOrderNumber, generateChallanNumber, marginPct } from '@cement-h
 import { getBizId } from '../../middleware/auth'
 import { createAuditLog } from '../../services/audit'
 
+const ORDERS_LIST_CACHE_TTL_MS = 10_000
+const ORDER_DETAIL_CACHE_TTL_MS = 10_000
+const ordersListCache = new Map<string, { expiresAt: number; value: any }>()
+const ordersListInFlight = new Map<string, Promise<any>>()
+const orderDetailCache = new Map<string, { expiresAt: number; value: any }>()
+const orderDetailInFlight = new Map<string, Promise<any>>()
+
+function invalidateOrderCachesForBusiness(businessId: string) {
+  for (const key of ordersListCache.keys()) {
+    if (key.startsWith(`${businessId}:`)) ordersListCache.delete(key)
+  }
+  for (const key of ordersListInFlight.keys()) {
+    if (key.startsWith(`${businessId}:`)) ordersListInFlight.delete(key)
+  }
+  for (const key of orderDetailCache.keys()) {
+    if (key.startsWith(`${businessId}:`)) orderDetailCache.delete(key)
+  }
+  for (const key of orderDetailInFlight.keys()) {
+    if (key.startsWith(`${businessId}:`)) orderDetailInFlight.delete(key)
+  }
+}
+
 const OrderIdParamsSchema = z.object({
   id: z.string().uuid(),
 })
@@ -57,13 +79,47 @@ export async function orderRoutes(app: FastifyInstance) {
     if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
 
     const pageSize = 20
-    const result = await ordersRepository.listOrders({
-      businessId: bizId,
-      page: query.data.page,
-      pageSize,
-      status: query.data.status,
-      customerId: query.data.customerId,
-    })
+    const cacheKey = `${bizId}:${query.data.page}:${query.data.status ?? ''}:${query.data.customerId ?? ''}`
+    const now = Date.now()
+    const cached = ordersListCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) {
+      return {
+        success: true,
+        data: {
+          items: cached.value.items,
+          total: cached.value.total,
+          page: query.data.page,
+          pageSize,
+        },
+      }
+    }
+
+    const inFlight = ordersListInFlight.get(cacheKey)
+    if (inFlight) {
+      const value = await inFlight
+      return {
+        success: true,
+        data: {
+          items: value.items,
+          total: value.total,
+          page: query.data.page,
+          pageSize,
+        },
+      }
+    }
+
+    const compute = ordersRepository
+      .listOrders({
+        businessId: bizId,
+        page: query.data.page,
+        pageSize,
+        status: query.data.status,
+        customerId: query.data.customerId,
+      })
+      .finally(() => ordersListInFlight.delete(cacheKey))
+    ordersListInFlight.set(cacheKey, compute)
+    const result = await compute
+    ordersListCache.set(cacheKey, { expiresAt: Date.now() + ORDERS_LIST_CACHE_TTL_MS, value: result })
 
     return {
       success: true,
@@ -81,8 +137,27 @@ export async function orderRoutes(app: FastifyInstance) {
     const params = OrderIdParamsSchema.safeParse(req.params)
     if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
 
-    const order = await ordersRepository.getOrderDetail(params.data.id, bizId)
+    const cacheKey = `${bizId}:${params.data.id}`
+    const now = Date.now()
+    const cached = orderDetailCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) {
+      return { success: true, data: cached.value }
+    }
+
+    const inFlight = orderDetailInFlight.get(cacheKey)
+    if (inFlight) {
+      const value = await inFlight
+      if (!value) return reply.status(404).send({ success: false, error: 'Order not found' })
+      return { success: true, data: value }
+    }
+
+    const compute = ordersRepository
+      .getOrderDetail(params.data.id, bizId)
+      .finally(() => orderDetailInFlight.delete(cacheKey))
+    orderDetailInFlight.set(cacheKey, compute)
+    const order = await compute
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
+    orderDetailCache.set(cacheKey, { expiresAt: Date.now() + ORDER_DETAIL_CACHE_TTL_MS, value: order })
     return { success: true, data: order }
   })
 
@@ -122,6 +197,7 @@ export async function orderRoutes(app: FastifyInstance) {
     })
 
     if (!order) return reply.status(500).send({ success: false, error: 'Failed to create order' })
+    invalidateOrderCachesForBusiness(bizId)
     return { success: true, data: order }
   })
 
@@ -150,6 +226,7 @@ export async function orderRoutes(app: FastifyInstance) {
       customerId: order.customerId,
     })
 
+    invalidateOrderCachesForBusiness(bizId)
     return { success: true }
   })
 
@@ -168,6 +245,7 @@ export async function orderRoutes(app: FastifyInstance) {
       if ((order.deliveries ?? []).length === 0) {
         const challanNumber = generateChallanNumber()
         await ordersRepository.createDispatchDelivery(params.data.id, challanNumber)
+        invalidateOrderCachesForBusiness(bizId)
         return { success: true, data: { ...order, status: body.data.status } }
       }
     } else if (body.data.status === 'DELIVERED') {
@@ -179,11 +257,13 @@ export async function orderRoutes(app: FastifyInstance) {
         .map((delivery: any) => delivery.id)
 
       await ordersRepository.markDeliveredAndCloseDeliveries(params.data.id, pendingDeliveryIds)
+      invalidateOrderCachesForBusiness(bizId)
       return { success: true }
     }
 
     const updated = await ordersRepository.setOrderStatus(params.data.id, bizId, body.data.status)
     if (!updated) return reply.status(404).send({ success: false, error: 'Order not found' })
+    invalidateOrderCachesForBusiness(bizId)
     return { success: true, data: updated }
   })
 
@@ -196,6 +276,7 @@ export async function orderRoutes(app: FastifyInstance) {
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
 
     await ordersRepository.softDeleteOrder(params.data.id, bizId)
+    invalidateOrderCachesForBusiness(bizId)
     return { success: true }
   })
 
@@ -205,6 +286,7 @@ export async function orderRoutes(app: FastifyInstance) {
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
     const deleted = await ordersRepository.bulkSoftDeleteOrders(body.data.ids, bizId)
+    invalidateOrderCachesForBusiness(bizId)
     return { success: true, data: { deleted } }
   })
 }

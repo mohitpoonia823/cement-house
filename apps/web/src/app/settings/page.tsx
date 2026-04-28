@@ -8,11 +8,15 @@ import { fmt, fmtDate } from '@/lib/utils'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCreateStaff, useDeleteStaff, useStaff, useUpdateStaff } from '@/hooks/useStaff'
 import { useAuthStore } from '@/store/auth'
+import { useI18n } from '@/lib/i18n'
 
 function useSettings() {
   return useQuery({
     queryKey: ['settings'],
     queryFn: () => api.get('/api/settings').then((r) => r.data.data),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 
@@ -66,6 +70,8 @@ async function ensureRazorpayLoaded() {
 }
 
 export default function SettingsPage() {
+  const { language } = useI18n()
+  const t = (en: string, hi: string, hinglish?: string) => (language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en)
   const { user, login, token } = useAuthStore()
   const qc = useQueryClient()
   const { data, isLoading } = useSettings()
@@ -402,7 +408,7 @@ export default function SettingsPage() {
   }
 
   if (isLoading) {
-    return <AppShell><div className="text-sm text-slate-500">Loading settings...</div></AppShell>
+    return <AppShell><div className="text-sm text-slate-500">{language === 'hi' ? 'सेटिंग्स लोड हो रही हैं...' : language === 'hinglish' ? 'Settings load ho rahi hain...' : 'Loading settings...'}</div></AppShell>
   }
 
   const settingsCardCls = 'rounded-[24px] p-4 md:p-5'
@@ -410,9 +416,9 @@ export default function SettingsPage() {
   return (
     <AppShell>
       <SectionHeader
-        eyebrow="Workspace administration"
-        title="Settings"
-        description="Manage business identity, reminders, owner profile, subscription access, and renewal setup."
+        eyebrow={language === 'hi' ? 'वर्कस्पेस एडमिनिस्ट्रेशन' : 'Workspace administration'}
+        title={language === 'hi' ? 'सेटिंग्स' : 'Settings'}
+        description={language === 'hi' ? 'बिज़नेस प्रोफाइल, रिमाइंडर, ओनर प्रोफाइल और सब्सक्रिप्शन मैनेज करें।' : language === 'hinglish' ? 'Business profile, reminders, owner profile aur subscription manage karo.' : 'Manage business identity, reminders, owner profile, subscription access, and renewal setup.'}
       />
 
       {trialBannerMessage ? <AlertBanner tone="warning" message={trialBannerMessage} className="mb-5 max-w-6xl" /> : null}
@@ -421,12 +427,12 @@ export default function SettingsPage() {
         <Card className={settingsCardCls}>
           <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Subscription & renewal</div>
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Subscription & renewal', 'सब्सक्रिप्शन और रिन्यूअल')}</div>
               <div className="mt-1.5 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
-                {data?.subscription?.inTrial ? 'Free trial access' : 'Paid subscription access'}
+                {data?.subscription?.inTrial ? t('Free trial access', 'मुफ्त ट्रायल एक्सेस') : t('Paid subscription access', 'पेड सब्सक्रिप्शन एक्सेस')}
               </div>
               <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                {data?.subscription?.accessReason || 'Your workspace keeps a saved card ready for quick renewal.'}
+                {data?.subscription?.accessReason || t('Your workspace keeps a saved card ready for quick renewal.', 'आपके वर्कस्पेस में जल्दी रिन्यूअल के लिए कार्ड सेव रहता है।')}
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -436,14 +442,14 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (window.confirm('Cancel auto-renewal for the current subscription? Access will continue until the current end date.')) {
+                    if (window.confirm(t('Cancel auto-renewal for the current subscription? Access will continue until the current end date.', 'क्या मौजूदा सब्सक्रिप्शन का ऑटो-रिन्यूअल बंद करना है? एक्सेस मौजूदा एंड डेट तक जारी रहेगा।'))) {
                       cancelSubscription.mutate()
                     }
                   }}
                   disabled={cancelSubscription.isPending}
                   className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-700 hover:bg-rose-100 disabled:opacity-60 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200"
                 >
-                  {cancelSubscription.isPending ? 'Cancelling...' : 'Cancel subscription'}
+                  {cancelSubscription.isPending ? t('Cancelling...', 'रद्द किया जा रहा है...') : t('Cancel subscription', 'सब्सक्रिप्शन रद्द करें')}
                 </button>
               ) : null}
             </div>
@@ -502,9 +508,9 @@ export default function SettingsPage() {
 
         {accessLocked ? (
           <Card className={settingsCardCls}>
-            <div className="text-lg font-semibold text-slate-950 dark:text-white">Workspace locked for billing</div>
+            <div className="text-lg font-semibold text-slate-950 dark:text-white">{t('Workspace locked for billing', 'बिलिंग के कारण वर्कस्पेस लॉक है')}</div>
             <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-              Renew a subscription above to unlock business management, reminders, staff operations, and the rest of the workspace.
+              {t('Renew a subscription above to unlock business management, reminders, staff operations, and the rest of the workspace.', 'ऊपर से सब्सक्रिप्शन रिन्यू करें ताकि बिज़नेस मैनेजमेंट, रिमाइंडर, स्टाफ ऑपरेशन और बाकी वर्कस्पेस अनलॉक हो जाए।')}
             </div>
           </Card>
         ) : (
@@ -512,8 +518,8 @@ export default function SettingsPage() {
             <div className="grid items-start gap-4 xl:grid-cols-2">
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Business info</div>
-                  {!bizEdit && user?.role === 'OWNER' ? <button onClick={() => setBizEdit(true)} className={editBtnCls}>Edit</button> : null}
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Business info', 'बिज़नेस जानकारी')}</div>
+                  {!bizEdit && user?.role === 'OWNER' ? <button onClick={() => setBizEdit(true)} className={editBtnCls}>{t('Edit', 'संपादित करें')}</button> : null}
                 </div>
                 {bizEdit ? (
                   <form
@@ -533,8 +539,8 @@ export default function SettingsPage() {
                       <Field label="GSTIN"><input value={bizGstin} onChange={(e) => setBizGstin(e.target.value)} className={inputCls} /></Field>
                     </div>
                     <div className="flex gap-2">
-                      <button type="submit" disabled={updateBiz.isPending} className={saveBtnCls}>{updateBiz.isPending ? 'Saving...' : 'Save changes'}</button>
-                      <button type="button" onClick={() => setBizEdit(false)} className={cancelBtnCls}>Cancel</button>
+                      <button type="submit" disabled={updateBiz.isPending} className={saveBtnCls}>{updateBiz.isPending ? t('Saving...', 'सेव हो रहा है...') : t('Save changes', 'बदलाव सेव करें')}</button>
+                      <button type="button" onClick={() => setBizEdit(false)} className={cancelBtnCls}>{t('Cancel', 'रद्द करें')}</button>
                     </div>
                   </form>
                 ) : (
@@ -552,8 +558,8 @@ export default function SettingsPage() {
 
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Your profile</div>
-                  {!profEdit ? <button onClick={() => setProfEdit(true)} className={editBtnCls}>Edit</button> : null}
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Your profile', 'आपकी प्रोफाइल')}</div>
+                  {!profEdit ? <button onClick={() => setProfEdit(true)} className={editBtnCls}>{t('Edit', 'संपादित करें')}</button> : null}
                 </div>
                 {profEdit ? (
                   <form
@@ -572,8 +578,8 @@ export default function SettingsPage() {
                     <Field label="Phone *"><input value={profPhone} onChange={(e) => setProfPhone(e.target.value)} maxLength={10} className={inputCls} /></Field>
                     <Field label="Email"><input type="email" value={profEmail} onChange={(e) => setProfEmail(e.target.value)} className={inputCls} /></Field>
                     <div className="flex gap-2">
-                      <button type="submit" disabled={updateProf.isPending} className={saveBtnCls}>{updateProf.isPending ? 'Saving...' : 'Save profile'}</button>
-                      <button type="button" onClick={() => setProfEdit(false)} className={cancelBtnCls}>Cancel</button>
+                      <button type="submit" disabled={updateProf.isPending} className={saveBtnCls}>{updateProf.isPending ? t('Saving...', 'सेव हो रहा है...') : t('Save profile', 'प्रोफाइल सेव करें')}</button>
+                      <button type="button" onClick={() => setProfEdit(false)} className={cancelBtnCls}>{t('Cancel', 'रद्द करें')}</button>
                     </div>
                   </form>
                 ) : (
@@ -592,8 +598,8 @@ export default function SettingsPage() {
             <div className="grid items-start gap-4 xl:grid-cols-2">
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Security</div>
-                  {!showPw ? <button onClick={() => setShowPw(true)} className={editBtnCls}>Change password</button> : null}
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Security', 'सिक्योरिटी')}</div>
+                  {!showPw ? <button onClick={() => setShowPw(true)} className={editBtnCls}>{t('Change password', 'पासवर्ड बदलें')}</button> : null}
                 </div>
                 {showPw ? (
                   <form
@@ -606,19 +612,19 @@ export default function SettingsPage() {
                     <Field label="Current password *"><input type="password" value={curPw} onChange={(e) => setCurPw(e.target.value)} className={inputCls} /></Field>
                     <Field label="New password *"><input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} className={inputCls} /></Field>
                     <div className="flex gap-2">
-                      <button type="submit" disabled={changePw.isPending} className={saveBtnCls}>{changePw.isPending ? 'Changing...' : 'Change password'}</button>
-                      <button type="button" onClick={() => setShowPw(false)} className={cancelBtnCls}>Cancel</button>
+                      <button type="submit" disabled={changePw.isPending} className={saveBtnCls}>{changePw.isPending ? t('Changing...', 'बदला जा रहा है...') : t('Change password', 'पासवर्ड बदलें')}</button>
+                      <button type="button" onClick={() => setShowPw(false)} className={cancelBtnCls}>{t('Cancel', 'रद्द करें')}</button>
                     </div>
                   </form>
                 ) : (
-                  <div className="text-sm text-slate-500 dark:text-slate-400">Update your password to keep owner access secure.</div>
+                  <div className="text-sm text-slate-500 dark:text-slate-400">{t('Update your password to keep owner access secure.', 'ओनर एक्सेस सुरक्षित रखने के लिए पासवर्ड अपडेट करें।')}</div>
                 )}
               </Card>
 
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Reminder rules</div>
-                  {!remEdit ? <button onClick={() => setRemEdit(true)} className={editBtnCls}>Edit</button> : null}
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Reminder rules', 'रिमाइंडर नियम')}</div>
+                  {!remEdit ? <button onClick={() => setRemEdit(true)} className={editBtnCls}>{t('Edit', 'संपादित करें')}</button> : null}
                 </div>
                 {remEdit ? (
                   <form
@@ -630,7 +636,7 @@ export default function SettingsPage() {
                   >
                     <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
                       <input type="checkbox" checked={remEnabled} onChange={(e) => setRemEnabled(e.target.checked)} />
-                      Enable automated payment reminders
+                      {t('Enable automated payment reminders', 'ऑटोमेटेड पेमेंट रिमाइंडर सक्षम करें')}
                     </label>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <Field label="Soft"><input type="number" value={remSoft} onChange={(e) => setRemSoft(Number(e.target.value))} className={inputCls} /></Field>
@@ -638,8 +644,8 @@ export default function SettingsPage() {
                       <Field label="Firm"><input type="number" value={remFirm} onChange={(e) => setRemFirm(Number(e.target.value))} className={inputCls} /></Field>
                     </div>
                     <div className="flex gap-2">
-                      <button type="submit" disabled={updateRem.isPending} className={saveBtnCls}>{updateRem.isPending ? 'Saving...' : 'Save rules'}</button>
-                      <button type="button" onClick={() => setRemEdit(false)} className={cancelBtnCls}>Cancel</button>
+                      <button type="submit" disabled={updateRem.isPending} className={saveBtnCls}>{updateRem.isPending ? t('Saving...', 'सेव हो रहा है...') : t('Save rules', 'नियम सेव करें')}</button>
+                      <button type="button" onClick={() => setRemEdit(false)} className={cancelBtnCls}>{t('Cancel', 'रद्द करें')}</button>
                     </div>
                   </form>
                 ) : (
@@ -658,7 +664,7 @@ export default function SettingsPage() {
             {user?.role === 'OWNER' ? (
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Staff / Munim settings</div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Staff / Munim settings', 'स्टाफ / मुनीम सेटिंग्स')}</div>
                   {!staffFormOpen ? (
                     <button
                       onClick={() => {
@@ -672,7 +678,7 @@ export default function SettingsPage() {
                       }}
                       className={editBtnCls}
                     >
-                      + Add Munim
+                      {t('+ Add Munim', '+ मुनीम जोड़ें')}
                     </button>
                   ) : null}
                 </div>
@@ -686,7 +692,7 @@ export default function SettingsPage() {
                     <Field label="Gmail"><input type="email" value={staffEmail} onChange={(e) => setStaffEmail(e.target.value)} placeholder="munim@gmail.com" className={inputCls} /></Field>
                     {!staffEditId ? <Field label="Password *"><input type="password" value={staffPassword} onChange={(e) => setStaffPassword(e.target.value)} className={inputCls} /></Field> : null}
                     <div>
-                      <div className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">Permissions</div>
+                      <div className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">{t('Permissions', 'अनुमतियां')}</div>
                       <div className="flex flex-wrap gap-2">
                         {PERMISSION_OPTIONS.map((option) => {
                           const selected = staffPerms.has(option.id)
@@ -711,15 +717,15 @@ export default function SettingsPage() {
                     </div>
                     <div className="flex gap-2">
                       <button type="submit" disabled={createStaff.isPending || updateStaff.isPending} className={saveBtnCls}>
-                        {createStaff.isPending || updateStaff.isPending ? 'Saving...' : 'Save staff'}
+                        {createStaff.isPending || updateStaff.isPending ? t('Saving...', 'सेव हो रहा है...') : t('Save staff', 'स्टाफ सेव करें')}
                       </button>
-                      <button type="button" onClick={() => setStaffFormOpen(false)} className={cancelBtnCls}>Cancel</button>
+                      <button type="button" onClick={() => setStaffFormOpen(false)} className={cancelBtnCls}>{t('Cancel', 'रद्द करें')}</button>
                     </div>
                   </form>
                 ) : null}
 
                 <div className="space-y-3">
-                  {sLoading ? <div className="text-sm text-slate-500">Loading staff...</div> : null}
+                  {sLoading ? <div className="text-sm text-slate-500">{t('Loading staff...', 'स्टाफ लोड हो रहा है...')}</div> : null}
                   {(staffList ?? []).filter((member: any) => member.isActive).length > 0 ? (
                     <div className="overflow-x-auto rounded-[18px] border border-slate-200/70 dark:border-slate-800">
                       <table className="w-full min-w-[640px] table-fixed text-sm">
@@ -756,7 +762,7 @@ export default function SettingsPage() {
                                     className="font-medium text-rose-600 hover:underline"
                                     type="button"
                                   >
-                                    Remove
+                                    {t('Remove', 'हटाएं')}
                                   </button>
                                 </div>
                               </td>
@@ -767,7 +773,7 @@ export default function SettingsPage() {
                     </div>
                   ) : null}
                   {(staffList ?? []).filter((member: any) => member.isActive).length === 0 && !staffFormOpen ? (
-                    <div className="text-sm text-slate-500 dark:text-slate-400">No munim accounts added yet.</div>
+                    <div className="text-sm text-slate-500 dark:text-slate-400">{t('No munim accounts added yet.', 'अभी कोई मुनीम अकाउंट नहीं जोड़ा गया।')}</div>
                   ) : null}
                 </div>
               </Card>
@@ -781,38 +787,38 @@ export default function SettingsPage() {
           <div className="w-full max-w-2xl rounded-[30px] border border-white/60 bg-white p-6 shadow-[0_30px_90px_rgba(15,23,42,0.22)] dark:border-white/10 dark:bg-slate-950">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-500 dark:text-slate-400">Confirm subscription</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-500 dark:text-slate-400">{t('Confirm subscription', 'सब्सक्रिप्शन पुष्टि')}</div>
                 <div className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
-                  {selectedInterval === 'YEARLY' ? 'Activate yearly plan' : 'Activate monthly plan'}
+                  {selectedInterval === 'YEARLY' ? t('Activate yearly plan', 'ईयरली प्लान सक्रिय करें') : t('Activate monthly plan', 'मंथली प्लान सक्रिय करें')}
                 </div>
                 <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                  Confirm to open Razorpay secure checkout and complete payment with your preferred method.
+                  {t('Confirm to open Razorpay secure checkout and complete payment with your preferred method.', 'Razorpay secure checkout खोलने और अपनी पसंद से भुगतान पूरा करने के लिए पुष्टि करें।')}
                 </div>
               </div>
               <button type="button" onClick={() => setCheckoutOpen(false)} className={cancelBtnCls}>
-                Close
+                {t('Close', 'बंद करें')}
               </button>
             </div>
 
             <div className="mt-5 grid gap-4">
               <div className="rounded-[24px] border border-slate-200/70 bg-slate-50/80 p-5 dark:border-slate-800 dark:bg-slate-900/60">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Payment summary</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{t('Payment summary', 'भुगतान सारांश')}</div>
                 <div className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">{selectedPlanAmount}</div>
                 <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                  {selectedInterval === 'YEARLY' ? '365-day access window' : '30-day access window'}
+                  {selectedInterval === 'YEARLY' ? t('365-day access window', '365 दिन का एक्सेस') : t('30-day access window', '30 दिन का एक्सेस')}
                 </div>
               </div>
 
               <div className="rounded-[24px] border border-slate-200/70 bg-white/90 p-5 dark:border-slate-800 dark:bg-slate-950/65">
-                <div className="text-sm font-semibold text-slate-950 dark:text-white">Pay with Razorpay</div>
+                <div className="text-sm font-semibold text-slate-950 dark:text-white">{t('Pay with Razorpay', 'Razorpay से भुगतान करें')}</div>
                 <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  After confirmation, Razorpay opens secure checkout where users can choose card, UPI, netbanking, wallet, or supported methods.
+                  {t('After confirmation, Razorpay opens secure checkout where users can choose card, UPI, netbanking, wallet, or supported methods.', 'पुष्टि के बाद Razorpay का secure checkout खुलेगा जहां card, UPI, netbanking, wallet आदि चुने जा सकते हैं।')}
                 </div>
               </div>
 
               <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
                 <button type="button" onClick={() => setCheckoutOpen(false)} className={cancelBtnCls}>
-                  Cancel
+                  {t('Cancel', 'रद्द करें')}
                 </button>
                   <button
                     type="button"
@@ -820,7 +826,7 @@ export default function SettingsPage() {
                     disabled={isConfirmingPayment}
                     className={saveBtnCls}
                   >
-                  {isConfirmingPayment ? 'Opening Razorpay...' : 'Continue to Razorpay'}
+                  {isConfirmingPayment ? t('Opening Razorpay...', 'Razorpay खुल रहा है...') : t('Continue to Razorpay', 'Razorpay पर जारी रखें')}
                 </button>
               </div>
             </div>

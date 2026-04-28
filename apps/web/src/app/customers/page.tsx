@@ -6,8 +6,9 @@ import { PageLoader } from '@/components/ui/Spinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useCustomers, useCreateCustomer, useUpdateCustomer, useDeleteCustomer, useBulkDeleteCustomers, useSendReminders } from '@/hooks/useCustomers'
 import { fmt } from '@/lib/utils'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useI18n } from '@/lib/i18n'
 
 const RISK_TAGS = ['ALL', 'RELIABLE', 'WATCH', 'BLOCKED']
 
@@ -28,7 +29,41 @@ const emptyForm: CustomerForm = {
 }
 
 export default function CustomersPage() {
+  const { language } = useI18n()
+  const t = (en: string, hi: string, hinglish?: string) => (language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en)
+  const tr = {
+    title: language === 'hi' ? 'ग्राहक विश्लेषण' : language === 'hinglish' ? 'Customer intelligence' : 'Customer intelligence',
+    eyebrow: language === 'hi' ? 'ग्राहक एनालिटिक्स' : language === 'hinglish' ? 'Customer analytics' : 'Customer analytics',
+    add: language === 'hi' ? '+ ग्राहक जोड़ें' : language === 'hinglish' ? '+ Customer add karo' : '+ Add customer',
+    search: language === 'hi' ? 'नाम से खोजें...' : language === 'hinglish' ? 'Naam se search karo...' : 'Search by name...',
+    noData: language === 'hi' ? 'कोई ग्राहक नहीं मिला' : language === 'hinglish' ? 'Koi customer nahi mila' : 'No customers found',
+    emptySub: language === 'hi' ? 'शुरू करने के लिए पहला ग्राहक जोड़ें' : language === 'hinglish' ? 'Start karne ke liye pehla customer add karo' : 'Add your first customer to get started',
+    save: language === 'hi' ? 'ग्राहक सेव करें' : language === 'hinglish' ? 'Customer save karo' : 'Save customer',
+    saving: language === 'hi' ? 'सेव हो रहा है...' : language === 'hinglish' ? 'Save ho raha hai...' : 'Saving...',
+    cancel: language === 'hi' ? 'रद्द करें' : language === 'hinglish' ? 'Cancel' : 'Cancel',
+    edit: language === 'hi' ? 'संपादित करें' : language === 'hinglish' ? 'Edit' : 'Edit',
+    del: language === 'hi' ? 'हटाएं' : language === 'hinglish' ? 'Delete' : 'Delete',
+    customersInView: t('Customers in view', 'दिख रहे ग्राहक'),
+    filteredActiveAccounts: t('Filtered active accounts', 'फिल्टर किए गए सक्रिय खाते'),
+    outstanding: t('Outstanding', 'बकाया'),
+    openExposure: t('Open exposure across selected customers', 'चुने गए ग्राहकों में कुल बकाया एक्सपोज़र'),
+    highRisk: t('High risk', 'उच्च जोखिम'),
+    watchBlocked: t('Watch + blocked accounts', 'वॉच + ब्लॉक्ड खाते'),
+    orderRelations: t('Order relationships', 'ऑर्डर संबंध'),
+    lifetimeOrders: t('Lifetime order count in current list', 'वर्तमान सूची में कुल ऑर्डर संख्या'),
+    editCustomer: t('Edit customer', 'ग्राहक संपादित करें'),
+    newCustomer: t('New customer', 'नया ग्राहक'),
+    riskTag: t('Risk Tag', 'जोखिम टैग'),
+    reliable: t('Reliable', 'विश्वसनीय'),
+    watch: t('Watch', 'निगरानी'),
+    blocked: t('Blocked', 'ब्लॉक्ड'),
+    close: t('Close', 'बंद करें'),
+    sending: t('Sending...', 'भेजा जा रहा है...'),
+    sendReminders: t('Send Reminders', 'रिमाइंडर भेजें'),
+    deletingSelected: t('Deleting...', 'हटाया जा रहा है...'),
+  }
   const [riskTag, setRiskTag] = useState('ALL')
+  const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
@@ -37,6 +72,11 @@ export default function CustomersPage() {
     riskTag: riskTag === 'ALL' ? undefined : riskTag,
     search: search || undefined,
   })
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(searchInput.trim()), 250)
+    return () => window.clearTimeout(timer)
+  }, [searchInput])
 
   const createCustomer = useCreateCustomer()
   const updateCustomer = useUpdateCustomer()
@@ -151,37 +191,37 @@ export default function CustomersPage() {
   return (
     <AppShell>
       <SectionHeader
-        eyebrow="Customer analytics"
-        title="Customer intelligence"
+        eyebrow={tr.eyebrow}
+        title={tr.title}
         description="Monitor outstanding exposure, risky accounts, reminder campaigns, and relationship value from one view."
         action={
           <button
             onClick={openCreateForm}
             className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950"
           >
-            + Add customer
+            {tr.add}
           </button>
         }
       />
 
       <MetricGrid className="mb-6">
-        <MetricCard label="Customers in view" value={String(list.length)} hint="Filtered active accounts" />
+        <MetricCard label={tr.customersInView} value={String(list.length)} hint={tr.filteredActiveAccounts} />
         <MetricCard
-          label="Outstanding"
+          label={tr.outstanding}
           value={fmt(list.reduce((sum: number, c: any) => sum + Math.max(0, Number(c.balance)), 0))}
-          hint="Open exposure across selected customers"
+          hint={tr.openExposure}
           tone="warning"
         />
         <MetricCard
-          label="High risk"
+          label={tr.highRisk}
           value={String(list.filter((c: any) => c.riskTag !== 'RELIABLE').length)}
-          hint="Watch + blocked accounts"
+          hint={tr.watchBlocked}
           tone="danger"
         />
         <MetricCard
-          label="Order relationships"
+          label={tr.orderRelations}
           value={String(list.reduce((sum: number, c: any) => sum + Number(c.orderCount), 0))}
-          hint="Lifetime order count in current list"
+          hint={tr.lifetimeOrders}
           tone="brand"
         />
       </MetricGrid>
@@ -207,9 +247,9 @@ export default function CustomersPage() {
         </div>
         <div className="flex max-w-full flex-1 gap-2 xl:max-w-xs">
           <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder={tr.search}
             className="flex-1 rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
           />
         </div>
@@ -217,7 +257,7 @@ export default function CustomersPage() {
 
       {showForm && (
         <Card className="mb-4 hidden xl:block">
-          <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{editId ? 'Edit customer' : 'New customer'}</div>
+          <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{editId ? tr.editCustomer : tr.newCustomer}</div>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {formFields.map((f) => (
               <div key={f.key}>
@@ -233,15 +273,15 @@ export default function CustomersPage() {
               </div>
             ))}
             <div>
-              <label className="mb-1 block text-xs text-stone-500">Risk Tag</label>
+              <label className="mb-1 block text-xs text-stone-500">{tr.riskTag}</label>
               <select
                 value={form.riskTag}
                 onChange={(e) => setForm((p) => ({ ...p, riskTag: e.target.value }))}
                 className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               >
-                <option value="RELIABLE">Reliable</option>
-                <option value="WATCH">Watch</option>
-                <option value="BLOCKED">Blocked</option>
+                <option value="RELIABLE">{tr.reliable}</option>
+                <option value="WATCH">{tr.watch}</option>
+                <option value="BLOCKED">{tr.blocked}</option>
               </select>
             </div>
             <div className="col-span-1 mt-2 flex flex-wrap gap-2 sm:col-span-2 xl:col-span-4">
@@ -250,10 +290,10 @@ export default function CustomersPage() {
                 disabled={createCustomer.isPending || updateCustomer.isPending}
                 className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {createCustomer.isPending || updateCustomer.isPending ? 'Saving...' : 'Save customer'}
+                {createCustomer.isPending || updateCustomer.isPending ? tr.saving : tr.save}
               </button>
               <button type="button" onClick={handleCancel} className="rounded-lg border border-stone-200 px-3 py-1.5 text-xs hover:bg-stone-50">
-                Cancel
+                {tr.cancel}
               </button>
             </div>
             {formError && <div className="col-span-1 text-xs text-red-600 sm:col-span-2 xl:col-span-4">{formError}</div>}
@@ -265,13 +305,13 @@ export default function CustomersPage() {
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/45 p-3 xl:hidden" onClick={handleCancel}>
           <div className="max-h-[88vh] w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
-              <div className="text-xs font-medium uppercase tracking-wide text-stone-500">{editId ? 'Edit customer' : 'New customer'}</div>
+              <div className="text-xs font-medium uppercase tracking-wide text-stone-500">{editId ? tr.editCustomer : tr.newCustomer}</div>
               <button
                 type="button"
                 onClick={handleCancel}
                 className="rounded-md border border-stone-200 px-2 py-1 text-xs text-stone-600 hover:bg-stone-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800"
               >
-                Close
+                {tr.close}
               </button>
             </div>
             <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3">
@@ -289,15 +329,15 @@ export default function CustomersPage() {
                 </div>
               ))}
               <div>
-                <label className="mb-1 block text-xs text-stone-500">Risk Tag</label>
+                <label className="mb-1 block text-xs text-stone-500">{tr.riskTag}</label>
                 <select
                   value={form.riskTag}
                   onChange={(e) => setForm((p) => ({ ...p, riskTag: e.target.value }))}
                   className="w-full rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 >
-                  <option value="RELIABLE">Reliable</option>
-                  <option value="WATCH">Watch</option>
-                  <option value="BLOCKED">Blocked</option>
+                  <option value="RELIABLE">{tr.reliable}</option>
+                  <option value="WATCH">{tr.watch}</option>
+                  <option value="BLOCKED">{tr.blocked}</option>
                 </select>
               </div>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -306,14 +346,14 @@ export default function CustomersPage() {
                   disabled={createCustomer.isPending || updateCustomer.isPending}
                   className="rounded-lg bg-blue-600 px-4 py-2 text-xs text-white hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {createCustomer.isPending || updateCustomer.isPending ? 'Saving...' : 'Save customer'}
+                  {createCustomer.isPending || updateCustomer.isPending ? tr.saving : tr.save}
                 </button>
                 <button
                   type="button"
                   onClick={handleCancel}
                   className="rounded-lg border border-stone-200 px-3 py-2 text-xs hover:bg-stone-50 dark:border-stone-700 dark:hover:bg-stone-800"
                 >
-                  Cancel
+                  {tr.cancel}
                 </button>
               </div>
               {formError && <div className="text-xs text-red-600">{formError}</div>}
@@ -333,18 +373,18 @@ export default function CustomersPage() {
               disabled={sendReminders.isPending}
               className="border-r border-stone-200 px-3 py-1.5 text-xs font-medium text-stone-700 transition-colors hover:bg-stone-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-700"
             >
-              {sendReminders.isPending ? 'Sending...' : 'Send Reminders'}
+              {sendReminders.isPending ? tr.sending : tr.sendReminders}
             </button>
             <button
               onClick={handleBulkDelete}
               disabled={bulkDelete.isPending}
               className="px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:hover:bg-red-950/30"
             >
-              {bulkDelete.isPending ? 'Deleting...' : 'Delete'}
+              {bulkDelete.isPending ? tr.deletingSelected : tr.del}
             </button>
           </div>
           <button onClick={() => setSelected(new Set())} className="ml-0 text-xs text-stone-500 hover:text-stone-700 dark:text-stone-400 md:ml-auto">
-            Clear selection
+            {t('Clear selection', 'चयन हटाएँ', 'Selection clear karo')}
           </button>
         </div>
       )}
@@ -353,7 +393,7 @@ export default function CustomersPage() {
         {isLoading ? (
           <PageLoader />
         ) : list.length === 0 ? (
-          <EmptyState title="No customers found" sub="Add your first customer to get started" />
+          <EmptyState title={tr.noData} sub={tr.emptySub} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] text-xs">
@@ -367,7 +407,7 @@ export default function CustomersPage() {
                       className="cursor-pointer rounded border-stone-300 text-blue-600 focus:ring-blue-500"
                     />
                   </th>
-                  {['Name', 'Phone', 'Address', 'Credit limit', 'Outstanding', 'Orders', 'Risk', ''].map((h) => (
+                  {[language === 'hi' ? 'नाम' : 'Name', language === 'hi' ? 'फोन' : 'Phone', language === 'hi' ? 'पता' : 'Address', language === 'hi' ? 'क्रेडिट सीमा' : 'Credit limit', language === 'hi' ? 'बकाया' : 'Outstanding', language === 'hi' ? 'ऑर्डर' : 'Orders', language === 'hi' ? 'रिस्क' : 'Risk', ''].map((h) => (
                     <th key={h} className="py-3 pr-3 text-left font-normal uppercase tracking-[0.18em] text-slate-400 dark:text-slate-300">
                       {h}
                     </th>
@@ -409,10 +449,10 @@ export default function CustomersPage() {
                             Khata
                           </Link>
                           <button onClick={() => handleEditClick(c)} className="text-stone-500 transition-colors hover:text-stone-700 dark:text-slate-300 dark:hover:text-slate-100">
-                            Edit
+                            {tr.edit}
                           </button>
                           <button onClick={() => handleDelete(c.id, c.name)} className="text-red-400 transition-colors hover:text-red-600">
-                            Delete
+                            {tr.del}
                           </button>
                         </div>
                       </td>

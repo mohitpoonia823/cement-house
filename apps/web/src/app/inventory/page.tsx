@@ -8,18 +8,24 @@ import { fmt }         from '@/lib/utils'
 import { useState }    from 'react'
 import { useQuery }    from '@tanstack/react-query'
 import { api }         from '@/lib/api'
+import { useI18n } from '@/lib/i18n'
 
 function useMovements(materialId: string) {
   return useQuery({
     queryKey: ['movements', materialId],
     queryFn:  () => api.get(`/api/inventory/${materialId}/movements`).then(r => r.data.data),
     enabled:  !!materialId,
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 
 const UNITS = ['bags', 'MT', 'feet', 'pieces', 'kg', 'litres']
 
 export default function InventoryPage() {
+  const { language } = useI18n()
+  const t = (en: string, hi: string, hinglish?: string) => (language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en)
   const { data: materials, isLoading } = useInventory()
   const stockIn        = useStockIn()
   const createMaterial = useCreateMaterial()
@@ -99,45 +105,45 @@ export default function InventoryPage() {
   return (
     <AppShell>
       <SectionHeader
-        eyebrow="Inventory analytics"
-        title="Inventory control"
-        description="Balance stock health, replenishment activity, and pricing signals without losing the operational workflows."
+        eyebrow={language === 'hi' ? 'इन्वेंट्री एनालिटिक्स' : language === 'hinglish' ? 'Inventory analytics' : 'Inventory analytics'}
+        title={language === 'hi' ? 'इन्वेंट्री नियंत्रण' : language === 'hinglish' ? 'Inventory control' : 'Inventory control'}
+        description={language === 'hi' ? 'स्टॉक, रीप्लेनिशमेंट और प्राइसिंग को एक जगह से मैनेज करें।' : language === 'hinglish' ? 'Stock, replenishment aur pricing ek jagah manage karo.' : 'Balance stock health, replenishment activity, and pricing signals without losing the operational workflows.'}
         action={
           <button onClick={() => setShowAddNew(true)}
             className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950">
-            + Add material
+            {language === 'hi' ? '+ मटेरियल जोड़ें' : language === 'hinglish' ? '+ Material add karo' : '+ Add material'}
           </button>
         }
       />
 
       <MetricGrid className="mb-6">
-        <MetricCard label="Active materials" value={String(list.length)} hint="Live catalog count" />
-        <MetricCard label="Low / out of stock" value={String(list.filter((m: any) => m.stockStatus !== 'OK').length)} hint="Items needing replenishment" tone="danger" />
-        <MetricCard label="Inventory value" value={fmt(list.reduce((sum: number, m: any) => sum + Number(m.stockQty) * Number(m.purchasePrice), 0))} hint="Estimated purchase-side stock value" tone="brand" />
-        <MetricCard label="Selected material" value={selectedMat?.name ?? 'None'} hint={selectedMat ? `${Number(selectedMat.stockQty).toFixed(1)} ${selectedMat.unit} available` : 'Open a card for movement details'} tone="default" />
+        <MetricCard label={t('Active materials', 'सक्रिय मटेरियल')} value={String(list.length)} hint={t('Live catalog count', 'लाइव कैटलॉग संख्या')} />
+        <MetricCard label={t('Low / out of stock', 'लो / आउट ऑफ स्टॉक')} value={String(list.filter((m: any) => m.stockStatus !== 'OK').length)} hint={t('Items needing replenishment', 'जिन आइटम को रीप्लेनिशमेंट चाहिए')} tone="danger" />
+        <MetricCard label={t('Inventory value', 'इन्वेंट्री वैल्यू')} value={fmt(list.reduce((sum: number, m: any) => sum + Number(m.stockQty) * Number(m.purchasePrice), 0))} hint={t('Estimated purchase-side stock value', 'अनुमानित खरीद-आधारित स्टॉक मूल्य')} tone="brand" />
+        <MetricCard label={t('Selected material', 'चयनित मटेरियल')} value={selectedMat?.name ?? t('None', 'कोई नहीं')} hint={selectedMat ? `${Number(selectedMat.stockQty).toFixed(1)} ${selectedMat.unit} ${t('available', 'उपलब्ध')}` : t('Open a card for movement details', 'मूवमेंट विवरण के लिए कार्ड चुनें')} tone="default" />
       </MetricGrid>
 
       {/* Add new material form */}
       {showAddNew && (
         <Card className="mb-4">
-          <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">New material</div>
+          <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">{t('New material', 'नया मटेरियल')}</div>
           <form onSubmit={handleCreateMaterial} className="space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div className="sm:col-span-2">
-                <label className="block text-xs text-stone-500 mb-1">Name *</label>
+                <label className="block text-xs text-stone-500 mb-1">{t('Name *', 'नाम *')}</label>
                 <input type="text" value={newForm.name} onChange={e => setNewForm(p => ({ ...p, name: e.target.value }))}
                   placeholder="e.g. PPC Cement" required
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
-                <label className="block text-xs text-stone-500 mb-1">Unit *</label>
+                <label className="block text-xs text-stone-500 mb-1">{t('Unit *', 'यूनिट *')}</label>
                 <select value={newForm.unit} onChange={e => setNewForm(p => ({ ...p, unit: e.target.value }))}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500">
                   {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-stone-500 mb-1">Initial stock</label>
+                <label className="block text-xs text-stone-500 mb-1">{t('Initial stock', 'प्रारंभिक स्टॉक')}</label>
                 <input type="number" value={newForm.stockQty} placeholder="0" onChange={e => setNewForm(p => ({ ...p, stockQty: e.target.value }))}
                   min={0} step={0.01}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -145,25 +151,25 @@ export default function InventoryPage() {
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div>
-                <label className="block text-xs text-stone-500 mb-1">Min threshold</label>
+                <label className="block text-xs text-stone-500 mb-1">{t('Min threshold', 'न्यूनतम सीमा')}</label>
                 <input type="number" value={newForm.minThreshold} placeholder="0" onChange={e => setNewForm(p => ({ ...p, minThreshold: e.target.value }))}
                   min={0} step={0.01}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
-                <label className="block text-xs text-stone-500 mb-1">Max threshold</label>
+                <label className="block text-xs text-stone-500 mb-1">{t('Max threshold', 'अधिकतम सीमा')}</label>
                 <input type="number" value={newForm.maxThreshold} placeholder="0" onChange={e => setNewForm(p => ({ ...p, maxThreshold: e.target.value }))}
                   min={0} step={0.01}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
-                <label className="block text-xs text-stone-500 mb-1">Purchase price (₹) *</label>
+                <label className="block text-xs text-stone-500 mb-1">{t('Purchase price (₹) *', 'खरीद मूल्य (₹) *')}</label>
                 <input type="number" value={newForm.purchasePrice} placeholder="0" onChange={e => setNewForm(p => ({ ...p, purchasePrice: e.target.value }))}
                   min={0} step={0.01} required
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
-                <label className="block text-xs text-stone-500 mb-1">Sale price (₹) *</label>
+                <label className="block text-xs text-stone-500 mb-1">{t('Sale price (₹) *', 'बिक्री मूल्य (₹) *')}</label>
                 <input type="number" value={newForm.salePrice} placeholder="0" onChange={e => setNewForm(p => ({ ...p, salePrice: e.target.value }))}
                   min={0} step={0.01} required
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -172,10 +178,10 @@ export default function InventoryPage() {
             <div className="flex gap-2">
               <button type="submit" disabled={createMaterial.isPending}
                 className="text-xs px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                {createMaterial.isPending ? 'Saving…' : 'Save material'}
+                {createMaterial.isPending ? (language === 'hi' ? 'सेव हो रहा है...' : language === 'hinglish' ? 'Save ho raha hai...' : 'Saving...') : (language === 'hi' ? 'मटेरियल सेव करें' : language === 'hinglish' ? 'Material save karo' : 'Save material')}
               </button>
               <button type="button" onClick={() => setShowAddNew(false)}
-                className="text-xs px-3 py-1.5 border border-stone-200 dark:border-stone-700 rounded-lg hover:bg-stone-50 dark:hover:bg-stone-800">Cancel</button>
+                className="text-xs px-3 py-1.5 border border-stone-200 dark:border-stone-700 rounded-lg hover:bg-stone-50 dark:hover:bg-stone-800">{language === 'hi' ? 'रद्द करें' : 'Cancel'}</button>
             </div>
             {newError && <div className="text-xs text-red-600">{newError}</div>}
           </form>
@@ -190,11 +196,11 @@ export default function InventoryPage() {
           </span>
           <button onClick={handleBulkDelete} disabled={bulkDelete.isPending}
             className="text-xs px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 font-medium transition-colors">
-            {bulkDelete.isPending ? 'Deleting…' : 'Delete selected'}
+            {bulkDelete.isPending ? (language === 'hi' ? 'हटाया जा रहा है...' : language === 'hinglish' ? 'Delete ho raha hai...' : 'Deleting...') : (language === 'hi' ? 'चयनित हटाएं' : language === 'hinglish' ? 'Selected delete karo' : 'Delete selected')}
           </button>
           <button onClick={() => setSelected(new Set())}
             className="ml-0 text-xs text-stone-500 hover:text-stone-700 dark:text-stone-400 md:ml-auto">
-            Clear selection
+            {language === 'hi' ? 'चयन हटाएं' : language === 'hinglish' ? 'Selection clear karo' : 'Clear selection'}
           </button>
         </div>
       )}
@@ -204,7 +210,7 @@ export default function InventoryPage() {
         <div className="flex items-center gap-2 mb-3">
           <input type="checkbox" checked={allSelected} onChange={toggleAll}
             className="rounded border-stone-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
-          <span className="text-xs text-stone-500">Select all</span>
+          <span className="text-xs text-stone-500">{t('Select all', 'सभी चुनें')}</span>
         </div>
       )}
 
@@ -271,7 +277,7 @@ export default function InventoryPage() {
               </div>
               <button onClick={() => setShowStockIn(s => !s)}
                 className="text-xs text-blue-600 hover:underline">
-                {showStockIn ? 'Cancel' : '+ Add stock'}
+                {showStockIn ? (language === 'hi' ? 'रद्द करें' : 'Cancel') : (language === 'hi' ? '+ स्टॉक जोड़ें' : language === 'hinglish' ? '+ Stock add karo' : '+ Add stock')}
               </button>
             </div>
             {showStockIn && (
@@ -284,7 +290,7 @@ export default function InventoryPage() {
                       className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   <div>
-                    <label className="block text-xs text-stone-500 mb-1">Purchase price (₹/{selectedMat?.unit}) *</label>
+                    <label className="block text-xs text-stone-500 mb-1">{t('Purchase price', 'खरीद मूल्य')} (₹/{selectedMat?.unit}) *</label>
                     <input type="number" value={siPrice} onChange={e => setSiPrice(e.target.value)}
                       placeholder={String(selectedMat?.purchasePrice ?? 0)} min={0} required
                       className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -299,7 +305,7 @@ export default function InventoryPage() {
                 {siError && <div className="text-xs text-red-600">{siError}</div>}
                 <button type="submit" disabled={stockIn.isPending}
                   className="w-full py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                  {stockIn.isPending ? 'Saving…' : 'Add to stock'}
+                  {stockIn.isPending ? (language === 'hi' ? 'सेव हो रहा है...' : language === 'hinglish' ? 'Save ho raha hai...' : 'Saving...') : (language === 'hi' ? 'स्टॉक में जोड़ें' : language === 'hinglish' ? 'Stock me add karo' : 'Add to stock')}
                 </button>
               </form>
             )}
@@ -312,15 +318,15 @@ export default function InventoryPage() {
 
           {/* Movement log */}
           <Card>
-            <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">Recent movements</div>
+            <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">{t('Recent movements', 'हाल की गतिविधियां')}</div>
             {!movements ? <PageLoader /> : movements.length === 0 ? (
-              <div className="text-xs text-stone-400 py-4 text-center">No movements yet</div>
+              <div className="text-xs text-stone-400 py-4 text-center">{t('No movements yet', 'अभी कोई मूवमेंट नहीं')}</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[620px] text-xs">
                   <thead>
                   <tr className="border-b border-stone-100 dark:border-stone-800">
-                    {['Date','Type','Qty','Stock after','Reason'].map(h => (
+                    {[t('Date', 'तारीख'), t('Type', 'प्रकार'), t('Qty', 'मात्रा'), t('Stock after', 'स्टॉक बाद में'), t('Reason', 'कारण')].map(h => (
                       <th key={h} className="text-left py-2 pr-2 font-normal text-stone-400 dark:text-slate-300">{h}</th>
                     ))}
                   </tr>
