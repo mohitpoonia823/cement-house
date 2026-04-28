@@ -35,9 +35,11 @@ const ListBusinessesQuerySchema = z.object({
 
 const ListUsersQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(50).default(12),
+  pageSize: z.coerce.number().int().min(1).max(50).default(10),
   search: z.string().trim().optional(),
   role: z.enum(['SUPER_ADMIN', 'OWNER', 'MUNIM']).optional(),
+  sortBy: z.enum(['createdAt', 'name', 'role', 'status', 'business']).default('createdAt'),
+  sortOrder: z.enum(['asc', 'desc']).default('desc'),
 })
 
 const OverviewAnalyticsQuerySchema = z.object({
@@ -408,8 +410,8 @@ export async function superAdminRoutes(app: FastifyInstance) {
     const query = ListUsersQuerySchema.safeParse(req.query)
     if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
 
-    const { page, pageSize, search, role } = query.data
-    const result = await superAdminRepository.listUsers({ page, pageSize, search, role })
+    const { page, pageSize, search, role, sortBy, sortOrder } = query.data
+    const result = await superAdminRepository.listUsers({ page, pageSize, search, role, sortBy, sortOrder })
 
     return {
       success: true,
@@ -477,6 +479,25 @@ export async function superAdminRoutes(app: FastifyInstance) {
       email: body.data.email,
       passwordHash,
     })
+    if (!updated) return reply.status(404).send({ success: false, error: 'User not found' })
+
+    return { success: true, data: updated }
+  })
+
+  app.delete('/users/:id', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params)
+    if (!params.success) return reply.status(400).send({ success: false, error: 'Invalid user id' })
+
+    const target = await superAdminRepository.getUserById(params.data.id)
+    if (!target) return reply.status(404).send({ success: false, error: 'User not found' })
+
+    const actorId = (req.user as any).id as string
+    if (actorId === target.id) {
+      return reply.status(400).send({ success: false, error: 'You cannot delete your own account' })
+    }
+
+    const updated = await superAdminRepository.softDeleteUserBySuperAdmin(target.id)
     if (!updated) return reply.status(404).send({ success: false, error: 'User not found' })
 
     return { success: true, data: updated }

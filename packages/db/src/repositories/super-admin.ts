@@ -566,6 +566,8 @@ export async function listUsers(input: {
   pageSize: number
   search?: string
   role?: 'SUPER_ADMIN' | 'OWNER' | 'MUNIM'
+  sortBy?: 'createdAt' | 'name' | 'role' | 'status' | 'business'
+  sortOrder?: 'asc' | 'desc'
 }) {
   await ensureUserEmailsTable()
   const filters: Prisma.Sql[] = [Prisma.sql`1 = 1`]
@@ -579,6 +581,17 @@ export async function listUsers(input: {
   }
 
   const skip = (input.page - 1) * input.pageSize
+  const orderDirection = input.sortOrder === 'asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`
+  const orderBy =
+    input.sortBy === 'name'
+      ? Prisma.sql`u.name ${orderDirection}, u."createdAt" DESC`
+      : input.sortBy === 'role'
+        ? Prisma.sql`u.role ${orderDirection}, u."createdAt" DESC`
+        : input.sortBy === 'status'
+          ? Prisma.sql`u."isActive" ${orderDirection}, u."createdAt" DESC`
+          : input.sortBy === 'business'
+            ? Prisma.sql`COALESCE(b.name, '') ${orderDirection}, u."createdAt" DESC`
+            : Prisma.sql`u."createdAt" ${orderDirection}`
 
   const [items, totalRows] = await Promise.all([
     prisma.$queryRaw<Array<any>>(Prisma.sql`
@@ -600,7 +613,7 @@ export async function listUsers(input: {
       LEFT JOIN businesses b ON b.id = u."businessId"
       LEFT JOIN user_emails ue ON ue.user_id = u.id
       WHERE ${Prisma.join(filters, ' AND ')}
-      ORDER BY u."createdAt" DESC
+      ORDER BY ${orderBy}
       OFFSET ${skip}
       LIMIT ${input.pageSize}
     `),
@@ -695,6 +708,15 @@ export async function updateUserBySuperAdmin(input: {
   })
 
   return getUserById(input.userId)
+}
+
+export async function softDeleteUserBySuperAdmin(userId: string) {
+  await prisma.$executeRaw`
+    UPDATE users
+    SET "isActive" = false, "updatedAt" = NOW()
+    WHERE id = ${userId}
+  `
+  return getUserById(userId)
 }
 
 export async function getBusinessById(businessId: string) {

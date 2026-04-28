@@ -14,6 +14,9 @@ import { fmtDate } from '@/lib/utils'
 export default function SuperAdminUsersPage() {
   const qc = useQueryClient()
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState<10 | 20 | 50>(10)
+  const [sortBy, setSortBy] = useState<'createdAt' | 'name' | 'role' | 'status' | 'business'>('createdAt')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [role, setRole] = useState<'' | 'SUPER_ADMIN' | 'OWNER' | 'MUNIM'>('')
@@ -28,7 +31,7 @@ export default function SuperAdminUsersPage() {
   const [draftPassword, setDraftPassword] = useState('')
   const [editError, setEditError] = useState('')
 
-  const { data, isLoading } = useSuperAdminUsers({ page, pageSize: 8, search, role })
+  const { data, isLoading } = useSuperAdminUsers({ page, pageSize, search, role, sortBy, sortOrder })
 
   const items = data?.items ?? []
   const superAdmins = items.filter((user) => user.role === 'SUPER_ADMIN').length
@@ -67,6 +70,13 @@ export default function SuperAdminUsersPage() {
     },
     onError: (error: any) => {
       setEditError(error?.response?.data?.error ?? 'Failed to update user')
+    },
+  })
+
+  const softDeleteUser = useMutation({
+    mutationFn: (userId: string) => api.delete(`/api/super-admin/users/${userId}`).then((res) => res.data.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['super-admin', 'users'] })
     },
   })
 
@@ -140,62 +150,135 @@ export default function SuperAdminUsersPage() {
         </div>
       </Card>
 
-      <div className="space-y-4">
-        {items.map((user) => (
-          <Card key={user.id}>
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="text-lg font-semibold tracking-tight text-slate-950 dark:text-white">{user.name}</div>
-                  <Badge variant={user.isActive ? 'success' : 'danger'}>{user.isActive ? 'ACTIVE' : 'INACTIVE'}</Badge>
-                  <Badge variant={user.role === 'SUPER_ADMIN' ? 'info' : user.role === 'OWNER' ? 'success' : 'default'}>{user.role}</Badge>
-                  {user.businessActive === false && <Badge variant="warning">BUSINESS SUSPENDED</Badge>}
-                </div>
-                <div className="mt-2 text-sm text-slate-500 dark:text-slate-300">
-                  {user.phone}  -  {user.businessName ? `${user.businessName}${user.businessCity ? `, ${user.businessCity}` : ''}` : 'Platform account'}
-                </div>
-                <div className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-                  Last seen {user.lastSeenAt ? fmtDate(user.lastSeenAt) : 'never'}  -  Created {fmtDate(user.createdAt)}
-                </div>
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingUserId(user.id)
-                      setDraftName(user.name)
-                      setDraftPhone(user.phone)
-                      setDraftEmail(user.email ?? '')
-                      setDraftRole(user.role)
-                      setDraftActive(user.isActive)
-                      setDraftPermissions(user.permissions ?? [])
-                      setDraftPassword('')
-                      setEditError('')
-                    }}
-                    className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-600 dark:text-slate-200"
-                  >
-                    Edit user
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <MiniInfo label="Permissions" value={user.permissions.length > 0 ? user.permissions.join(', ') : 'No scoped permissions'} />
-                <MiniInfo
-                  label="Business"
-                  value={user.businessName ? user.businessName : 'Platform-level account'}
-                  action={
-                    user.businessId ? (
-                      <Link href="/super-admin/businesses" className="text-xs font-semibold text-emerald-700 hover:underline dark:text-emerald-300">
-                        View businesses
+      <Card>
+        <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+          <div className="relative">
+            <select
+              value={sortBy}
+              onChange={(e) => {
+                setPage(1)
+                setSortBy(e.target.value as 'createdAt' | 'name' | 'role' | 'status' | 'business')
+              }}
+              className="h-10 min-w-[116px] appearance-none rounded-2xl border border-slate-300 bg-slate-100 px-4 pr-9 text-sm font-semibold text-slate-700 outline-none transition focus:ring-2 focus:ring-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            >
+              <option value="createdAt">Created</option>
+              <option value="name">Name</option>
+              <option value="role">Role</option>
+              <option value="status">Status</option>
+              <option value="business">Business</option>
+            </select>
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold leading-none text-slate-500 dark:text-slate-400">
+              ▾
+            </span>
+          </div>
+          <div className="relative">
+            <select
+              value={sortOrder}
+              onChange={(e) => {
+                setPage(1)
+                setSortOrder(e.target.value as 'asc' | 'desc')
+              }}
+              className="h-10 min-w-[92px] appearance-none rounded-2xl border border-slate-300 bg-slate-950 px-4 pr-9 text-sm font-semibold text-white outline-none transition focus:ring-2 focus:ring-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            >
+              <option value="desc">Desc</option>
+              <option value="asc">Asc</option>
+            </select>
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold leading-none text-slate-300 dark:text-slate-400">
+              ↕
+            </span>
+          </div>
+          <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Rows</span>
+          <div className="inline-flex overflow-hidden rounded-full border border-slate-300 dark:border-slate-700">
+            {[10, 20, 50].map((size) => (
+              <button
+                key={size}
+                type="button"
+                onClick={() => {
+                  setPage(1)
+                  setPageSize(size as 10 | 20 | 50)
+                }}
+                className={`px-3 py-1.5 text-xs font-semibold transition ${
+                  pageSize === size
+                    ? 'bg-slate-950 text-white dark:bg-sky-400 dark:text-slate-950'
+                    : 'bg-transparent text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+                }`}
+              >
+                {size}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-300/85 dark:border-slate-700/90">
+                {['Name', 'Phone', 'Role', 'Status', 'Business', 'Created', 'Actions'].map((h) => (
+                  <th key={h} className="whitespace-nowrap px-3.5 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-300">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((user) => (
+                <tr key={user.id} className="border-b border-slate-300/90 last:border-0 dark:border-slate-700/90">
+                  <td className="px-3.5 py-3 font-semibold text-slate-950 dark:text-white">{user.name}</td>
+                  <td className="px-3.5 py-3 text-slate-600 dark:text-slate-300">{user.phone}</td>
+                  <td className="px-3.5 py-3">
+                    <Badge variant={user.role === 'SUPER_ADMIN' ? 'info' : user.role === 'OWNER' ? 'success' : 'default'}>{user.role}</Badge>
+                  </td>
+                  <td className="px-3.5 py-3">
+                    <Badge variant={user.isActive ? 'success' : 'danger'}>{user.isActive ? 'ACTIVE' : 'INACTIVE'}</Badge>
+                  </td>
+                  <td className="px-3.5 py-3 text-slate-700 dark:text-slate-200">
+                    {user.businessId && user.businessName ? (
+                      <Link href="/super-admin/businesses" className="font-medium text-slate-900 hover:underline dark:text-slate-100">
+                        {user.businessName}
                       </Link>
-                    ) : null
-                  }
-                />
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
+                    ) : (
+                      <span>Platform account</span>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-3.5 py-3 text-slate-600 dark:text-slate-300">{fmtDate(user.createdAt)}</td>
+                  <td className="px-3.5 py-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingUserId(user.id)
+                          setDraftName(user.name)
+                          setDraftPhone(user.phone)
+                          setDraftEmail(user.email ?? '')
+                          setDraftRole(user.role)
+                          setDraftActive(user.isActive)
+                          setDraftPermissions(user.permissions ?? [])
+                          setDraftPassword('')
+                          setEditError('')
+                        }}
+                        className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-600 dark:text-slate-200"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        disabled={softDeleteUser.isPending || !user.isActive}
+                        onClick={() => {
+                          const confirmed = window.confirm(`Soft delete ${user.name}? This will mark the account inactive.`)
+                          if (!confirmed) return
+                          softDeleteUser.mutate(user.id)
+                        }}
+                        className="rounded-full border border-rose-300 px-3 py-1.5 text-xs font-semibold text-rose-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-700/70 dark:text-rose-300"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
 
       <div className="mt-6">
         <PaginationBar page={data?.page ?? 1} totalPages={data?.totalPages ?? 1} total={data?.total ?? 0} label="users" onPageChange={setPage} />
@@ -320,16 +403,6 @@ export default function SuperAdminUsersPage() {
         </div>
       ) : null}
     </SuperAdminShell>
-  )
-}
-
-function MiniInfo({ label, value, action }: { label: string; value: string; action?: ReactNode }) {
-  return (
-    <div className="rounded-[20px] border border-slate-200/70 px-4 py-3 dark:border-slate-800">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{label}</div>
-      <div className="mt-2 text-sm font-medium text-slate-950 dark:text-white">{value}</div>
-      {action && <div className="mt-2">{action}</div>}
-    </div>
   )
 }
 

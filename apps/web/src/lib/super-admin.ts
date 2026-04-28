@@ -139,6 +139,8 @@ export function useSuperAdminUsers(params: {
   pageSize: number
   search?: string
   role?: 'SUPER_ADMIN' | 'OWNER' | 'MUNIM' | ''
+  sortBy?: 'createdAt' | 'name' | 'role' | 'status' | 'business'
+  sortOrder?: 'asc' | 'desc'
 }) {
   const query = buildQuery(params)
   return useQuery({

@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
-import { useRouter } from 'next/navigation'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { SuperAdminShell } from '@/components/layout/SuperAdminShell'
 import { PaginationBar } from '@/components/super-admin/PaginationBar'
@@ -10,7 +9,6 @@ import { PageLoader } from '@/components/ui/Spinner'
 import { useSuperAdminBillingConfig, useSuperAdminBusinesses, type BusinessListItem } from '@/lib/super-admin'
 import { api } from '@/lib/api'
 import { fmt, fmtDate } from '@/lib/utils'
-import { useAuthStore } from '@/store/auth'
 
 type BusinessDraft = {
   subscriptionPlan: BusinessListItem['subscriptionPlan']
@@ -23,9 +21,7 @@ type BusinessDraft = {
 }
 
 export default function SuperAdminBusinessesPage() {
-  const router = useRouter()
   const qc = useQueryClient()
-  const { startImpersonation } = useAuthStore()
   const [page, setPage] = useState(1)
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
@@ -71,14 +67,6 @@ export default function SuperAdminBusinessesPage() {
     mutationFn: (payload: typeof billingDraft) => api.patch('/api/super-admin/billing-config', payload).then((res) => res.data.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['super-admin'] })
-    },
-  })
-
-  const impersonate = useMutation({
-    mutationFn: (businessId: string) => api.post(`/api/super-admin/businesses/${businessId}/impersonate`).then((res) => res.data.data),
-    onSuccess: (session) => {
-      startImpersonation(session.token, session.user)
-      router.replace('/dashboard')
     },
   })
 
@@ -207,107 +195,13 @@ export default function SuperAdminBusinessesPage() {
                 </div>
               </div>
 
-              <div className="grid gap-4 xl:grid-cols-[1fr_1fr_1fr_1fr_1fr_1.25fr_auto]">
-                <Field label="Plan">
-                  <select
-                    value={draft.subscriptionPlan}
-                    onChange={(e) => updateDraft(setDrafts, business.id, 'subscriptionPlan', e.target.value)}
-                    className={inputCls}
-                  >
-                    <option value="STARTER">Starter</option>
-                    <option value="PRO">Pro</option>
-                    <option value="ENTERPRISE">Enterprise</option>
-                  </select>
+              <div className="grid gap-4 xl:grid-cols-[1fr_auto_1.25fr] xl:items-end">
+                <Field label="Owner plan">
+                  <div className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
+                    {business.subscriptionPlan} {business.subscriptionInterval ? `• ${business.subscriptionInterval}` : ''}
+                  </div>
                 </Field>
-
-                <Field label="Billing status">
-                  <select
-                    value={draft.subscriptionStatus}
-                    onChange={(e) => updateDraft(setDrafts, business.id, 'subscriptionStatus', e.target.value)}
-                    className={inputCls}
-                  >
-                    <option value="TRIAL">Trial</option>
-                    <option value="ACTIVE">Active</option>
-                    <option value="PAST_DUE">Past due</option>
-                    <option value="CANCELLED">Cancelled</option>
-                    <option value="SUSPENDED">Suspended</option>
-                  </select>
-                </Field>
-
-                <Field label="Interval">
-                  <select
-                    value={draft.subscriptionInterval ?? ''}
-                    onChange={(e) => updateDraft(setDrafts, business.id, 'subscriptionInterval', e.target.value || null)}
-                    className={inputCls}
-                  >
-                    <option value="">Trial / none</option>
-                    <option value="MONTHLY">Monthly</option>
-                    <option value="YEARLY">Yearly</option>
-                  </select>
-                </Field>
-
-                <Field label="Monthly fee">
-                  <input
-                    type="number"
-                    min={0}
-                    value={draft.monthlySubscriptionAmount}
-                    onChange={(e) => updateDraft(setDrafts, business.id, 'monthlySubscriptionAmount', Number(e.target.value))}
-                    className={inputCls}
-                  />
-                </Field>
-
-                <Field label="Yearly fee">
-                  <input
-                    type="number"
-                    min={0}
-                    value={draft.yearlySubscriptionAmount}
-                    onChange={(e) => updateDraft(setDrafts, business.id, 'yearlySubscriptionAmount', Number(e.target.value))}
-                    className={inputCls}
-                  />
-                </Field>
-
-                <Field label="Trial days override">
-                  <input
-                    type="number"
-                    min={1}
-                    max={90}
-                    value={draft.trialDaysOverride ?? ''}
-                    onChange={(e) => updateDraft(setDrafts, business.id, 'trialDaysOverride', e.target.value ? Number(e.target.value) : null)}
-                    placeholder="Use platform default"
-                    className={inputCls}
-                  />
-                </Field>
-
-                <Field label="Suspension reason">
-                  <input
-                    value={draft.suspendedReason}
-                    onChange={(e) => updateDraft(setDrafts, business.id, 'suspendedReason', e.target.value)}
-                    placeholder="Optional support note"
-                    className={inputCls}
-                  />
-                </Field>
-
-                <div className="flex flex-wrap items-end gap-2">
-                  <button
-                    onClick={() =>
-                      updateBusiness.mutate({
-                        id: business.id,
-                        payload: {
-                          subscriptionPlan: draft.subscriptionPlan,
-                          subscriptionStatus: draft.subscriptionStatus,
-                          subscriptionInterval: draft.subscriptionInterval,
-                          trialDaysOverride: draft.trialDaysOverride,
-                          monthlySubscriptionAmount: draft.monthlySubscriptionAmount,
-                          yearlySubscriptionAmount: draft.yearlySubscriptionAmount,
-                          suspendedReason: draft.suspendedReason || null,
-                        },
-                      })
-                    }
-                    disabled={updateBusiness.isPending}
-                    className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-60 dark:bg-white dark:text-slate-950"
-                  >
-                    Save billing
-                  </button>
+                <Field label="Business status">
                   <button
                     onClick={() =>
                       updateBusiness.mutate({
@@ -319,18 +213,20 @@ export default function SuperAdminBusinessesPage() {
                       })
                     }
                     disabled={updateBusiness.isPending}
-                    className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    className="h-11 rounded-full border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                   >
-                    {business.isActive ? 'Suspend' : 'Reactivate'}
+                    {updateBusiness.isPending ? 'Saving...' : business.isActive ? 'Suspend business' : 'Reactivate business'}
                   </button>
-                  <button
-                    onClick={() => impersonate.mutate(business.id)}
-                    disabled={impersonate.isPending}
-                    className="rounded-full border border-emerald-200 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/15 disabled:opacity-60 dark:border-emerald-500/30 dark:text-emerald-200"
-                  >
-                    {impersonate.isPending ? 'Starting...' : 'Impersonate'}
-                  </button>
-                </div>
+                </Field>
+
+                <Field label="Suspension reason">
+                  <input
+                    value={draft.suspendedReason}
+                    onChange={(e) => updateDraft(setDrafts, business.id, 'suspendedReason', e.target.value)}
+                    placeholder="Optional support note"
+                    className={inputCls}
+                  />
+                </Field>
               </div>
 
               <div className="mt-4 text-xs text-slate-400 dark:text-slate-500">
