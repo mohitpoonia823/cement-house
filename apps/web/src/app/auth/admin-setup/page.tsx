@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
+import { useI18n } from '@/lib/i18n'
+import { LanguageSelect } from '@/components/common/LanguageSelect'
 
 export default function SuperAdminSetupPage() {
   const router = useRouter()
@@ -17,6 +19,7 @@ export default function SuperAdminSetupPage() {
   const [statusMessage, setStatusMessage] = useState('Checking setup availability...')
   const [isAvailable, setIsAvailable] = useState(false)
   const [loading, setLoading] = useState(false)
+  const { t, language } = useI18n()
 
   useEffect(() => {
     let active = true
@@ -82,10 +85,15 @@ export default function SuperAdminSetupPage() {
 
       <div className="relative w-full max-w-md">
         <div className="mb-8 text-center">
-          <div className="mb-3 inline-flex items-center rounded-full border border-slate-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
-            Cement House
+          <div className="mb-3 flex items-center justify-center gap-3">
+            <div className="inline-flex items-center rounded-full border border-slate-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+              {t('brand.cementHouse')}
+            </div>
+            <LanguageSelect />
           </div>
-          <div className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">Set up Super Admin</div>
+          <div className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">
+            {language === 'hi' ? 'सुपर एडमिन सेटअप' : language === 'hinglish' ? 'Super Admin setup' : 'Set up Super Admin'}
+          </div>
           <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
             Create the first platform administrator account from the UI using your bootstrap setup key.
           </div>
@@ -170,15 +178,15 @@ export default function SuperAdminSetupPage() {
               disabled={loading || !isAvailable}
               className="w-full rounded-2xl bg-slate-950 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-emerald-500 dark:text-slate-950 dark:hover:bg-emerald-400"
             >
-              {loading ? 'Creating Super Admin...' : 'Create Super Admin'}
+              {loading ? (language === 'hi' ? 'सुपर एडमिन बनाया जा रहा है...' : language === 'hinglish' ? 'Super Admin ban raha hai...' : 'Creating Super Admin...') : t('auth.createSuperAdmin')}
             </button>
           </form>
         </div>
 
         <div className="mt-5 text-center text-sm text-slate-600 dark:text-slate-300">
-          Already have access?{' '}
+          {language === 'hi' ? 'पहले से एक्सेस है?' : language === 'hinglish' ? 'Already access hai?' : 'Already have access?'}{' '}
           <Link href="/auth/login" className="font-semibold text-emerald-700 hover:underline dark:text-emerald-300">
-            Sign in
+            {t('auth.signIn')}
           </Link>
         </div>
       </div>

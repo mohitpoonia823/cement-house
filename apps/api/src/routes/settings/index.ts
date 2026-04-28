@@ -12,6 +12,30 @@ import {
   ensurePlatformSettings,
 } from '../../services/billing'
 
+const SETTINGS_CACHE_TTL_MS = 10_000
+const SETTINGS_SUBSCRIPTION_CACHE_TTL_MS = 10_000
+const SETTINGS_STAFF_CACHE_TTL_MS = 10_000
+const settingsCache = new Map<string, { expiresAt: number; value: any }>()
+const settingsInFlight = new Map<string, Promise<any>>()
+const settingsSubscriptionCache = new Map<string, { expiresAt: number; value: any }>()
+const settingsSubscriptionInFlight = new Map<string, Promise<any>>()
+const settingsStaffCache = new Map<string, { expiresAt: number; value: any }>()
+const settingsStaffInFlight = new Map<string, Promise<any>>()
+
+function clearSettingsCacheByPrefix(prefix: string) {
+  for (const key of settingsCache.keys()) if (key.startsWith(prefix)) settingsCache.delete(key)
+  for (const key of settingsInFlight.keys()) if (key.startsWith(prefix)) settingsInFlight.delete(key)
+  for (const key of settingsSubscriptionCache.keys()) if (key.startsWith(prefix)) settingsSubscriptionCache.delete(key)
+  for (const key of settingsSubscriptionInFlight.keys()) if (key.startsWith(prefix)) settingsSubscriptionInFlight.delete(key)
+  for (const key of settingsStaffCache.keys()) if (key.startsWith(prefix)) settingsStaffCache.delete(key)
+  for (const key of settingsStaffInFlight.keys()) if (key.startsWith(prefix)) settingsStaffInFlight.delete(key)
+}
+
+function invalidateSettingsCaches(businessId: string, userId?: string) {
+  clearSettingsCacheByPrefix(`${businessId}:`)
+  if (userId) clearSettingsCacheByPrefix(`${businessId}:${userId}`)
+}
+
 const UpdateBusinessSchema = z.object({
   name: z.string().min(2).optional(),
   city: z.string().min(2).optional(),
@@ -148,36 +172,40 @@ export async function settingsRoutes(app: FastifyInstance) {
   app.get('/', async (req) => {
     const bizId = getBizId(req)
     const userId = (req.user as { id: string }).id
+    const cacheKey = `${bizId}:${userId}:settings`
+    const now = Date.now()
+    const cached = settingsCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) return { success: true, data: cached.value }
 
-    const [platform, business, user, paymentMethod] = await Promise.all([
-      ensurePlatformSettings(),
-      settingsRepository.getSettingsBusinessById(bizId),
-      settingsRepository.getSettingsUserById(userId),
-      settingsRepository.getDefaultPaymentMethodByBusiness(bizId),
-    ])
+    const inFlight = settingsInFlight.get(cacheKey)
+    if (inFlight) return { success: true, data: await inFlight }
 
-    if (!business || !user) {
-      return { success: false, error: 'Workspace not found' }
-    }
+    const compute = (async () => {
+      const [platform, business, user, paymentMethod] = await Promise.all([
+        ensurePlatformSettings(),
+        settingsRepository.getSettingsBusinessById(bizId),
+        settingsRepository.getSettingsUserById(userId),
+        settingsRepository.getDefaultPaymentMethodByBusiness(bizId),
+      ])
 
-    const accessBusiness: BusinessWithBilling = {
-      id: business.id,
-      name: business.name,
-      subscriptionStatus: business.subscriptionStatus,
-      subscriptionEndsAt: business.subscriptionEndsAt,
-      trialStartedAt: business.trialStartedAt,
-      trialDaysOverride: business.trialDaysOverride,
-      subscriptionInterval: business.subscriptionInterval,
-      monthlySubscriptionAmount: business.monthlySubscriptionAmount,
-      yearlySubscriptionAmount: business.yearlySubscriptionAmount,
-      isActive: business.isActive,
-      suspendedReason: business.suspendedReason,
-    }
-    const access = computeBusinessAccess(accessBusiness, platform)
+      if (!business || !user) return null
 
-    return {
-      success: true,
-      data: {
+      const accessBusiness: BusinessWithBilling = {
+        id: business.id,
+        name: business.name,
+        subscriptionStatus: business.subscriptionStatus,
+        subscriptionEndsAt: business.subscriptionEndsAt,
+        trialStartedAt: business.trialStartedAt,
+        trialDaysOverride: business.trialDaysOverride,
+        subscriptionInterval: business.subscriptionInterval,
+        monthlySubscriptionAmount: business.monthlySubscriptionAmount,
+        yearlySubscriptionAmount: business.yearlySubscriptionAmount,
+        isActive: business.isActive,
+        suspendedReason: business.suspendedReason,
+      }
+      const access = computeBusinessAccess(accessBusiness, platform)
+
+      return {
         business,
         user,
         platformBilling: {
@@ -199,41 +227,52 @@ export async function settingsRoutes(app: FastifyInstance) {
           yearlyPrice: access.pricing.yearlyPrice,
           paymentMethod: maskPaymentMethod(paymentMethod),
         },
-      },
-    }
+      }
+    })().finally(() => settingsInFlight.delete(cacheKey))
+
+    settingsInFlight.set(cacheKey, compute)
+    const data = await compute
+    if (!data) return { success: false, error: 'Workspace not found' }
+    settingsCache.set(cacheKey, { expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS, value: data })
+    return { success: true, data }
   })
 
   app.get('/subscription', async (req, reply) => {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
+    const cacheKey = `${bizId}:subscription`
+    const now = Date.now()
+    const cached = settingsSubscriptionCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) return { success: true, data: cached.value }
+    const inFlight = settingsSubscriptionInFlight.get(cacheKey)
+    if (inFlight) return { success: true, data: await inFlight }
 
-    const [platform, business, paymentMethod, transactions] = await Promise.all([
-      ensurePlatformSettings(),
-      settingsRepository.getSettingsBusinessById(bizId),
-      settingsRepository.getDefaultPaymentMethodByBusiness(bizId),
-      settingsRepository.getRecentPaymentTransactionsByBusiness(bizId, 8),
-    ])
+    const compute = (async () => {
+      const [platform, business, paymentMethod, transactions] = await Promise.all([
+        ensurePlatformSettings(),
+        settingsRepository.getSettingsBusinessById(bizId),
+        settingsRepository.getDefaultPaymentMethodByBusiness(bizId),
+        settingsRepository.getRecentPaymentTransactionsByBusiness(bizId, 8),
+      ])
 
-    if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
+      if (!business) return null
 
-    const accessBusiness: BusinessWithBilling = {
-      id: business.id,
-      name: business.name,
-      subscriptionStatus: business.subscriptionStatus,
-      subscriptionEndsAt: business.subscriptionEndsAt,
-      trialStartedAt: business.trialStartedAt,
-      trialDaysOverride: business.trialDaysOverride,
-      subscriptionInterval: business.subscriptionInterval,
-      monthlySubscriptionAmount: business.monthlySubscriptionAmount,
-      yearlySubscriptionAmount: business.yearlySubscriptionAmount,
-      isActive: business.isActive,
-      suspendedReason: business.suspendedReason,
-    }
-    const access = computeBusinessAccess(accessBusiness, platform)
+      const accessBusiness: BusinessWithBilling = {
+        id: business.id,
+        name: business.name,
+        subscriptionStatus: business.subscriptionStatus,
+        subscriptionEndsAt: business.subscriptionEndsAt,
+        trialStartedAt: business.trialStartedAt,
+        trialDaysOverride: business.trialDaysOverride,
+        subscriptionInterval: business.subscriptionInterval,
+        monthlySubscriptionAmount: business.monthlySubscriptionAmount,
+        yearlySubscriptionAmount: business.yearlySubscriptionAmount,
+        isActive: business.isActive,
+        suspendedReason: business.suspendedReason,
+      }
+      const access = computeBusinessAccess(accessBusiness, platform)
 
-    return {
-      success: true,
-      data: {
+      return {
         status: access.effectiveStatus,
         accessLocked: access.accessLocked,
         accessReason: access.reason,
@@ -257,8 +296,14 @@ export async function settingsRoutes(app: FastifyInstance) {
           reference: transaction.reference,
           failureReason: transaction.failureReason,
         })),
-      },
-    }
+      }
+    })().finally(() => settingsSubscriptionInFlight.delete(cacheKey))
+
+    settingsSubscriptionInFlight.set(cacheKey, compute)
+    const data = await compute
+    if (!data) return reply.status(404).send({ success: false, error: 'Business not found' })
+    settingsSubscriptionCache.set(cacheKey, { expiresAt: Date.now() + SETTINGS_SUBSCRIPTION_CACHE_TTL_MS, value: data })
+    return { success: true, data }
   })
 
   app.post('/subscription/checkout/initiate', async (req, reply) => {
@@ -444,6 +489,7 @@ export async function settingsRoutes(app: FastifyInstance) {
       accessReason: '',
     })
     const token = app.jwt.sign(authUser, { expiresIn: '7d' })
+    invalidateSettingsCaches(bizId, (req.user as any).id)
 
     return {
       success: true,
@@ -503,6 +549,7 @@ export async function settingsRoutes(app: FastifyInstance) {
       accessReason: access.reason,
     })
     const token = app.jwt.sign(authUser, { expiresIn: '7d' })
+    invalidateSettingsCaches(bizId, (req.user as any).id)
 
     return {
       success: true,
@@ -530,6 +577,7 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     const business = await settingsRepository.updateBusinessProfile(bizId, body.data)
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
+    invalidateSettingsCaches(bizId, (req.user as any).id)
 
     return { success: true, data: business }
   })
@@ -541,6 +589,7 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     const business = await settingsRepository.updateBusinessReminders(bizId, body.data)
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
+    invalidateSettingsCaches(bizId, (req.user as any).id)
 
     return { success: true, data: business }
   })
@@ -565,6 +614,7 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     const user = await settingsRepository.updateUserProfile(userId, body.data)
     if (!user) return reply.status(404).send({ success: false, error: 'User not found' })
+    invalidateSettingsCaches(getBizId(req), userId)
 
     return { success: true, data: user }
   })
@@ -582,6 +632,7 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     const passwordHash = await bcrypt.hash(body.data.newPassword, 10)
     await settingsRepository.updateUserPassword(userId, passwordHash)
+    invalidateSettingsCaches(getBizId(req), userId)
 
     return { success: true }
   })
@@ -589,7 +640,19 @@ export async function settingsRoutes(app: FastifyInstance) {
   app.get('/staff', async (req, reply) => {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
-    const staff = await settingsRepository.getStaffByBusiness(bizId)
+    const cacheKey = `${bizId}:staff`
+    const now = Date.now()
+    const cached = settingsStaffCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) return { success: true, data: cached.value }
+    const inFlight = settingsStaffInFlight.get(cacheKey)
+    if (inFlight) return { success: true, data: await inFlight }
+
+    const compute = settingsRepository
+      .getStaffByBusiness(bizId)
+      .finally(() => settingsStaffInFlight.delete(cacheKey))
+    settingsStaffInFlight.set(cacheKey, compute)
+    const staff = await compute
+    settingsStaffCache.set(cacheKey, { expiresAt: Date.now() + SETTINGS_STAFF_CACHE_TTL_MS, value: staff })
     return { success: true, data: staff }
   })
 
@@ -616,6 +679,7 @@ export async function settingsRoutes(app: FastifyInstance) {
       passwordHash,
       permissions: body.data.permissions,
     })
+    invalidateSettingsCaches(bizId, (req.user as any).id)
     return { success: true, data: staff }
   })
 
@@ -641,6 +705,7 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     const staff = await settingsRepository.updateStaff(id, bizId, body.data)
     if (!staff) return reply.status(404).send({ success: false, error: 'Staff member not found' })
+    invalidateSettingsCaches(bizId, (req.user as any).id)
     return { success: true, data: staff }
   })
 
@@ -649,6 +714,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     const bizId = getBizId(req)
     const { id } = req.params as any
     await settingsRepository.deactivateStaff(id, bizId)
+    invalidateSettingsCaches(bizId, (req.user as any).id)
     return { success: true }
   })
 }

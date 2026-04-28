@@ -28,6 +28,12 @@ export interface AmountRow {
   amount: number
   createdAt: Date
 }
+export interface WindowedDashboardOrderRow extends DashboardOrderRow {
+  windowKey: 'TODAY' | 'RANGE' | 'PREVIOUS'
+}
+export interface WindowedAmountRow extends AmountRow {
+  windowKey: 'TODAY' | 'RANGE' | 'PREVIOUS'
+}
 
 export interface MaterialRow {
   id: string
@@ -196,6 +202,82 @@ export async function getCreditEntries(params: {
       AND type = 'CREDIT'
       AND "createdAt" >= ${params.start}
       AND "createdAt" <= ${params.end}
+  `
+}
+
+export async function getWindowedDashboardOrders(params: {
+  businessId: string
+  todayStart: Date
+  todayEnd: Date
+  rangeStart: Date
+  rangeEnd: Date
+  previousStart: Date
+  previousEnd: Date
+}) {
+  return prisma.$queryRaw<WindowedDashboardOrderRow[]>`
+    WITH windows(window_key, start_at, end_at) AS (
+      VALUES
+        ('TODAY'::text, ${params.todayStart}::timestamptz, ${params.todayEnd}::timestamptz),
+        ('RANGE'::text, ${params.rangeStart}::timestamptz, ${params.rangeEnd}::timestamptz),
+        ('PREVIOUS'::text, ${params.previousStart}::timestamptz, ${params.previousEnd}::timestamptz)
+    )
+    SELECT
+      w.window_key AS "windowKey",
+      o.id,
+      o."orderNumber" AS "orderNumber",
+      o."customerId" AS "customerId",
+      o."totalAmount"::double precision AS "totalAmount",
+      o."amountPaid"::double precision AS "amountPaid",
+      o.status,
+      o."createdAt" AS "createdAt",
+      COALESCE(c.name, 'Unknown customer') AS "customerName",
+      COALESCE(c."riskTag"::text, 'WATCH') AS "riskTag",
+      COALESCE(
+        string_agg(DISTINCT m.name, ', ' ORDER BY m.name) FILTER (WHERE m.name IS NOT NULL),
+        ''
+      ) AS "itemSummary"
+    FROM windows w
+    JOIN orders o
+      ON o."createdAt" >= w.start_at
+      AND o."createdAt" <= w.end_at
+      AND o."businessId" = ${params.businessId}
+      AND o."isDeleted" = false
+      AND o.status <> 'CANCELLED'
+    LEFT JOIN customers c ON c.id = o."customerId"
+    LEFT JOIN order_items oi ON oi."orderId" = o.id
+    LEFT JOIN materials m ON m.id = oi."materialId"
+    GROUP BY w.window_key, o.id, c.name, c."riskTag"
+    ORDER BY o."createdAt" DESC
+  `
+}
+
+export async function getWindowedCreditEntries(params: {
+  businessId: string
+  todayStart: Date
+  todayEnd: Date
+  rangeStart: Date
+  rangeEnd: Date
+  previousStart: Date
+  previousEnd: Date
+}) {
+  return prisma.$queryRaw<WindowedAmountRow[]>`
+    WITH windows(window_key, start_at, end_at) AS (
+      VALUES
+        ('TODAY'::text, ${params.todayStart}::timestamptz, ${params.todayEnd}::timestamptz),
+        ('RANGE'::text, ${params.rangeStart}::timestamptz, ${params.rangeEnd}::timestamptz),
+        ('PREVIOUS'::text, ${params.previousStart}::timestamptz, ${params.previousEnd}::timestamptz)
+    )
+    SELECT
+      w.window_key AS "windowKey",
+      le.amount::double precision AS amount,
+      le."createdAt" AS "createdAt"
+    FROM windows w
+    JOIN ledger_entries le
+      ON le."createdAt" >= w.start_at
+      AND le."createdAt" <= w.end_at
+      AND le."businessId" = ${params.businessId}
+      AND le.type = 'CREDIT'
+    ORDER BY le."createdAt" DESC
   `
 }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -18,9 +18,18 @@ function fmtTime(value: string) {
 
 export function NotificationBell({ isSuperAdmin }: { isSuperAdmin?: boolean }) {
   const [open, setOpen] = useState(false)
+  const [isVisible, setIsVisible] = useState(true)
   const qc = useQueryClient()
-  const unread = useSupportUnreadCount(true)
-  const notifications = useSupportNotifications(open)
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const onVisibilityChange = () => setIsVisible(!document.hidden)
+    onVisibilityChange()
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [])
+
+  const unread = useSupportUnreadCount(isVisible)
+  const notifications = useSupportNotifications(open && isVisible)
   const unreadCount = unread.data ?? 0
 
   const markAllRead = useMutation({

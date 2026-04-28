@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../client'
+import { randomUUID } from 'node:crypto'
 
 export interface MaterialRow {
   id: string
@@ -214,8 +215,10 @@ export async function listMaterialMovements(materialId: string, businessId: stri
 }
 
 export async function createMaterial(input: CreateMaterialInput) {
+  const materialId = randomUUID()
   const rows = await prisma.$queryRaw<MaterialRow[]>(Prisma.sql`
     INSERT INTO materials (
+      id,
       name,
       unit,
       "stockQty",
@@ -228,6 +231,7 @@ export async function createMaterial(input: CreateMaterialInput) {
       "updatedAt",
       "businessId"
     ) VALUES (
+      ${materialId},
       ${input.name},
       ${input.unit},
       ${input.stockQty},

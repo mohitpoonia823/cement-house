@@ -5,6 +5,9 @@ export function useInventory() {
   return useQuery({
     queryKey: ['inventory'],
     queryFn:  () => api.get('/api/inventory').then(r => r.data.data),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 

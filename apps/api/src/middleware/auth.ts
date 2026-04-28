@@ -1,6 +1,8 @@
 import { prisma } from '@cement-house/db'
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import { ensurePlatformSettings, syncBusinessStatusIfNeeded } from '../services/billing'
+const LAST_SEEN_WRITE_COOLDOWN_MS = 5 * 60 * 1000
+const lastSeenWriteByUser = new Map<string, number>()
 
 function requestPath(req: FastifyRequest) {
   return req.url.split('?')[0]
@@ -23,6 +25,8 @@ function isDatabaseConnectivityError(error: unknown) {
     message.includes('ECONNREFUSED') ||
     message.includes('ETIMEDOUT') ||
     message.includes('ENOTFOUND') ||
+    message.includes('EMAXCONNSESSION') ||
+    message.toLowerCase().includes('max clients reached') ||
     code === 'P1001'
   )
 }
@@ -83,7 +87,10 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
     const now = new Date()
     const lastSeenAt = user.lastSeenAt ? new Date(user.lastSeenAt) : null
     const seenRecently = lastSeenAt && now.getTime() - lastSeenAt.getTime() < 5 * 60 * 1000
-    if (!seenRecently) {
+    const lastWriteAt = lastSeenWriteByUser.get(user.id) ?? 0
+    const writeCooldownActive = now.getTime() - lastWriteAt < LAST_SEEN_WRITE_COOLDOWN_MS
+    if (!seenRecently && !writeCooldownActive) {
+      lastSeenWriteByUser.set(user.id, now.getTime())
       prisma.user.update({
         where: { id: user.id },
         data: { lastSeenAt: now },

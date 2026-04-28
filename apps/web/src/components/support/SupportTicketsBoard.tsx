@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { type SupportTicket, useSupportTicket, useSupportTickets } from '@/lib/support'
+import { useI18n } from '@/lib/i18n'
 
 function fmtDateTime(value?: string | null) {
   if (!value) return ''
@@ -29,6 +30,9 @@ export function SupportTicketsBoard({
   isSuperAdmin?: boolean
   preselectedTicketId?: string | null
 }) {
+  const { language } = useI18n()
+  const t = (en: string, hi: string, hinglish?: string) =>
+    language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en
   const qc = useQueryClient()
   const ticketsQuery = useSupportTickets(true)
   const tickets = ticketsQuery.data ?? []
@@ -54,7 +58,8 @@ export function SupportTicketsBoard({
   const ticketDetail = useSupportTicket(selectedId, Boolean(selectedId))
 
   const createTicket = useMutation({
-    mutationFn: (payload: { subject?: string; message: string }) => api.post('/api/support/tickets', payload).then((res) => res.data.data as { ticketId: string }),
+    mutationFn: (payload: { subject?: string; message: string }) =>
+      api.post('/api/support/tickets', payload).then((res) => res.data.data as { ticketId: string }),
     onSuccess: (data) => {
       setSubject('')
       setFirstMessage('')
@@ -74,6 +79,7 @@ export function SupportTicketsBoard({
       qc.invalidateQueries({ queryKey: ['support', 'notifications', 'unread-count'] })
     },
   })
+
   const editMessage = useMutation({
     mutationFn: (payload: { ticketId: string; messageId: string; message: string }) =>
       api.patch(`/api/support/tickets/${payload.ticketId}/messages/${payload.messageId}`, { message: payload.message }).then((res) => res.data),
@@ -84,6 +90,7 @@ export function SupportTicketsBoard({
       if (selectedId) qc.invalidateQueries({ queryKey: ['support', 'ticket', selectedId] })
     },
   })
+
   const deleteMessage = useMutation({
     mutationFn: (payload: { ticketId: string; messageId: string }) =>
       api.delete(`/api/support/tickets/${payload.ticketId}/messages/${payload.messageId}`).then((res) => res.data),
@@ -102,8 +109,10 @@ export function SupportTicketsBoard({
     },
   })
 
-  const listTitle = isSuperAdmin ? 'All tickets' : 'Your tickets'
-  const emptyText = isSuperAdmin ? 'No tickets yet.' : 'No tickets yet. Use Need Help to create one.'
+  const listTitle = isSuperAdmin ? t('All tickets', 'सभी टिकट', 'Saare tickets') : t('Your tickets', 'आपके टिकट', 'Aapke tickets')
+  const emptyText = isSuperAdmin
+    ? t('No tickets yet.', 'अभी कोई टिकट नहीं।', 'Abhi koi ticket nahi.')
+    : t('No tickets yet. Use Need Help to create one.', 'अभी कोई टिकट नहीं। नया टिकट बनाने के लिए Need Help का उपयोग करें।', 'Abhi koi ticket nahi. Naya ticket banane ke liye Need Help use karo.')
 
   return (
     <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
@@ -132,7 +141,7 @@ export function SupportTicketsBoard({
                   {isSuperAdmin ? ticket.businessName : ticket.createdByName}
                 </div>
                 <div className={`mt-1 line-clamp-2 text-xs ${active ? 'text-slate-200 dark:text-slate-100' : 'text-slate-500 dark:text-slate-300'}`}>
-                  {ticket.lastMessagePreview ?? 'No messages yet'}
+                  {ticket.lastMessagePreview ?? t('No messages yet', 'अभी कोई संदेश नहीं', 'Abhi koi message nahi')}
                 </div>
               </button>
             )
@@ -152,17 +161,17 @@ export function SupportTicketsBoard({
             }}
             className="mb-4 rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900"
           >
-            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Need Help</div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">{t('Need Help', 'मदद चाहिए', 'Need Help')}</div>
             <input
               value={subject}
               onChange={(event) => setSubject(event.target.value)}
-              placeholder="Subject (optional)"
+              placeholder={t('Subject (optional)', 'विषय (वैकल्पिक)', 'Subject (optional)')}
               className="mb-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
             />
             <textarea
               value={firstMessage}
               onChange={(event) => setFirstMessage(event.target.value)}
-              placeholder="Describe your issue..."
+              placeholder={t('Describe your issue...', 'अपनी समस्या लिखें...', 'Apni problem likho...')}
               className="mb-2 min-h-[90px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               required
             />
@@ -171,7 +180,7 @@ export function SupportTicketsBoard({
               disabled={createTicket.isPending}
               className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white dark:bg-sky-500 dark:text-slate-950"
             >
-              {createTicket.isPending ? 'Sending...' : 'Send ticket'}
+              {createTicket.isPending ? t('Sending...', 'भेजा जा रहा है...', 'Bheja ja raha hai...') : t('Send ticket', 'टिकट भेजें', 'Ticket bhejo')}
             </button>
           </form>
         ) : null}
@@ -193,7 +202,11 @@ export function SupportTicketsBoard({
                     onClick={() => updateStatus.mutate({ ticketId: selectedTicket.id, status: selectedTicket.status === 'OPEN' ? 'RESOLVED' : 'OPEN' })}
                     className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700 dark:border-slate-600 dark:text-slate-200"
                   >
-                    Mark {selectedTicket.status === 'OPEN' ? 'Resolved' : 'Open'}
+                    {language === 'hi'
+                      ? `${selectedTicket.status === 'OPEN' ? 'रिज़ॉल्व्ड' : 'ओपन'} मार्क करें`
+                      : language === 'hinglish'
+                        ? `${selectedTicket.status === 'OPEN' ? 'Resolved' : 'Open'} mark karo`
+                        : `Mark ${selectedTicket.status === 'OPEN' ? 'Resolved' : 'Open'}`}
                   </button>
                 ) : null}
               </div>
@@ -222,7 +235,7 @@ export function SupportTicketsBoard({
                               }}
                               className="rounded-full border border-white/40 px-2.5 py-1 text-[11px] font-semibold opacity-90"
                             >
-                              Cancel
+                              {t('Cancel', 'रद्द करें', 'Cancel')}
                             </button>
                             <button
                               type="button"
@@ -234,7 +247,7 @@ export function SupportTicketsBoard({
                               }}
                               className="rounded-full border border-white/40 px-2.5 py-1 text-[11px] font-semibold opacity-90"
                             >
-                              Save
+                              {t('Save', 'सेव करें', 'Save')}
                             </button>
                           </div>
                         </div>
@@ -252,18 +265,18 @@ export function SupportTicketsBoard({
                             }}
                             className="text-[10px] font-semibold uppercase tracking-[0.12em] opacity-75 hover:opacity-100"
                           >
-                            Edit
+                            {t('Edit', 'संपादित करें', 'Edit')}
                           </button>
                           <button
                             type="button"
                             onClick={() => {
                               if (!selectedTicket) return
-                              if (!window.confirm('Delete this message?')) return
+                              if (!window.confirm(t('Delete this message?', 'क्या यह संदेश हटाना है?', 'Kya yeh message delete karna hai?'))) return
                               deleteMessage.mutate({ ticketId: selectedTicket.id, messageId: message.id })
                             }}
                             className="text-[10px] font-semibold uppercase tracking-[0.12em] opacity-75 hover:opacity-100"
                           >
-                            Delete
+                            {t('Delete', 'हटाएं', 'Delete')}
                           </button>
                         </div>
                       ) : null}
@@ -285,7 +298,11 @@ export function SupportTicketsBoard({
               <textarea
                 value={messageInput}
                 onChange={(event) => setMessageInput(event.target.value)}
-                placeholder={selectedTicket.status === 'RESOLVED' ? 'Ticket is resolved. Reply to reopen.' : 'Type message...'}
+                placeholder={
+                  selectedTicket.status === 'RESOLVED'
+                    ? t('Ticket is resolved. Reply to reopen.', 'टिकट रिज़ॉल्व है। दोबारा खोलने के लिए जवाब दें।', 'Ticket resolved hai. Reopen ke liye reply karo.')
+                    : t('Type message...', 'संदेश लिखें...', 'Message likho...')
+                }
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !event.shiftKey) {
                     event.preventDefault()
@@ -302,13 +319,13 @@ export function SupportTicketsBoard({
                 disabled={sendMessage.isPending}
                 className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white dark:bg-sky-500 dark:text-slate-950"
               >
-                Send
+                {t('Send', 'भेजें', 'Send')}
               </button>
             </form>
           </>
         ) : (
           <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-            Select a ticket to open conversation.
+            {t('Select a ticket to open conversation.', 'कन्वर्सेशन खोलने के लिए टिकट चुनें।', 'Conversation kholne ke liye ticket select karo.')}
           </div>
         )}
       </section>

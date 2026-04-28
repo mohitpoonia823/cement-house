@@ -2,6 +2,18 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { customersRepository } from '@cement-house/db'
 import { requireOwner, getBizId } from '../../middleware/auth'
+const CUSTOMERS_LIST_CACHE_TTL_MS = 10_000
+const customersListCache = new Map<string, { expiresAt: number; value: any }>()
+const customersListInFlight = new Map<string, Promise<any>>()
+
+function invalidateCustomersListCacheForBusiness(businessId: string) {
+  for (const key of customersListCache.keys()) {
+    if (key.startsWith(`${businessId}:`)) customersListCache.delete(key)
+  }
+  for (const key of customersListInFlight.keys()) {
+    if (key.startsWith(`${businessId}:`)) customersListInFlight.delete(key)
+  }
+}
 
 const RiskTagSchema = z.enum(['RELIABLE', 'WATCH', 'BLOCKED'])
 
@@ -44,18 +56,40 @@ export async function customerRoutes(app: FastifyInstance) {
     const query = ListCustomersQuerySchema.safeParse(req.query)
     if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
 
-    const customers = await customersRepository.listActiveCustomersWithStats({
-      businessId: bizId,
-      search: query.data.search,
-      riskTag: query.data.riskTag,
-    })
+    const cacheKey = `${bizId}:${query.data.search ?? ''}:${query.data.riskTag ?? ''}`
+    const now = Date.now()
+    const cached = customersListCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) {
+      return { success: true, data: cached.value }
+    }
+
+    const inflight = customersListInFlight.get(cacheKey)
+    if (inflight) {
+      const value = await inflight
+      return { success: true, data: value }
+    }
+
+    const compute = customersRepository
+      .listActiveCustomersWithStats({
+        businessId: bizId,
+        search: query.data.search,
+        riskTag: query.data.riskTag,
+      })
+      .then((customers) =>
+        customers.map((customer) => ({
+          ...customer,
+          _count: { orders: customer.orderCount },
+        }))
+      )
+      .finally(() => customersListInFlight.delete(cacheKey))
+
+    customersListInFlight.set(cacheKey, compute)
+    const data = await compute
+    customersListCache.set(cacheKey, { expiresAt: Date.now() + CUSTOMERS_LIST_CACHE_TTL_MS, value: data })
 
     return {
       success: true,
-      data: customers.map((customer) => ({
-        ...customer,
-        _count: { orders: customer.orderCount },
-      })),
+      data,
     }
   })
 
@@ -103,6 +137,7 @@ export async function customerRoutes(app: FastifyInstance) {
       ...body.data,
       businessId: bizId,
     })
+    invalidateCustomersListCacheForBusiness(bizId)
 
     return { success: true, data: customer }
   })
@@ -117,6 +152,7 @@ export async function customerRoutes(app: FastifyInstance) {
 
     const customer = await customersRepository.updateCustomer(params.data.id, bizId, body.data)
     if (!customer) return reply.status(404).send({ success: false, error: 'Customer not found' })
+    invalidateCustomersListCacheForBusiness(bizId)
 
     return { success: true, data: customer }
   })
@@ -132,6 +168,7 @@ export async function customerRoutes(app: FastifyInstance) {
 
     const customer = await customersRepository.updateCustomer(params.data.id, bizId, { riskTag: body.data.riskTag })
     if (!customer) return reply.status(404).send({ success: false, error: 'Customer not found' })
+    invalidateCustomersListCacheForBusiness(bizId)
 
     return { success: true, data: customer }
   })
@@ -143,6 +180,7 @@ export async function customerRoutes(app: FastifyInstance) {
     if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
 
     await customersRepository.softDeleteCustomer(params.data.id, bizId)
+    invalidateCustomersListCacheForBusiness(bizId)
     return { success: true }
   })
 
@@ -153,6 +191,7 @@ export async function customerRoutes(app: FastifyInstance) {
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
     const deleted = await customersRepository.bulkSoftDeleteCustomers(body.data.ids, bizId)
+    invalidateCustomersListCacheForBusiness(bizId)
     return { success: true, data: { deleted } }
   })
 }

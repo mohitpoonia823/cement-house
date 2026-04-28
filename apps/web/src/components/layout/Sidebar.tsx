@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation'
 import { useAuthStore } from '@/store/auth'
 import { cn } from '@/lib/utils'
 import { groupLabels, navItems } from './navigation'
+import { useI18n } from '@/lib/i18n'
 
 function MenuIcon({ href, className = '' }: { href: string; className?: string }) {
   const common = { className, viewBox: '0 0 24 24', fill: 'none' as const, 'aria-hidden': true }
@@ -73,6 +74,7 @@ function MenuIcon({ href, className = '' }: { href: string; className?: string }
 export function Sidebar() {
   const pathname = usePathname()
   const { user, logout } = useAuthStore()
+  const { t } = useI18n()
   const isOwner = user?.role === 'OWNER'
 
   const visible = navItems.filter((item) => {
@@ -93,12 +95,12 @@ export function Sidebar() {
     <aside className="fixed inset-y-0 left-0 z-30 hidden h-screen w-[292px] min-w-[292px] border-r border-slate-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(240,247,250,0.98))] px-4 py-4 text-slate-900 shadow-[18px_0_70px_rgba(15,23,42,0.10)] backdrop-blur xl:block dark:!border-slate-800 dark:!bg-none dark:!bg-slate-950 dark:!text-slate-100 dark:shadow-[18px_0_70px_rgba(2,6,23,0.35)]">
       <div className="flex h-full flex-col rounded-[22px]">
       <div className="rounded-[20px] border border-emerald-200/60 bg-gradient-to-br from-emerald-100 via-cyan-50 to-white p-3.5 shadow-[0_12px_24px_rgba(16,185,129,0.06)] dark:!border-emerald-500/30 dark:!bg-slate-900 dark:from-emerald-400/0 dark:via-sky-400/0 dark:to-transparent dark:shadow-none">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-300">Cement House</div>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-300">{t('brand.cementHouse')}</div>
         <div className="mt-2 text-[16px] font-semibold leading-tight tracking-tight text-slate-950 dark:text-white">{user?.businessName ?? 'Poonia Trading Company'}</div>
         <div className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">{user?.businessCity ?? 'Hisar, Haryana'}</div>
         <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700 dark:bg-emerald-400/14 dark:text-emerald-200">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
-          Operations live
+          {t('top.platformLive')}
         </div>
       </div>
 
@@ -106,7 +108,7 @@ export function Sidebar() {
         {Object.entries(grouped).map(([group, items]) => (
           <div key={group} className="mb-3">
             <div className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
-              {groupLabels[group]}
+              {t(groupLabels[group])}
             </div>
             {items.map((item) => {
               const active =
@@ -128,7 +130,7 @@ export function Sidebar() {
                 >
                   <span className="flex items-center gap-2">
                     <MenuIcon href={item.href} className="h-4 w-4" />
-                    <span className="font-medium">{item.label}</span>
+                    <span className="font-medium">{t(item.label)}</span>
                   </span>
                   <span className={cn('h-2.5 w-2.5 rounded-full', active ? 'bg-emerald-400 dark:bg-emerald-100' : 'bg-slate-400 dark:bg-slate-500')} />
                 </Link>
@@ -150,7 +152,7 @@ export function Sidebar() {
           onClick={logout}
           className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:border-rose-400/60 hover:text-rose-600 dark:border-white/10 dark:text-slate-300 dark:hover:text-rose-200"
         >
-          Sign out
+          {t('common.signOut')}
         </button>
       </div>
       </div>

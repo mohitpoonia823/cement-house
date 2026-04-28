@@ -9,6 +9,9 @@ export function useStaff(options?: { enabled?: boolean }) {
       return res.data.data
     },
     enabled: options?.enabled ?? true,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   })
 }
 
