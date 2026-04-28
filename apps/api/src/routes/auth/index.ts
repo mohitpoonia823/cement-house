@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
-import { prisma } from '@cement-house/db'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { Prisma, prisma } from '@cement-house/db'
 import {
   computeBusinessAccess,
   createDummySubscriptionCharge,
@@ -28,6 +29,7 @@ const CardInputSchema = z.object({
 const RegisterSchema = z.object({
   name: z.string().min(2),
   phone: z.string().min(10).max(10),
+  email: z.string().email(),
   password: z.string().min(6),
   role: z.enum(['OWNER', 'MUNIM']).default('OWNER'),
   businessName: z.string().min(2),
@@ -39,8 +41,23 @@ const RegisterSchema = z.object({
 const SuperAdminSetupSchema = z.object({
   name: z.string().min(2),
   phone: z.string().min(10).max(10),
+  email: z.string().email(),
   password: z.string().min(6),
   setupKey: z.string().min(8),
+})
+
+const ForgotPasswordSchema = z
+  .object({
+    email: z.string().trim().email().optional(),
+    phone: z.string().trim().regex(/^\d{10}$/).optional(),
+  })
+  .refine((value) => Boolean(value.email || value.phone), {
+    message: 'Either email or phone is required',
+  })
+
+const ResetPasswordSchema = z.object({
+  token: z.string().min(20),
+  newPassword: z.string().min(6),
 })
 
 const RenewSubscriptionSchema = z.object({
@@ -53,6 +70,7 @@ const RenewSubscriptionSchema = z.object({
 function buildAuthUser(user: {
   id: string
   name: string
+  email?: string | null
   role: 'SUPER_ADMIN' | 'OWNER' | 'MUNIM'
   businessId?: string | null
   permissions: string[]
@@ -75,6 +93,7 @@ function buildAuthUser(user: {
   return {
     id: user.id,
     name: user.name,
+    email: user.email ?? null,
     role: user.role,
     businessId: user.businessId ?? null,
     businessName: user.business?.name ?? null,
@@ -90,6 +109,147 @@ function buildAuthUser(user: {
     accessLocked: Boolean(user.accessLocked),
     accessReason: user.accessReason ?? null,
   }
+}
+
+async function sendPasswordResetEmail(email: string, resetUrl: string) {
+  const subject = 'Reset your Cement House password'
+  const text = [
+    'Hello,',
+    '',
+    'We received a request to reset your Cement House password.',
+    `Reset link: ${resetUrl}`,
+    'This link expires in 30 minutes.',
+    'If you did not request this, you can ignore this email.',
+  ].join('\n')
+  const html = `
+    <p>Hello,</p>
+    <p>We received a request to reset your Cement House password.</p>
+    <p><a href="${resetUrl}">Click here to reset your password</a></p>
+    <p>This link expires in 30 minutes.</p>
+    <p>If you did not request this, you can ignore this email.</p>
+  `
+
+  const smtpHost = process.env.SMTP_HOST?.trim() || ''
+  const smtpPort = Number(process.env.SMTP_PORT?.trim() || '465')
+  const smtpUser = process.env.SMTP_USER?.trim() || ''
+  const smtpPass = process.env.SMTP_PASS?.trim() || ''
+  const smtpSecureRaw = process.env.SMTP_SECURE?.trim().toLowerCase()
+  const smtpSecure = smtpSecureRaw ? smtpSecureRaw === 'true' : smtpPort === 465
+  const smtpFrom = process.env.SMTP_FROM_EMAIL?.trim() || ''
+
+  if (smtpHost.includes('@')) {
+    console.warn('[auth] SMTP_HOST looks invalid (it contains "@"). Use host like "smtp.gmail.com", not an email address.')
+    return false
+  }
+
+  if (!smtpHost || !smtpUser || !smtpPass || !smtpFrom || Number.isNaN(smtpPort)) return false
+
+  try {
+    const nodemailer = await import('nodemailer')
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass,
+      },
+    })
+    await transporter.sendMail({
+      from: smtpFrom,
+      to: email,
+      subject,
+      text,
+      html,
+    })
+    return true
+  } catch (error) {
+    console.warn('[auth] SMTP send failed', error)
+    return false
+  }
+}
+
+async function emailExists(email: string) {
+  await ensureAuthSupportTables()
+  const rows = await prisma.$queryRaw<Array<{ exists: number }>>`
+    SELECT 1::int AS exists
+    FROM user_emails
+    WHERE LOWER(email) = LOWER(${email})
+    LIMIT 1
+  `
+  return rows.length > 0
+}
+
+async function findActiveUserByEmail(email: string) {
+  await ensureAuthSupportTables()
+  const rows = await prisma.$queryRaw<Array<{ userId: string; email: string; isActive: boolean }>>`
+    SELECT
+      u.id AS "userId",
+      ue.email AS email,
+      u."isActive" AS "isActive"
+    FROM user_emails ue
+    INNER JOIN users u ON u.id = ue.user_id
+    WHERE LOWER(ue.email) = LOWER(${email})
+    LIMIT 1
+  `
+  return rows.length > 0 ? rows[0] : null
+}
+
+async function findActiveUserByPhone(phone: string) {
+  await ensureAuthSupportTables()
+  const rows = await prisma.$queryRaw<Array<{ userId: string; email: string | null; isActive: boolean }>>`
+    SELECT
+      u.id AS "userId",
+      ue.email AS email,
+      u."isActive" AS "isActive"
+    FROM users u
+    LEFT JOIN user_emails ue ON ue.user_id = u.id
+    WHERE u.phone = ${phone}
+    LIMIT 1
+  `
+  return rows.length > 0 ? rows[0] : null
+}
+
+async function attachEmailToUser(tx: Prisma.TransactionClient, userId: string, email: string) {
+  await ensureAuthSupportTables()
+  await tx.$executeRaw`
+    INSERT INTO user_emails (user_id, email)
+    VALUES (${userId}, ${email})
+  `
+}
+
+let ensureAuthSupportTablesPromise: Promise<void> | null = null
+
+function ensureAuthSupportTables() {
+  if (!ensureAuthSupportTablesPromise) {
+    ensureAuthSupportTablesPromise = (async () => {
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS user_emails (
+          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          email TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          token_hash TEXT NOT NULL UNIQUE,
+          expires_at TIMESTAMPTZ NOT NULL,
+          used_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS password_reset_tokens_user_id_expires_at_idx
+        ON password_reset_tokens(user_id, expires_at)
+      `)
+    })().catch((error) => {
+      ensureAuthSupportTablesPromise = null
+      throw error
+    })
+  }
+  return ensureAuthSupportTablesPromise
 }
 
 export async function authRoutes(app: FastifyInstance) {
@@ -149,15 +309,23 @@ export async function authRoutes(app: FastifyInstance) {
     if (existing) {
       return reply.status(409).send({ success: false, error: 'An account with this phone number already exists' })
     }
+    const existingEmail = await emailExists(body.data.email)
+    if (existingEmail) {
+      return reply.status(409).send({ success: false, error: 'An account with this email already exists' })
+    }
 
     const passwordHash = await bcrypt.hash(body.data.password, 10)
-    const user = await prisma.user.create({
-      data: {
-        name: body.data.name,
-        phone: body.data.phone,
-        role: 'SUPER_ADMIN',
-        passwordHash,
-      },
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          name: body.data.name,
+          phone: body.data.phone,
+          role: 'SUPER_ADMIN',
+          passwordHash,
+        },
+      })
+      await attachEmailToUser(tx, created.id, body.data.email)
+      return created
     })
 
     const authUser = buildAuthUser(user)
@@ -217,6 +385,8 @@ export async function authRoutes(app: FastifyInstance) {
 
     const existing = await prisma.user.findUnique({ where: { phone: body.data.phone } })
     if (existing) return reply.status(409).send({ success: false, error: 'An account with this phone number already exists' })
+    const existingEmail = await emailExists(body.data.email)
+    if (existingEmail) return reply.status(409).send({ success: false, error: 'An account with this email already exists' })
 
     const settings = await ensurePlatformSettings()
     const passwordHash = await bcrypt.hash(body.data.password, 10)
@@ -250,6 +420,8 @@ export async function authRoutes(app: FastifyInstance) {
           businessId: business.id,
         },
       })
+
+      await attachEmailToUser(tx, user.id, body.data.email)
 
       return { business, user }
     })
@@ -335,6 +507,101 @@ export async function authRoutes(app: FastifyInstance) {
         payment: result,
       },
     }
+  })
+
+  app.post('/forgot-password', async (req) => {
+    const body = ForgotPasswordSchema.safeParse(req.body)
+    if (!body.success) return { success: true, data: { message: 'If the account exists, a reset link has been sent.' } }
+
+    await ensureAuthSupportTables()
+    const user = body.data.email
+      ? await findActiveUserByEmail(body.data.email)
+      : body.data.phone
+        ? await findActiveUserByPhone(body.data.phone)
+        : null
+
+    if (user && user.isActive && !user.email) {
+      return {
+        success: false,
+        error: 'No recovery email is linked to this account. Contact admin to add an email, then retry.',
+        code: 'NO_RECOVERY_EMAIL',
+      }
+    }
+
+    if (user?.email && user.isActive) {
+      const rawToken = randomBytes(32).toString('hex')
+      const tokenHash = createHash('sha256').update(rawToken).digest('hex')
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000)
+
+      await prisma.$executeRaw`
+        INSERT INTO password_reset_tokens (
+          id,
+          user_id,
+          token_hash,
+          expires_at
+        ) VALUES (
+          ${randomUUID()},
+          ${user.userId},
+          ${tokenHash},
+          ${expiresAt}
+        )
+      `
+
+      const baseUrl = (process.env.WEB_URL?.trim() || 'http://localhost:3000').replace(/\/+$/, '')
+      const resetUrl = `${baseUrl}/auth/reset-password?token=${rawToken}`
+      const sent = await sendPasswordResetEmail(user.email, resetUrl)
+      if (!sent && process.env.NODE_ENV !== 'production') {
+        console.info(`[password-reset-link] ${user.email}: ${resetUrl}`)
+      }
+    }
+
+    return { success: true, data: { message: 'If the account exists, a reset link has been sent.' } }
+  })
+
+  app.post('/reset-password', async (req, reply) => {
+    const body = ResetPasswordSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: 'Invalid reset request' })
+
+    await ensureAuthSupportTables()
+    const tokenHash = createHash('sha256').update(body.data.token).digest('hex')
+    const rows = await prisma.$queryRaw<Array<{
+      id: string
+      userId: string
+      expiresAt: Date
+      usedAt: Date | null
+      isActive: boolean
+    }>>`
+      SELECT
+        prt.id,
+        prt.user_id AS "userId",
+        prt.expires_at AS "expiresAt",
+        prt.used_at AS "usedAt",
+        u."isActive" AS "isActive"
+      FROM password_reset_tokens prt
+      INNER JOIN users u ON u.id = prt.user_id
+      WHERE prt.token_hash = ${tokenHash}
+      LIMIT 1
+    `
+    const token = rows[0]
+
+    if (!token || token.usedAt || token.expiresAt.getTime() < Date.now() || !token.isActive) {
+      return reply.status(400).send({ success: false, error: 'Reset link is invalid or expired' })
+    }
+
+    const passwordHash = await bcrypt.hash(body.data.newPassword, 10)
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: token.userId },
+        data: { passwordHash },
+      })
+      await tx.$executeRaw`
+        UPDATE password_reset_tokens
+        SET used_at = ${new Date()}
+        WHERE id = ${token.id}
+      `
+    })
+
+    return { success: true, data: { message: 'Password has been reset successfully.' } }
   })
 
   app.post('/logout', async () => ({ success: true }))

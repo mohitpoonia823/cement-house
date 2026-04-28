@@ -87,6 +87,7 @@ export default function SettingsPage() {
   const [profEdit, setProfEdit] = useState(false)
   const [profName, setProfName] = useState('')
   const [profPhone, setProfPhone] = useState('')
+  const [profEmail, setProfEmail] = useState('')
 
   const [showPw, setShowPw] = useState(false)
   const [curPw, setCurPw] = useState('')
@@ -102,6 +103,7 @@ export default function SettingsPage() {
   const [staffEditId, setStaffEditId] = useState<string | null>(null)
   const [staffName, setStaffName] = useState('')
   const [staffPhone, setStaffPhone] = useState('')
+  const [staffEmail, setStaffEmail] = useState('')
   const [staffPassword, setStaffPassword] = useState('')
   const [staffPerms, setStaffPerms] = useState<Set<string>>(new Set())
 
@@ -182,6 +184,7 @@ export default function SettingsPage() {
     setBizGstin(data.business?.gstin ?? '')
     setProfName(data.user?.name ?? '')
     setProfPhone(data.user?.phone ?? '')
+    setProfEmail(data.user?.email ?? '')
     setRemEnabled(data.business?.remindersEnabled ?? true)
     setRemSoft(data.business?.reminderSoftDays ?? 7)
     setRemFollow(data.business?.reminderFollowDays ?? 15)
@@ -354,7 +357,8 @@ export default function SettingsPage() {
 
   function handleStaffSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const payload = { name: staffName, phone: staffPhone, permissions: Array.from(staffPerms) }
+    const trimmedStaffEmail = staffEmail.trim()
+    const payload = { name: staffName, phone: staffPhone, email: trimmedStaffEmail || null, permissions: Array.from(staffPerms) }
     if (staffEditId) {
       updateStaff.mutate(
         { id: staffEditId, ...payload },
@@ -377,6 +381,7 @@ export default function SettingsPage() {
           setStaffFormOpen(false)
           setStaffName('')
           setStaffPhone('')
+          setStaffEmail('')
           setStaffPassword('')
           setStaffPerms(new Set())
           setAlert({ tone: 'success', message: 'Staff member added successfully.' })
@@ -390,6 +395,7 @@ export default function SettingsPage() {
     setStaffEditId(nextUser.id)
     setStaffName(nextUser.name)
     setStaffPhone(nextUser.phone)
+    setStaffEmail(nextUser.email ?? '')
     setStaffPassword('')
     setStaffPerms(new Set(nextUser.permissions ?? []))
     setStaffFormOpen(true)
@@ -398,6 +404,8 @@ export default function SettingsPage() {
   if (isLoading) {
     return <AppShell><div className="text-sm text-slate-500">Loading settings...</div></AppShell>
   }
+
+  const settingsCardCls = 'rounded-[24px] p-4 md:p-5'
 
   return (
     <AppShell>
@@ -409,12 +417,12 @@ export default function SettingsPage() {
 
       {trialBannerMessage ? <AlertBanner tone="warning" message={trialBannerMessage} className="mb-5 max-w-6xl" /> : null}
 
-      <div className="max-w-6xl space-y-5">
-        <Card>
-          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <div className="max-w-6xl space-y-4">
+        <Card className={settingsCardCls}>
+          <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
               <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Subscription & renewal</div>
-              <div className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
+              <div className="mt-1.5 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
                 {data?.subscription?.inTrial ? 'Free trial access' : 'Paid subscription access'}
               </div>
               <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
@@ -441,9 +449,9 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {alert ? <AlertBanner tone={alert.tone} message={alert.message} className="mb-4" /> : null}
+          {alert ? <AlertBanner tone={alert.tone} message={alert.message} className="mb-3" /> : null}
 
-          <div className="grid gap-4 xl:grid-cols-[1fr_1fr_1.15fr]">
+          <div className="grid items-start gap-3 xl:grid-cols-[1fr_1fr_1.15fr]">
             <InfoTile
               label="Current access"
               value={data?.subscription?.endsAt ? fmtDate(data.subscription.endsAt) : 'Not active'}
@@ -462,9 +470,9 @@ export default function SettingsPage() {
                   : 'Select a payment method directly in Razorpay checkout'
               }
             />
-            <div className="rounded-[24px] border border-slate-200/70 bg-slate-50/80 p-5 dark:border-slate-800 dark:bg-slate-900/60">
+            <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/60">
               <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Choose a plan</div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
                 <PlanOption
                   title="Monthly"
                   amount={fmt(data?.subscription?.monthlyPrice ?? 0)}
@@ -493,7 +501,7 @@ export default function SettingsPage() {
         </Card>
 
         {accessLocked ? (
-          <Card>
+          <Card className={settingsCardCls}>
             <div className="text-lg font-semibold text-slate-950 dark:text-white">Workspace locked for billing</div>
             <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
               Renew a subscription above to unlock business management, reminders, staff operations, and the rest of the workspace.
@@ -501,9 +509,9 @@ export default function SettingsPage() {
           </Card>
         ) : (
           <>
-            <div className="grid gap-5 xl:grid-cols-2">
-              <Card>
-                <div className="mb-4 flex items-center justify-between">
+            <div className="grid items-start gap-4 xl:grid-cols-2">
+              <Card className={settingsCardCls}>
+                <div className="mb-3 flex items-center justify-between">
                   <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Business info</div>
                   {!bizEdit && user?.role === 'OWNER' ? <button onClick={() => setBizEdit(true)} className={editBtnCls}>Edit</button> : null}
                 </div>
@@ -542,8 +550,8 @@ export default function SettingsPage() {
                 )}
               </Card>
 
-              <Card>
-                <div className="mb-4 flex items-center justify-between">
+              <Card className={settingsCardCls}>
+                <div className="mb-3 flex items-center justify-between">
                   <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Your profile</div>
                   {!profEdit ? <button onClick={() => setProfEdit(true)} className={editBtnCls}>Edit</button> : null}
                 </div>
@@ -551,12 +559,18 @@ export default function SettingsPage() {
                   <form
                     onSubmit={(e) => {
                       e.preventDefault()
-                      updateProf.mutate({ name: profName, phone: profPhone })
+                      const trimmedEmail = profEmail.trim()
+                      updateProf.mutate({
+                        name: profName,
+                        phone: profPhone,
+                        ...(trimmedEmail ? { email: trimmedEmail } : {}),
+                      })
                     }}
                     className="space-y-3"
                   >
                     <Field label="Full name *"><input value={profName} onChange={(e) => setProfName(e.target.value)} className={inputCls} /></Field>
                     <Field label="Phone *"><input value={profPhone} onChange={(e) => setProfPhone(e.target.value)} maxLength={10} className={inputCls} /></Field>
+                    <Field label="Email"><input type="email" value={profEmail} onChange={(e) => setProfEmail(e.target.value)} className={inputCls} /></Field>
                     <div className="flex gap-2">
                       <button type="submit" disabled={updateProf.isPending} className={saveBtnCls}>{updateProf.isPending ? 'Saving...' : 'Save profile'}</button>
                       <button type="button" onClick={() => setProfEdit(false)} className={cancelBtnCls}>Cancel</button>
@@ -567,6 +581,7 @@ export default function SettingsPage() {
                     items={[
                       ['Name', data?.user?.name],
                       ['Phone', data?.user?.phone],
+                      ['Email', data?.user?.email],
                       ['Role', data?.user?.role],
                     ]}
                   />
@@ -574,9 +589,9 @@ export default function SettingsPage() {
               </Card>
             </div>
 
-            <div className="grid gap-5 xl:grid-cols-2">
-              <Card>
-                <div className="mb-4 flex items-center justify-between">
+            <div className="grid items-start gap-4 xl:grid-cols-2">
+              <Card className={settingsCardCls}>
+                <div className="mb-3 flex items-center justify-between">
                   <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Security</div>
                   {!showPw ? <button onClick={() => setShowPw(true)} className={editBtnCls}>Change password</button> : null}
                 </div>
@@ -600,8 +615,8 @@ export default function SettingsPage() {
                 )}
               </Card>
 
-              <Card>
-                <div className="mb-4 flex items-center justify-between">
+              <Card className={settingsCardCls}>
+                <div className="mb-3 flex items-center justify-between">
                   <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Reminder rules</div>
                   {!remEdit ? <button onClick={() => setRemEdit(true)} className={editBtnCls}>Edit</button> : null}
                 </div>
@@ -641,8 +656,8 @@ export default function SettingsPage() {
             </div>
 
             {user?.role === 'OWNER' ? (
-              <Card>
-                <div className="mb-4 flex items-center justify-between">
+              <Card className={settingsCardCls}>
+                <div className="mb-3 flex items-center justify-between">
                   <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Staff / Munim settings</div>
                   {!staffFormOpen ? (
                     <button
@@ -650,6 +665,7 @@ export default function SettingsPage() {
                         setStaffEditId(null)
                         setStaffName('')
                         setStaffPhone('')
+                        setStaffEmail('')
                         setStaffPassword('')
                         setStaffPerms(new Set())
                         setStaffFormOpen(true)
@@ -662,11 +678,12 @@ export default function SettingsPage() {
                 </div>
 
                 {staffFormOpen ? (
-                  <form onSubmit={handleStaffSubmit} className="mb-4 space-y-3 rounded-[24px] border border-slate-200/70 p-4 dark:border-slate-800">
+                  <form onSubmit={handleStaffSubmit} className="mb-3 space-y-3 rounded-[20px] border border-slate-200/70 p-3.5 dark:border-slate-800">
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <Field label="Name *"><input value={staffName} onChange={(e) => setStaffName(e.target.value)} className={inputCls} /></Field>
                       <Field label="Phone *"><input value={staffPhone} onChange={(e) => setStaffPhone(e.target.value)} maxLength={10} className={inputCls} /></Field>
                     </div>
+                    <Field label="Gmail"><input type="email" value={staffEmail} onChange={(e) => setStaffEmail(e.target.value)} placeholder="munim@gmail.com" className={inputCls} /></Field>
                     {!staffEditId ? <Field label="Password *"><input type="password" value={staffPassword} onChange={(e) => setStaffPassword(e.target.value)} className={inputCls} /></Field> : null}
                     <div>
                       <div className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">Permissions</div>
@@ -703,34 +720,52 @@ export default function SettingsPage() {
 
                 <div className="space-y-3">
                   {sLoading ? <div className="text-sm text-slate-500">Loading staff...</div> : null}
-                  {(staffList ?? []).filter((member: any) => member.isActive).map((member: any) => (
-                    <div key={member.id} className="flex flex-col gap-3 rounded-[22px] border border-slate-200/70 px-4 py-3 dark:border-slate-800 md:flex-row md:items-center md:justify-between">
-                      <div>
-                        <div className="font-medium text-slate-950 dark:text-white">{member.name}</div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">{member.phone}</div>
-                        <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                          {member.permissions?.length > 0 ? member.permissions.join(', ') : 'No permissions'}
-                        </div>
-                      </div>
-                      <div className="flex gap-3 text-xs">
-                        <button onClick={() => openStaffEdit(member)} className={editBtnCls} type="button">Edit</button>
-                        <button
-                          onClick={() => {
-                            if (window.confirm(`Remove ${member.name}?`)) {
-                              deleteStaff.mutate(member.id, {
-                                onSuccess: () => setAlert({ tone: 'success', message: 'Staff member removed successfully.' }),
-                                onError: (error) => setAlert({ tone: 'danger', message: getAlertMessage(error, 'Failed to remove staff member.') }),
-                              })
-                            }
-                          }}
-                          className="font-medium text-rose-600 hover:underline"
-                          type="button"
-                        >
-                          Remove
-                        </button>
-                      </div>
+                  {(staffList ?? []).filter((member: any) => member.isActive).length > 0 ? (
+                    <div className="overflow-x-auto rounded-[18px] border border-slate-200/70 dark:border-slate-800">
+                      <table className="w-full min-w-[640px] table-fixed text-sm">
+                        <thead className="bg-slate-50/85 dark:bg-slate-900/70">
+                          <tr className="border-b border-slate-300/85 dark:border-slate-700/90">
+                            <th className="w-[140px] px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-300">Name</th>
+                            <th className="w-[150px] px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-300">Phone</th>
+                            <th className="w-[220px] px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-300">Gmail</th>
+                            <th className="px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-300">Permissions</th>
+                            <th className="w-[140px] px-3.5 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-300">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(staffList ?? []).filter((member: any) => member.isActive).map((member: any) => (
+                            <tr key={member.id} className="border-b border-slate-300/90 dark:border-slate-700/90">
+                              <td className="px-3.5 py-2.5 font-medium text-slate-950 dark:text-white">{member.name}</td>
+                              <td className="px-3.5 py-2.5 text-slate-600 dark:text-slate-300">{member.phone}</td>
+                              <td className="px-3.5 py-2.5 text-slate-600 dark:text-slate-300">{member.email || '-'}</td>
+                              <td className="px-3.5 py-2.5 text-xs text-slate-500 dark:text-slate-400">
+                                {member.permissions?.length > 0 ? member.permissions.join(', ') : 'No permissions'}
+                              </td>
+                              <td className="px-3.5 py-2.5">
+                                <div className="flex justify-end gap-3 text-xs">
+                                  <button onClick={() => openStaffEdit(member)} className={editBtnCls} type="button">Edit</button>
+                                  <button
+                                    onClick={() => {
+                                      if (window.confirm(`Remove ${member.name}?`)) {
+                                        deleteStaff.mutate(member.id, {
+                                          onSuccess: () => setAlert({ tone: 'success', message: 'Staff member removed successfully.' }),
+                                          onError: (error) => setAlert({ tone: 'danger', message: getAlertMessage(error, 'Failed to remove staff member.') }),
+                                        })
+                                      }
+                                    }}
+                                    className="font-medium text-rose-600 hover:underline"
+                                    type="button"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                  ))}
+                  ) : null}
                   {(staffList ?? []).filter((member: any) => member.isActive).length === 0 && !staffFormOpen ? (
                     <div className="text-sm text-slate-500 dark:text-slate-400">No munim accounts added yet.</div>
                   ) : null}
@@ -867,9 +902,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function DetailsList({ items }: { items: Array<[string, React.ReactNode]> }) {
   return (
-    <div className="space-y-2.5 text-sm">
+    <div className="space-y-2 text-sm">
       {items.map(([label, value]) => (
-        <div key={label} className="flex justify-between gap-4">
+        <div key={label} className="flex justify-between gap-3">
           <span className="text-slate-500 dark:text-slate-400">{label}</span>
           <span className="text-right font-medium text-slate-900 dark:text-slate-100">{value || '-'}</span>
         </div>
@@ -880,9 +915,9 @@ function DetailsList({ items }: { items: Array<[string, React.ReactNode]> }) {
 
 function InfoTile({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
-    <div className="rounded-[24px] border border-slate-200/70 bg-white/75 p-5 dark:border-slate-800 dark:bg-slate-950/55">
+    <div className="rounded-[18px] border border-slate-200/70 bg-white/75 p-4 dark:border-slate-800 dark:bg-slate-950/55">
       <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{label}</div>
-      <div className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{value}</div>
+      <div className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{value}</div>
       <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">{hint}</div>
     </div>
   )
@@ -911,7 +946,7 @@ function PlanOption({
 }) {
   const isDisabled = Boolean(disabled || subscribed || busy)
   return (
-    <div className="rounded-[22px] border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-950/55">
+    <div className="rounded-[18px] border border-slate-200/70 bg-white/80 p-3.5 dark:border-slate-800 dark:bg-slate-950/55">
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{title}</div>
         {statusLabel ? (
@@ -926,13 +961,13 @@ function PlanOption({
           </span>
         ) : null}
       </div>
-      <div className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{amount}</div>
-      <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">{sub}</div>
+      <div className="mt-1.5 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{amount}</div>
+      <div className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">{sub}</div>
       <button
         onClick={onClick}
         disabled={isDisabled}
         type="button"
-        className={`mt-4 w-full rounded-full px-4 py-2 text-xs font-semibold transition-colors disabled:opacity-60 ${
+        className={`mt-3 w-full rounded-full px-4 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60 ${
           subscribed
             ? 'bg-emerald-600 text-white hover:bg-emerald-600'
             : disabled

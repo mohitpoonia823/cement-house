@@ -30,6 +30,7 @@ const UpdateReminderRulesSchema = z.object({
 const UpdateProfileSchema = z.object({
   name: z.string().min(2).optional(),
   phone: z.string().min(10).max(10).optional(),
+  email: z.string().trim().email().optional(),
 })
 
 const ChangePasswordSchema = z.object({
@@ -37,9 +38,16 @@ const ChangePasswordSchema = z.object({
   newPassword: z.string().min(6),
 })
 
+const OptionalStaffEmailSchema = z.preprocess((value) => {
+  if (value === null) return null
+  if (typeof value === 'string' && value.trim() === '') return null
+  return value
+}, z.string().trim().email().nullable().optional())
+
 const CreateStaffSchema = z.object({
   name: z.string().min(2),
   phone: z.string().min(10).max(10),
+  email: OptionalStaffEmailSchema,
   password: z.string().min(6),
   permissions: z.array(z.string()).default([]),
 })
@@ -47,6 +55,7 @@ const CreateStaffSchema = z.object({
 const UpdateStaffSchema = z.object({
   name: z.string().min(2).optional(),
   phone: z.string().min(10).max(10).optional(),
+  email: OptionalStaffEmailSchema,
   permissions: z.array(z.string()).optional(),
   isActive: z.boolean().optional(),
 })
@@ -547,6 +556,12 @@ export async function settingsRoutes(app: FastifyInstance) {
         return reply.status(409).send({ success: false, error: 'A user with this phone number already exists' })
       }
     }
+    if (body.data.email) {
+      const existingEmail = await settingsRepository.findUserByEmail(body.data.email)
+      if (existingEmail && existingEmail.id !== userId) {
+        return reply.status(409).send({ success: false, error: 'A user with this email already exists' })
+      }
+    }
 
     const user = await settingsRepository.updateUserProfile(userId, body.data)
     if (!user) return reply.status(404).send({ success: false, error: 'User not found' })
@@ -587,11 +602,17 @@ export async function settingsRoutes(app: FastifyInstance) {
     const existing = await settingsRepository.findUserByPhone(body.data.phone)
     if (existing) return reply.status(409).send({ success: false, error: 'A user with this phone number already exists' })
 
+    if (body.data.email) {
+      const existingEmail = await settingsRepository.findUserByEmail(body.data.email)
+      if (existingEmail) return reply.status(409).send({ success: false, error: 'A user with this email already exists' })
+    }
+
     const passwordHash = await bcrypt.hash(body.data.password, 10)
     const staff = await settingsRepository.createStaff({
       businessId: bizId,
       name: body.data.name,
       phone: body.data.phone,
+      email: body.data.email,
       passwordHash,
       permissions: body.data.permissions,
     })
@@ -609,6 +630,12 @@ export async function settingsRoutes(app: FastifyInstance) {
       const existing = await settingsRepository.findUserByPhone(body.data.phone)
       if (existing && existing.id !== id) {
         return reply.status(409).send({ success: false, error: 'A user with this phone number already exists' })
+      }
+    }
+    if (body.data.email) {
+      const existingEmail = await settingsRepository.findUserByEmail(body.data.email)
+      if (existingEmail && existingEmail.id !== id) {
+        return reply.status(409).send({ success: false, error: 'A user with this email already exists' })
       }
     }
 

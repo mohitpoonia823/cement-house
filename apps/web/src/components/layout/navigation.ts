@@ -6,6 +6,7 @@ export const navItems = [
   { label: 'Delivery', href: '/delivery', group: 'operations', permissionId: 'delivery' },
   { label: 'Khata', href: '/khata', group: 'finance', permissionId: 'ledger' },
   { label: 'Reports', href: '/reports', group: 'insights' },
+  { label: 'Tickets', href: '/tickets', group: 'workspace' },
   { label: 'Settings', href: '/settings', group: 'workspace' },
 ]
 
@@ -27,5 +28,6 @@ export const pageTitles: Record<string, string> = {
   '/inventory': 'Inventory control',
   '/delivery': 'Delivery board',
   '/reports': 'Business reports',
+  '/tickets': 'Support tickets',
   '/settings': 'Workspace settings',
 }

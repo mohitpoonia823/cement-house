@@ -1,10 +1,32 @@
 import { Prisma } from '@prisma/client'
+import { randomUUID } from 'node:crypto'
 import { prisma } from '../client'
+
+let ensureUserEmailsTablePromise: Promise<void> | null = null
+
+async function ensureUserEmailsTable() {
+  if (!ensureUserEmailsTablePromise) {
+    ensureUserEmailsTablePromise = (async () => {
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS user_emails (
+          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          email TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+    })().catch((error) => {
+      ensureUserEmailsTablePromise = null
+      throw error
+    })
+  }
+  await ensureUserEmailsTablePromise
+}
 
 export interface StaffRow {
   id: string
   name: string
   phone: string
+  email: string | null
   role: 'MUNIM'
   permissions: string[]
   isActive: boolean
@@ -40,6 +62,7 @@ export interface SettingsUserRow {
   id: string
   name: string
   phone: string
+  email: string | null
   role: 'SUPER_ADMIN' | 'OWNER' | 'MUNIM'
 }
 
@@ -119,12 +142,14 @@ interface UpdateReminderRulesInput {
 interface UpdateUserProfileInput {
   name?: string
   phone?: string
+  email?: string
 }
 
 interface CreateStaffInput {
   businessId: string
   name: string
   phone: string
+  email?: string | null
   passwordHash: string
   permissions: string[]
 }
@@ -132,6 +157,7 @@ interface CreateStaffInput {
 interface UpdateStaffInput {
   name?: string
   phone?: string
+  email?: string | null
   permissions?: string[]
   isActive?: boolean
 }
@@ -192,19 +218,42 @@ function settingsBusinessSelectSql() {
 }
 
 export async function getStaffByBusiness(businessId: string) {
+  await ensureUserEmailsTable()
   return prisma.$queryRaw<StaffRow[]>`
     SELECT
-      id,
-      name,
-      phone,
-      role::text AS role,
-      permissions,
-      "isActive" AS "isActive",
-      "createdAt" AS "createdAt"
-    FROM users
-    WHERE "businessId" = ${businessId} AND role = 'MUNIM'
-    ORDER BY "createdAt" DESC
+      u.id,
+      u.name,
+      u.phone,
+      ue.email AS email,
+      u.role::text AS role,
+      u.permissions,
+      u."isActive" AS "isActive",
+      u."createdAt" AS "createdAt"
+    FROM users u
+    LEFT JOIN user_emails ue ON ue.user_id = u.id
+    WHERE u."businessId" = ${businessId} AND u.role = 'MUNIM'
+    ORDER BY u."createdAt" DESC
   `
+}
+
+async function getStaffById(staffId: string, businessId: string) {
+  await ensureUserEmailsTable()
+  const rows = await prisma.$queryRaw<StaffRow[]>`
+    SELECT
+      u.id,
+      u.name,
+      u.phone,
+      ue.email AS email,
+      u.role::text AS role,
+      u.permissions,
+      u."isActive" AS "isActive",
+      u."createdAt" AS "createdAt"
+    FROM users u
+    LEFT JOIN user_emails ue ON ue.user_id = u.id
+    WHERE u.id = ${staffId} AND u."businessId" = ${businessId} AND u.role = 'MUNIM'::"UserRole"
+    LIMIT 1
+  `
+  return rows.length > 0 ? rows[0] : null
 }
 
 export async function getSettingsBusinessById(businessId: string) {
@@ -217,14 +266,17 @@ export async function getSettingsBusinessById(businessId: string) {
 }
 
 export async function getSettingsUserById(userId: string) {
+  await ensureUserEmailsTable()
   const rows = await prisma.$queryRaw<SettingsUserRow[]>`
     SELECT
-      id,
-      name,
-      phone,
-      role::text AS role
-    FROM users
-    WHERE id = ${userId}
+      u.id,
+      u.name,
+      u.phone,
+      ue.email AS email,
+      u.role::text AS role
+    FROM users u
+    LEFT JOIN user_emails ue ON ue.user_id = u.id
+    WHERE u.id = ${userId}
     LIMIT 1
   `
   return rows.length > 0 ? rows[0] : null
@@ -532,6 +584,17 @@ export async function findUserByPhone(phone: string) {
   return rows.length > 0 ? rows[0] : null
 }
 
+export async function findUserByEmail(email: string) {
+  await ensureUserEmailsTable()
+  const rows = await prisma.$queryRaw<Pick<SettingsUserRow, 'id'>[]>`
+    SELECT user_id AS id
+    FROM user_emails
+    WHERE LOWER(email) = LOWER(${email})
+    LIMIT 1
+  `
+  return rows.length > 0 ? rows[0] : null
+}
+
 export async function getUserPasswordById(userId: string) {
   const rows = await prisma.$queryRaw<SettingsPasswordUserRow[]>`
     SELECT id, "passwordHash" AS "passwordHash"
@@ -551,81 +614,124 @@ export async function updateUserPassword(userId: string, passwordHash: string) {
 }
 
 export async function updateUserProfile(userId: string, input: UpdateUserProfileInput) {
+  await ensureUserEmailsTable()
   const updates: Prisma.Sql[] = []
   if (input.name !== undefined) updates.push(Prisma.sql`name = ${input.name}`)
   if (input.phone !== undefined) updates.push(Prisma.sql`phone = ${input.phone}`)
-  if (updates.length === 0) return getSettingsUserById(userId)
-  updates.push(Prisma.sql`"updatedAt" = NOW()`)
 
-  const rows = await prisma.$queryRaw<SettingsUserRow[]>(Prisma.sql`
-    UPDATE users
-    SET ${Prisma.join(updates, ', ')}
-    WHERE id = ${userId}
-    RETURNING id, name, phone, role::text AS role
-  `)
+  if (updates.length === 0 && input.email === undefined) return getSettingsUserById(userId)
 
-  return rows.length > 0 ? rows[0] : null
+  await prisma.$transaction(async (tx) => {
+    if (updates.length > 0) {
+      updates.push(Prisma.sql`"updatedAt" = NOW()`)
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE users
+        SET ${Prisma.join(updates, ', ')}
+        WHERE id = ${userId}
+      `)
+    }
+
+    if (input.email !== undefined) {
+      await tx.$executeRaw`
+        INSERT INTO user_emails (user_id, email)
+        VALUES (${userId}, ${input.email})
+        ON CONFLICT (user_id)
+        DO UPDATE SET email = EXCLUDED.email
+      `
+    }
+  })
+
+  return getSettingsUserById(userId)
 }
 
 export async function createStaff(input: CreateStaffInput) {
-  const rows = await prisma.$queryRaw<StaffRow[]>(Prisma.sql`
-    INSERT INTO users (
-      name,
-      phone,
-      "passwordHash",
-      role,
-      permissions,
-      "businessId",
-      "isActive",
-      "createdAt",
-      "updatedAt"
-    ) VALUES (
-      ${input.name},
-      ${input.phone},
-      ${input.passwordHash},
-      'MUNIM'::"UserRole",
-      ${input.permissions},
-      ${input.businessId},
-      true,
-      NOW(),
-      NOW()
-    )
-    RETURNING
-      id,
-      name,
-      phone,
-      role::text AS role,
-      permissions,
-      "isActive" AS "isActive",
-      "createdAt" AS "createdAt"
-  `)
-  return rows[0]
+  await ensureUserEmailsTable()
+  const newStaffId = randomUUID()
+  const staffId = await prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      INSERT INTO users (
+        id,
+        name,
+        phone,
+        "passwordHash",
+        role,
+        permissions,
+        "businessId",
+        "isActive",
+        "createdAt",
+        "updatedAt"
+      ) VALUES (
+        ${newStaffId},
+        ${input.name},
+        ${input.phone},
+        ${input.passwordHash},
+        'MUNIM'::"UserRole",
+        ${input.permissions},
+        ${input.businessId},
+        true,
+        NOW(),
+        NOW()
+      )
+      RETURNING id
+    `)
+
+    if (input.email) {
+      await tx.$executeRaw`
+        INSERT INTO user_emails (user_id, email)
+        VALUES (${rows[0].id}, ${input.email})
+      `
+    }
+
+    return rows[0].id
+  })
+
+  const staff = await getStaffById(staffId, input.businessId)
+  if (!staff) throw new Error('Staff member not found after creation')
+  return staff
 }
 
 export async function updateStaff(staffId: string, businessId: string, input: UpdateStaffInput) {
+  await ensureUserEmailsTable()
   const updates: Prisma.Sql[] = []
   if (input.name !== undefined) updates.push(Prisma.sql`name = ${input.name}`)
   if (input.phone !== undefined) updates.push(Prisma.sql`phone = ${input.phone}`)
   if (input.permissions !== undefined) updates.push(Prisma.sql`permissions = ${input.permissions}`)
   if (input.isActive !== undefined) updates.push(Prisma.sql`"isActive" = ${input.isActive}`)
-  if (updates.length === 0) {
-    const rows = await prisma.$queryRaw<StaffRow[]>`
-      SELECT id, name, phone, role::text AS role, permissions, "isActive" AS "isActive", "createdAt" AS "createdAt"
-      FROM users
-      WHERE id = ${staffId} AND "businessId" = ${businessId} AND role = 'MUNIM'::"UserRole"
-      LIMIT 1
-    `
-    return rows.length > 0 ? rows[0] : null
+  if (updates.length === 0 && input.email === undefined) return getStaffById(staffId, businessId)
+
+  if (input.email !== undefined) {
+    const existing = await getStaffById(staffId, businessId)
+    if (!existing) return null
   }
 
-  updates.push(Prisma.sql`"updatedAt" = NOW()`)
-  const rows = await prisma.$queryRaw<StaffRow[]>(Prisma.sql`
-    UPDATE users
-    SET ${Prisma.join(updates, ', ')}
-    WHERE id = ${staffId} AND "businessId" = ${businessId} AND role = 'MUNIM'::"UserRole"
-    RETURNING id, name, phone, role::text AS role, permissions, "isActive" AS "isActive", "createdAt" AS "createdAt"
-  `)
-  return rows.length > 0 ? rows[0] : null
+  await prisma.$transaction(async (tx) => {
+    if (updates.length > 0) {
+      updates.push(Prisma.sql`"updatedAt" = NOW()`)
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE users
+        SET ${Prisma.join(updates, ', ')}
+        WHERE id = ${staffId} AND "businessId" = ${businessId} AND role = 'MUNIM'::"UserRole"
+      `)
+    }
+
+    if (input.email !== undefined) {
+      if (input.email) {
+        await tx.$executeRaw`
+          INSERT INTO user_emails (user_id, email)
+          VALUES (${staffId}, ${input.email})
+          ON CONFLICT (user_id)
+          DO UPDATE SET email = EXCLUDED.email
+        `
+      } else {
+        await tx.$executeRaw`
+          DELETE FROM user_emails
+          WHERE user_id = ${staffId}
+        `
+      }
+    }
+  })
+
+  return getStaffById(staffId, businessId)
 }
 
 export async function deactivateStaff(staffId: string, businessId: string) {

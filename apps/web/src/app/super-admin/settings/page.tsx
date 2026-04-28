@@ -13,6 +13,7 @@ export default function SuperAdminSettingsPage() {
   const [alert, setAlert] = useState<{ tone: AlertTone; message: string } | null>(null)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
 
@@ -25,10 +26,11 @@ export default function SuperAdminSettingsPage() {
     if (!profileQuery.data) return
     setName(profileQuery.data.name ?? '')
     setPhone(profileQuery.data.phone ?? '')
+    setEmail(profileQuery.data.email ?? '')
   }, [profileQuery.data])
 
   const updateProfile = useMutation({
-    mutationFn: (payload: { name: string; phone: string }) =>
+    mutationFn: (payload: { name: string; phone: string; email?: string }) =>
       api.patch('/api/super-admin/profile', payload).then((res) => res.data.data),
     onSuccess: (result) => {
       if (result?.session?.token && result?.session?.user) {
@@ -83,7 +85,12 @@ export default function SuperAdminSettingsPage() {
             onSubmit={(e) => {
               e.preventDefault()
               setAlert(null)
-              updateProfile.mutate({ name, phone })
+              const trimmedEmail = email.trim()
+              updateProfile.mutate({
+                name,
+                phone,
+                ...(trimmedEmail ? { email: trimmedEmail } : {}),
+              })
             }}
             className="space-y-3"
           >
@@ -104,6 +111,14 @@ export default function SuperAdminSettingsPage() {
                 maxLength={10}
                 minLength={10}
                 required
+              />
+            </Field>
+            <Field label="Email">
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className={inputCls}
               />
             </Field>
             <div className="flex gap-2">

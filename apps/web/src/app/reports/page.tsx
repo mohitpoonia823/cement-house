@@ -189,19 +189,19 @@ function ReportsContent() {
           <Card className="mb-6">
             <div className="mb-4 text-xs font-medium uppercase tracking-wide text-stone-500">{summaryTitle}</div>
             {data?.orderCount === 0 ? (
-              <div className="text-sm text-stone-400 py-8 text-center">
+              <div className="text-sm text-stone-400 dark:text-slate-400 py-8 text-center">
                 No orders found for this {granularity === 'yearly' ? 'year' : 'month'}
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="text-sm text-stone-600 dark:text-stone-400">
+                <div className="text-sm text-stone-600 dark:text-slate-300">
                   Total revenue of <strong className="text-stone-900 dark:text-stone-100">{fmt(data?.totalSales ?? 0)}</strong> across{' '}
                   <strong className="text-stone-900 dark:text-stone-100">{data?.orderCount ?? 0}</strong> orders, with an average gross margin of{' '}
                   <strong className="text-stone-900 dark:text-stone-100">{(data?.avgMargin ?? 0).toFixed(1)}%</strong>.
                 </div>
 
                 <div className="overflow-x-auto rounded-[24px] border border-slate-200/70 dark:border-slate-800">
-                  <div className="grid min-w-[620px] grid-cols-[1.1fr_0.8fr_0.65fr_0.75fr] gap-3 bg-slate-50/80 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-900/60 dark:text-slate-400">
+                  <div className="grid min-w-[620px] grid-cols-[1.1fr_0.8fr_0.65fr_0.75fr] gap-3 bg-slate-50/80 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-900/60 dark:text-slate-300">
                     <div>Order</div>
                     <div>Customer</div>
                     <div>Status</div>
@@ -211,7 +211,7 @@ function ReportsContent() {
                     <div key={order.id} className="grid min-w-[620px] grid-cols-[1.1fr_0.8fr_0.65fr_0.75fr] gap-3 border-t border-slate-200/70 px-4 py-3 text-sm dark:border-slate-800">
                       <div className="font-semibold text-slate-950 dark:text-white">{order.orderNumber}</div>
                       <div className="text-slate-600 dark:text-slate-300">{order.customerName}</div>
-                      <div className="text-slate-500 dark:text-slate-400">{order.status}</div>
+                      <div className="text-slate-500 dark:text-slate-300">{order.status}</div>
                       <div className="font-semibold text-slate-950 dark:text-white">{fmt(order.totalAmount)}</div>
                     </div>
                   ))}
@@ -237,7 +237,7 @@ function ReportsContent() {
               />
             ) : (
               <div className="overflow-x-auto rounded-[24px] border border-slate-200/70 dark:border-slate-800">
-                <div className="grid min-w-[820px] grid-cols-[1.3fr_0.55fr_1fr_0.9fr_0.8fr] gap-3 bg-slate-50/80 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-900/60 dark:text-slate-400">
+                <div className="grid min-w-[820px] grid-cols-[1.3fr_0.55fr_1fr_0.9fr_0.8fr] gap-3 bg-slate-50/80 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-900/60 dark:text-slate-300">
                   <div>Exported report</div>
                   <div>Type</div>
                   <div>Period / scope</div>
@@ -248,7 +248,7 @@ function ReportsContent() {
                   <div key={item.id} className="grid min-w-[820px] grid-cols-[1.3fr_0.55fr_1fr_0.9fr_0.8fr] gap-3 border-t border-slate-200/70 px-4 py-3 text-sm dark:border-slate-800">
                     <div>
                       <div className="font-semibold text-slate-950 dark:text-white">{item.label}</div>
-                      <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{item.fileName}</div>
+                      <div className="mt-1 text-xs text-slate-500 dark:text-slate-300">{item.fileName}</div>
                     </div>
                     <div className="font-medium uppercase text-slate-600 dark:text-slate-300">{item.format}</div>
                     <div className="text-slate-600 dark:text-slate-300">
@@ -256,7 +256,7 @@ function ReportsContent() {
                         ? `${item.query.granularity === 'yearly' ? 'Yearly' : 'Monthly'} • ${item.query?.year}${item.query?.month ? ` / ${months[item.query.month - 1]}` : ''}`
                         : 'Workspace snapshot'}
                     </div>
-                    <div className="text-slate-500 dark:text-slate-400">{fmtDate(item.exportedAt)}</div>
+                    <div className="text-slate-500 dark:text-slate-300">{fmtDate(item.exportedAt)}</div>
                     <div>
                       <button
                         onClick={() =>

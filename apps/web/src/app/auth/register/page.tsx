@@ -21,6 +21,7 @@ function onlyDigits(value: string, maxLength: number) {
 export default function RegisterPage() {
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [businessName, setBusinessName] = useState('')
   const [city, setCity] = useState('')
@@ -53,6 +54,7 @@ export default function RegisterPage() {
       const res = await api.post('/api/auth/register', {
         name,
         phone: onlyDigits(phone, 10),
+        email,
         password,
         role: 'OWNER',
         businessName,
@@ -132,6 +134,9 @@ export default function RegisterPage() {
                 </Field>
                 <Field label="Phone number *">
                   <input value={phone} onChange={(e) => setPhone(onlyDigits(e.target.value, 10))} required maxLength={10} placeholder="9876543210" className={inputCls} />
+                </Field>
+                <Field label="Email *">
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="owner@business.com" className={inputCls} />
                 </Field>
                 <Field label="Password *">
                   <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Min 6 characters" className={inputCls} />

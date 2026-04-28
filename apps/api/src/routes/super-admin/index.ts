@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+ï»¿import type { FastifyInstance } from 'fastify'
 import { superAdminRepository } from '@cement-house/db'
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
@@ -40,14 +40,30 @@ const ListUsersQuerySchema = z.object({
   role: z.enum(['SUPER_ADMIN', 'OWNER', 'MUNIM']).optional(),
 })
 
+const OverviewAnalyticsQuerySchema = z.object({
+  range: z.enum(['1M', '3M', '6M', '1Y', 'CUSTOM']).default('1M'),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+})
+
 const UpdateSuperAdminProfileSchema = z.object({
   name: z.string().trim().min(2).max(80),
   phone: z.string().trim().min(10).max(10),
+  email: z.string().trim().email().optional(),
 })
 
 const UpdateSuperAdminPasswordSchema = z.object({
   currentPassword: z.string().min(6),
   newPassword: z.string().min(6),
+})
+const UpdateUserByAdminSchema = z.object({
+  name: z.string().trim().min(2).max(80).optional(),
+  phone: z.string().trim().min(10).max(10).optional(),
+  email: z.string().trim().email().optional(),
+  role: z.enum(['SUPER_ADMIN', 'OWNER', 'MUNIM']).optional(),
+  isActive: z.boolean().optional(),
+  permissions: z.array(z.string().trim().min(1)).optional(),
+  password: z.string().min(6).max(128).optional(),
 })
 
 function startOfDay(date: Date) {
@@ -129,8 +145,14 @@ export async function superAdminRoutes(app: FastifyInstance) {
     if (existing && existing.id !== currentUserId) {
       return reply.status(409).send({ success: false, error: 'Phone number is already used by another user' })
     }
+    if (body.data.email) {
+      const existingEmail = await superAdminRepository.findUserByEmail(body.data.email)
+      if (existingEmail && existingEmail.id !== currentUserId) {
+        return reply.status(409).send({ success: false, error: 'Email is already used by another user' })
+      }
+    }
 
-    const updated = await superAdminRepository.updateUserProfile(currentUserId, body.data.name, body.data.phone)
+    const updated = await superAdminRepository.updateUserProfile(currentUserId, body.data.name, body.data.phone, body.data.email)
     if (!updated) return reply.status(404).send({ success: false, error: 'Super Admin profile not found' })
 
     const authUser = authPayloadForUser({
@@ -150,6 +172,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
           id: updated.id,
           name: updated.name,
           phone: updated.phone,
+          email: updated.email,
           role: updated.role,
         },
         session: {
@@ -262,7 +285,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
         kind: 'AUDIT',
         title: String(log.action).replace(/_/g, ' '),
         description: log.business?.name
-          ? `${log.business.name}${log.actor?.name ? ` • by ${log.actor.name}` : ''}`
+          ? `${log.business.name}${log.actor?.name ? ` â€¢ by ${log.actor.name}` : ''}`
           : log.actor?.name ?? 'Platform activity',
         createdAt: log.createdAt,
       })),
@@ -270,7 +293,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
         id: reminder.id,
         kind: 'ERROR',
         title: 'Failed WhatsApp reminder',
-        description: `${reminder.customer.business.name} • ${reminder.customer.name}`,
+        description: `${reminder.customer.business.name} â€¢ ${reminder.customer.name}`,
         createdAt: reminder.createdAt,
       })),
     ]
@@ -293,6 +316,8 @@ export async function superAdminRoutes(app: FastifyInstance) {
           todayGMV: safeAmount(overview.totals.todaySales),
           monthlyRevenueRunRate: revenueRunRate,
           pastDueAccounts: businessRows.filter((business) => business.subscriptionStatus === 'PAST_DUE').length,
+          subscriptionRevenueInSelectedRange: safeAmount(overview.subscriptionTotals.inSelectedRange),
+          totalSubscriptionRevenueTillDate: safeAmount(overview.subscriptionTotals.tillDate),
         },
         featureAdoption: {
           challanPdfsToday: overview.challansToday,
@@ -306,6 +331,56 @@ export async function superAdminRoutes(app: FastifyInstance) {
     }
   })
 
+
+  app.get('/overview-analytics', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+
+    const query = OverviewAnalyticsQuerySchema.safeParse(req.query)
+    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+
+    const now = new Date()
+    let startDate = new Date(now)
+    let endDate = new Date(now)
+    endDate.setHours(23, 59, 59, 999)
+
+    if (query.data.range === '1M') {
+      startDate.setMonth(startDate.getMonth() - 1)
+    } else if (query.data.range === '3M') {
+      startDate.setMonth(startDate.getMonth() - 3)
+    } else if (query.data.range === '6M') {
+      startDate.setMonth(startDate.getMonth() - 6)
+    } else if (query.data.range === '1Y') {
+      startDate.setFullYear(startDate.getFullYear() - 1)
+    } else {
+      if (!query.data.startDate || !query.data.endDate) {
+        return reply.status(400).send({ success: false, error: 'startDate and endDate are required for CUSTOM range' })
+      }
+      startDate = new Date(query.data.startDate)
+      endDate = new Date(query.data.endDate)
+      startDate.setHours(0, 0, 0, 0)
+      endDate.setHours(23, 59, 59, 999)
+    }
+
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      return reply.status(400).send({ success: false, error: 'Invalid startDate or endDate' })
+    }
+    if (startDate > endDate) {
+      return reply.status(400).send({ success: false, error: 'startDate cannot be after endDate' })
+    }
+
+    const analytics = await superAdminRepository.getOverviewAnalytics(startDate, endDate)
+
+    return {
+      success: true,
+      data: {
+        range: query.data.range,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        summary: analytics.summary,
+        points: analytics.points,
+      },
+    }
+  })
   app.get('/businesses', async (req, reply) => {
     if (!requireSuperAdmin(req, reply)) return
 
@@ -346,6 +421,65 @@ export async function superAdminRoutes(app: FastifyInstance) {
         totalPages: Math.max(1, Math.ceil(result.total / pageSize)),
       },
     }
+  })
+
+  app.get('/users/:id', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params)
+    if (!params.success) return reply.status(400).send({ success: false, error: 'Invalid user id' })
+
+    const user = await superAdminRepository.getUserById(params.data.id)
+    if (!user) return reply.status(404).send({ success: false, error: 'User not found' })
+    return { success: true, data: user }
+  })
+
+  app.patch('/users/:id', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params)
+    if (!params.success) return reply.status(400).send({ success: false, error: 'Invalid user id' })
+    const body = UpdateUserByAdminSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    const target = await superAdminRepository.getUserById(params.data.id)
+    if (!target) return reply.status(404).send({ success: false, error: 'User not found' })
+
+    const actorId = (req.user as any).id as string
+    if (actorId === target.id) {
+      if (body.data.role && body.data.role !== target.role) {
+        return reply.status(400).send({ success: false, error: 'Use profile settings to change your own role' })
+      }
+      if (body.data.isActive === false) {
+        return reply.status(400).send({ success: false, error: 'You cannot deactivate your own account' })
+      }
+    }
+
+    if (body.data.phone) {
+      const existingPhone = await superAdminRepository.findUserByPhone(body.data.phone)
+      if (existingPhone && existingPhone.id !== target.id) {
+        return reply.status(409).send({ success: false, error: 'Phone number is already used by another user' })
+      }
+    }
+    if (body.data.email) {
+      const existingEmail = await superAdminRepository.findUserByEmail(body.data.email)
+      if (existingEmail && existingEmail.id !== target.id) {
+        return reply.status(409).send({ success: false, error: 'Email is already used by another user' })
+      }
+    }
+
+    const passwordHash = body.data.password ? await bcrypt.hash(body.data.password, 10) : undefined
+    const updated = await superAdminRepository.updateUserBySuperAdmin({
+      userId: target.id,
+      name: body.data.name,
+      phone: body.data.phone,
+      role: body.data.role,
+      isActive: body.data.isActive,
+      permissions: body.data.permissions,
+      email: body.data.email,
+      passwordHash,
+    })
+    if (!updated) return reply.status(404).send({ success: false, error: 'User not found' })
+
+    return { success: true, data: updated }
   })
 
   app.patch('/businesses/:id', async (req, reply) => {
@@ -446,3 +580,6 @@ export async function superAdminRoutes(app: FastifyInstance) {
     }
   })
 }
+
+
+

@@ -127,12 +127,12 @@ export default function InventoryPage() {
                 <label className="block text-xs text-stone-500 mb-1">Name *</label>
                 <input type="text" value={newForm.name} onChange={e => setNewForm(p => ({ ...p, name: e.target.value }))}
                   placeholder="e.g. PPC Cement" required
-                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Unit *</label>
                 <select value={newForm.unit} onChange={e => setNewForm(p => ({ ...p, unit: e.target.value }))}
-                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500">
                   {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
               </div>
@@ -140,7 +140,7 @@ export default function InventoryPage() {
                 <label className="block text-xs text-stone-500 mb-1">Initial stock</label>
                 <input type="number" value={newForm.stockQty} placeholder="0" onChange={e => setNewForm(p => ({ ...p, stockQty: e.target.value }))}
                   min={0} step={0.01}
-                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -148,25 +148,25 @@ export default function InventoryPage() {
                 <label className="block text-xs text-stone-500 mb-1">Min threshold</label>
                 <input type="number" value={newForm.minThreshold} placeholder="0" onChange={e => setNewForm(p => ({ ...p, minThreshold: e.target.value }))}
                   min={0} step={0.01}
-                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Max threshold</label>
                 <input type="number" value={newForm.maxThreshold} placeholder="0" onChange={e => setNewForm(p => ({ ...p, maxThreshold: e.target.value }))}
                   min={0} step={0.01}
-                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Purchase price (₹) *</label>
                 <input type="number" value={newForm.purchasePrice} placeholder="0" onChange={e => setNewForm(p => ({ ...p, purchasePrice: e.target.value }))}
                   min={0} step={0.01} required
-                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Sale price (₹) *</label>
                 <input type="number" value={newForm.salePrice} placeholder="0" onChange={e => setNewForm(p => ({ ...p, salePrice: e.target.value }))}
                   min={0} step={0.01} required
-                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
             <div className="flex gap-2">
@@ -219,7 +219,7 @@ export default function InventoryPage() {
                   ? 'border-blue-400 bg-blue-50 dark:bg-blue-950'
                   : isSelected
                     ? 'border-blue-300 bg-blue-50/50 dark:bg-blue-950/30'
-                    : 'border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 hover:border-stone-300'
+                    : 'border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-stone-300 dark:hover:border-slate-500'
               } ${m.stockStatus === 'LOW' && selectedId !== m.id ? 'border-amber-300' : ''} ${m.stockStatus === 'OUT_OF_STOCK' && selectedId !== m.id ? 'border-red-400' : ''}`}>
                 {/* Checkbox overlay */}
                 <div className="absolute top-3 left-3 z-10">
@@ -236,7 +236,7 @@ export default function InventoryPage() {
                     </div>
                   </div>
                   <div className="text-xl font-medium text-stone-900 dark:text-stone-100">
-                    {Number(m.stockQty).toFixed(m.unit === 'bags' ? 0 : 1)} <span className="text-sm font-normal text-stone-500">{m.unit}</span>
+                    {Number(m.stockQty).toFixed(m.unit === 'bags' ? 0 : 1)} <span className="text-sm font-normal text-stone-500 dark:text-slate-300">{m.unit}</span>
                   </div>
                   {/* Stock bar */}
                   <div className="mt-2 h-1 bg-stone-100 dark:bg-stone-800 rounded">
@@ -246,7 +246,7 @@ export default function InventoryPage() {
                         background: m.stockStatus === 'OK' ? '#639922' : m.stockStatus === 'LOW' ? '#EF9F27' : '#E24B4A',
                       }} />
                   </div>
-                  <div className="flex justify-between mt-2 text-[10px] text-stone-400">
+                  <div className="flex justify-between mt-2 text-[10px] text-stone-400 dark:text-slate-400">
                     <span>Min: {Number(m.minThreshold)} {m.unit}</span>
                     <span>Buy: {fmt(Number(m.purchasePrice))} · Sell: {fmt(Number(m.salePrice))}</span>
                   </div>
@@ -281,20 +281,20 @@ export default function InventoryPage() {
                     <label className="block text-xs text-stone-500 mb-1">Quantity ({selectedMat?.unit}) *</label>
                     <input type="number" value={siQty} onChange={e => setSiQty(e.target.value)}
                       placeholder="0" min={0.01} step={0.01} required
-                      className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   <div>
                     <label className="block text-xs text-stone-500 mb-1">Purchase price (₹/{selectedMat?.unit}) *</label>
                     <input type="number" value={siPrice} onChange={e => setSiPrice(e.target.value)}
                       placeholder={String(selectedMat?.purchasePrice ?? 0)} min={0} required
-                      className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                 </div>
                 <div>
                   <label className="block text-xs text-stone-500 mb-1">Note / supplier</label>
                   <input type="text" value={siNote} onChange={e => setSiNote(e.target.value)}
                     placeholder="e.g. ACC Cement purchase"
-                    className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 {siError && <div className="text-xs text-red-600">{siError}</div>}
                 <button type="submit" disabled={stockIn.isPending}
@@ -321,22 +321,22 @@ export default function InventoryPage() {
                   <thead>
                   <tr className="border-b border-stone-100 dark:border-stone-800">
                     {['Date','Type','Qty','Stock after','Reason'].map(h => (
-                      <th key={h} className="text-left py-2 pr-2 font-normal text-stone-400">{h}</th>
+                      <th key={h} className="text-left py-2 pr-2 font-normal text-stone-400 dark:text-slate-300">{h}</th>
                     ))}
                   </tr>
                   </thead>
                   <tbody>
                   {movements.slice(0,10).map((mv: any) => (
                     <tr key={mv.id} className="border-b border-stone-50 dark:border-stone-800 last:border-0">
-                      <td className="py-2 pr-2 text-stone-500">{new Date(mv.createdAt).toLocaleDateString('en-IN')}</td>
+                      <td className="py-2 pr-2 text-stone-500 dark:text-slate-300">{new Date(mv.createdAt).toLocaleDateString('en-IN')}</td>
                       <td className="py-2 pr-2">
                         <Badge variant={mv.type === 'IN' ? 'success' : mv.type === 'OUT' ? 'danger' : 'default'}>
                           {mv.type}
                         </Badge>
                       </td>
                       <td className="py-2 pr-2 font-medium">{Number(mv.quantity).toFixed(1)}</td>
-                      <td className="py-2 pr-2 text-stone-600 dark:text-stone-400">{Number(mv.stockAfter).toFixed(1)}</td>
-                      <td className="py-2 text-stone-500 truncate max-w-24">{mv.reason ?? mv.order?.orderNumber ?? '—'}</td>
+                      <td className="py-2 pr-2 text-stone-600 dark:text-slate-300">{Number(mv.stockAfter).toFixed(1)}</td>
+                      <td className="py-2 text-stone-500 dark:text-slate-300 truncate max-w-24">{mv.reason ?? mv.order?.orderNumber ?? '—'}</td>
                     </tr>
                   ))}
                   </tbody>

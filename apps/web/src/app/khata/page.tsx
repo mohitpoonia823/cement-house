@@ -108,7 +108,7 @@ function KhataContent() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search party..."
-              className="mb-4 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+              className="mb-4 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
 
             <div className="flex-1 overflow-y-auto">
@@ -210,14 +210,14 @@ function KhataContent() {
                       placeholder="Amount (INR)"
                       min={1}
                       required
-                      className="flex-1 rounded-lg border border-green-300 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-500 dark:bg-stone-800 dark:text-stone-100"
+                      className="flex-1 rounded-lg border border-green-300 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-green-700 dark:bg-slate-900 dark:text-slate-100"
                     />
                     <input
                       type="text"
                       value={payRef}
                       onChange={(e) => setPayRef(e.target.value)}
                       placeholder="Ref / cheque no (optional)"
-                      className="flex-1 rounded-lg border border-green-300 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-500 dark:bg-stone-800 dark:text-stone-100"
+                      className="flex-1 rounded-lg border border-green-300 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-green-700 dark:bg-slate-900 dark:text-slate-100"
                     />
                     <button
                       type="submit"
@@ -244,10 +244,10 @@ function KhataContent() {
                 <div className="flex-1 overflow-y-auto">
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[700px] text-xs">
-                    <thead className="sticky top-0 bg-white dark:bg-stone-900">
+                    <thead className="sticky top-0 bg-white dark:bg-slate-900">
                       <tr className="border-b border-stone-100 dark:border-stone-800">
                         {['Date', 'Description', 'Debit (sale)', 'Credit (paid)', 'Balance'].map((h) => (
-                          <th key={h} className="py-2 pr-4 text-left font-normal text-stone-400">
+                          <th key={h} className="py-2 pr-4 text-left font-normal text-stone-400 dark:text-slate-300">
                             {h}
                           </th>
                         ))}
@@ -256,10 +256,10 @@ function KhataContent() {
                     <tbody>
                       {(ledger?.entries ?? []).map((e: any) => (
                         <tr key={e.id} className="border-b border-stone-50 last:border-0 dark:border-stone-800">
-                          <td className="py-2 pr-4 text-stone-500">{fmtDate(e.createdAt)}</td>
-                          <td className="py-2 pr-4 text-stone-700 dark:text-stone-300">
+                          <td className="py-2 pr-4 text-stone-500 dark:text-slate-300">{fmtDate(e.createdAt)}</td>
+                          <td className="py-2 pr-4 text-stone-700 dark:text-slate-200">
                             {e.notes ?? (e.order ? `Order ${e.order.orderNumber}` : e.type)}
-                            {e.reference && <span className="text-stone-400"> - {e.reference}</span>}
+                            {e.reference && <span className="text-stone-400 dark:text-slate-400"> - {e.reference}</span>}
                           </td>
                           <td className="py-2 pr-4 font-medium text-red-600 dark:text-red-400">
                             {e.type === 'DEBIT' ? fmt(Number(e.amount)) : '-'}
@@ -267,7 +267,7 @@ function KhataContent() {
                           <td className="py-2 pr-4 font-medium text-green-700 dark:text-green-400">
                             {e.type === 'CREDIT' ? fmt(Number(e.amount)) : '-'}
                           </td>
-                          <td className={`py-2 font-medium ${e.runningBalance > 0 ? 'text-red-600 dark:text-red-400' : 'text-stone-500'}`}>
+                          <td className={`py-2 font-medium ${e.runningBalance > 0 ? 'text-red-600 dark:text-red-400' : 'text-stone-500 dark:text-slate-300'}`}>
                             {e.runningBalance > 0 ? `-${fmt(e.runningBalance)}` : 'Clear'}
                           </td>
                         </tr>
@@ -275,7 +275,7 @@ function KhataContent() {
                     </tbody>
                     {ledger?.currentBalance > 0 && (
                       <tfoot>
-                        <tr className="bg-stone-50 dark:bg-stone-800">
+                        <tr className="border-t border-stone-200 bg-stone-50 dark:border-slate-600 dark:bg-slate-800/65">
                           <td colSpan={4} className="py-2 pr-4 text-xs font-medium text-stone-600 dark:text-stone-300">
                             Current outstanding
                           </td>

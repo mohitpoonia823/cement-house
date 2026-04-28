@@ -1,18 +1,66 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../client'
 
+let ensureUserEmailsTablePromise: Promise<void> | null = null
+
+async function ensureUserEmailsTable() {
+  if (!ensureUserEmailsTablePromise) {
+    ensureUserEmailsTablePromise = (async () => {
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS user_emails (
+          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          email TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+    })().catch((error) => {
+      ensureUserEmailsTablePromise = null
+      throw error
+    })
+  }
+  await ensureUserEmailsTablePromise
+}
+
+export type AnalyticsRange = '1M' | '3M' | '6M' | '1Y' | 'CUSTOM'
+
+export interface SuperAdminAnalyticsPoint {
+  date: string
+  gmv: number
+  subscriptionRevenue: number
+  newBusinesses: number
+  activeUsers: number
+}
+
+export interface SuperAdminAnalyticsSummary {
+  gmv: number
+  subscriptionRevenue: number
+  newBusinesses: number
+  activeUsers: number
+  totalSubscriptionRevenueTillDate: number
+}
+
 export async function getSuperAdminProfile(userId: string) {
+  await ensureUserEmailsTable()
   const rows = await prisma.$queryRaw<Array<{
     id: string
     name: string
     phone: string
+    email: string | null
     role: 'SUPER_ADMIN' | 'OWNER' | 'MUNIM'
     createdAt: Date
     lastSeenAt: Date | null
   }>>`
-    SELECT id, name, phone, role::text AS role, "createdAt" AS "createdAt", "lastSeenAt" AS "lastSeenAt"
-    FROM users
-    WHERE id = ${userId}
+    SELECT
+      u.id,
+      u.name,
+      u.phone,
+      ue.email AS email,
+      u.role::text AS role,
+      u."createdAt" AS "createdAt",
+      u."lastSeenAt" AS "lastSeenAt"
+    FROM users u
+    LEFT JOIN user_emails ue ON ue.user_id = u.id
+    WHERE u.id = ${userId}
     LIMIT 1
   `
   return rows.length > 0 ? rows[0] : null
@@ -25,19 +73,56 @@ export async function findUserByPhone(phone: string) {
   return rows.length > 0 ? rows[0] : null
 }
 
-export async function updateUserProfile(userId: string, name: string, phone: string) {
+export async function findUserByEmail(email: string) {
+  await ensureUserEmailsTable()
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT user_id AS id
+    FROM user_emails
+    WHERE LOWER(email) = LOWER(${email})
+    LIMIT 1
+  `
+  return rows.length > 0 ? rows[0] : null
+}
+
+export async function updateUserProfile(userId: string, name: string, phone: string, email?: string) {
+  await ensureUserEmailsTable()
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`
+      UPDATE users
+      SET name = ${name}, phone = ${phone}, "updatedAt" = NOW()
+      WHERE id = ${userId}
+    `
+    if (email !== undefined) {
+      await tx.$executeRaw`
+        INSERT INTO user_emails (user_id, email)
+        VALUES (${userId}, ${email})
+        ON CONFLICT (user_id)
+        DO UPDATE SET email = EXCLUDED.email
+      `
+    }
+  })
+
   const rows = await prisma.$queryRaw<Array<{
     id: string
     name: string
     phone: string
+    email: string | null
     role: 'SUPER_ADMIN' | 'OWNER' | 'MUNIM'
     permissions: string[]
     businessId: string | null
   }>>(Prisma.sql`
-    UPDATE users
-    SET name = ${name}, phone = ${phone}, "updatedAt" = NOW()
-    WHERE id = ${userId}
-    RETURNING id, name, phone, role::text AS role, permissions, "businessId" AS "businessId"
+    SELECT
+      u.id,
+      u.name,
+      u.phone,
+      ue.email AS email,
+      u.role::text AS role,
+      u.permissions,
+      u."businessId" AS "businessId"
+    FROM users u
+    INNER JOIN user_emails ue ON ue.user_id = u.id
+    WHERE u.id = ${userId}
+    LIMIT 1
   `)
   return rows.length > 0 ? rows[0] : null
 }
@@ -224,10 +309,167 @@ export async function getOverviewMetrics(todayStart: Date, todayEnd: Date) {
     businesses,
     counts: counts[0] ?? { totalOwners: 0, totalMunims: 0, activeUsersToday: 0 },
     totals: totals[0] ?? { totalSales: 0, todaySales: 0 },
+    subscriptionTotals: await getSubscriptionRevenueTotals(todayStart, todayEnd),
     remindersToday: reminders[0]?.remindersToday ?? 0,
     failedReminders,
     challansToday: challans[0]?.challansToday ?? 0,
     auditLogs,
+  }
+}
+
+async function getSubscriptionRevenueTotals(rangeStart: Date, rangeEnd: Date) {
+  const [rangeRows, allTimeRows] = await Promise.all([
+    prisma.$queryRaw<Array<{ total: number }>>(Prisma.sql`
+      SELECT COALESCE(SUM(amount), 0)::double precision AS total
+      FROM payment_transactions
+      WHERE status = 'SUCCEEDED'::"PaymentStatus"
+        AND COALESCE("paidAt", "createdAt") >= ${rangeStart}
+        AND COALESCE("paidAt", "createdAt") <= ${rangeEnd}
+    `),
+    prisma.$queryRaw<Array<{ total: number }>>(Prisma.sql`
+      SELECT COALESCE(SUM(amount), 0)::double precision AS total
+      FROM payment_transactions
+      WHERE status = 'SUCCEEDED'::"PaymentStatus"
+    `),
+  ])
+
+  return {
+    inSelectedRange: rangeRows[0]?.total ?? 0,
+    tillDate: allTimeRows[0]?.total ?? 0,
+  }
+}
+
+export async function getOverviewAnalytics(startDate: Date, endDate: Date): Promise<{
+  summary: SuperAdminAnalyticsSummary
+  points: SuperAdminAnalyticsPoint[]
+}> {
+  const dayRows = await prisma.$queryRaw<Array<{
+    date: Date
+    gmv: number
+    subscriptionRevenue: number
+    newBusinesses: number
+    activeUsers: number
+  }>>(Prisma.sql`
+    WITH days AS (
+      SELECT generate_series(
+        date_trunc('day', ${startDate}::timestamp),
+        date_trunc('day', ${endDate}::timestamp),
+        interval '1 day'
+      )::date AS day
+    ),
+    sales AS (
+      SELECT
+        date_trunc('day', "createdAt")::date AS day,
+        COALESCE(SUM("totalAmount"), 0)::double precision AS gmv
+      FROM orders
+      WHERE status <> 'CANCELLED'::"OrderStatus"
+        AND "createdAt" >= ${startDate}
+        AND "createdAt" <= ${endDate}
+      GROUP BY 1
+    ),
+    subscriptions AS (
+      SELECT
+        date_trunc('day', COALESCE("paidAt", "createdAt"))::date AS day,
+        COALESCE(SUM(amount), 0)::double precision AS "subscriptionRevenue"
+      FROM payment_transactions
+      WHERE status = 'SUCCEEDED'::"PaymentStatus"
+        AND COALESCE("paidAt", "createdAt") >= ${startDate}
+        AND COALESCE("paidAt", "createdAt") <= ${endDate}
+      GROUP BY 1
+    ),
+    businesses AS (
+      SELECT
+        date_trunc('day', "createdAt")::date AS day,
+        COUNT(*)::int AS "newBusinesses"
+      FROM businesses
+      WHERE "createdAt" >= ${startDate}
+        AND "createdAt" <= ${endDate}
+      GROUP BY 1
+    ),
+    active_users AS (
+      SELECT
+        date_trunc('day', "lastSeenAt")::date AS day,
+        COUNT(DISTINCT id)::int AS "activeUsers"
+      FROM users
+      WHERE "isActive" = true
+        AND "lastSeenAt" IS NOT NULL
+        AND "lastSeenAt" >= ${startDate}
+        AND "lastSeenAt" <= ${endDate}
+      GROUP BY 1
+    )
+    SELECT
+      d.day AS date,
+      COALESCE(s.gmv, 0)::double precision AS gmv,
+      COALESCE(sub."subscriptionRevenue", 0)::double precision AS "subscriptionRevenue",
+      COALESCE(b."newBusinesses", 0)::int AS "newBusinesses",
+      COALESCE(a."activeUsers", 0)::int AS "activeUsers"
+    FROM days d
+    LEFT JOIN sales s ON s.day = d.day
+    LEFT JOIN subscriptions sub ON sub.day = d.day
+    LEFT JOIN businesses b ON b.day = d.day
+    LEFT JOIN active_users a ON a.day = d.day
+    ORDER BY d.day ASC
+  `)
+
+  const [totals, allTimeSubscription] = await Promise.all([
+    prisma.$queryRaw<Array<{
+      gmv: number
+      subscriptionRevenue: number
+      newBusinesses: number
+      activeUsers: number
+    }>>(Prisma.sql`
+      SELECT
+        COALESCE((
+          SELECT SUM("totalAmount")
+          FROM orders
+          WHERE status <> 'CANCELLED'::"OrderStatus"
+            AND "createdAt" >= ${startDate}
+            AND "createdAt" <= ${endDate}
+        ), 0)::double precision AS gmv,
+        COALESCE((
+          SELECT SUM(amount)
+          FROM payment_transactions
+          WHERE status = 'SUCCEEDED'::"PaymentStatus"
+            AND COALESCE("paidAt", "createdAt") >= ${startDate}
+            AND COALESCE("paidAt", "createdAt") <= ${endDate}
+        ), 0)::double precision AS "subscriptionRevenue",
+        (
+          SELECT COUNT(*)::int
+          FROM businesses
+          WHERE "createdAt" >= ${startDate}
+            AND "createdAt" <= ${endDate}
+        ) AS "newBusinesses",
+        (
+          SELECT COUNT(DISTINCT id)::int
+          FROM users
+          WHERE "isActive" = true
+            AND "lastSeenAt" IS NOT NULL
+            AND "lastSeenAt" >= ${startDate}
+            AND "lastSeenAt" <= ${endDate}
+        ) AS "activeUsers"
+    `),
+    prisma.$queryRaw<Array<{ total: number }>>(Prisma.sql`
+      SELECT COALESCE(SUM(amount), 0)::double precision AS total
+      FROM payment_transactions
+      WHERE status = 'SUCCEEDED'::"PaymentStatus"
+    `),
+  ])
+
+  return {
+    summary: {
+      gmv: totals[0]?.gmv ?? 0,
+      subscriptionRevenue: totals[0]?.subscriptionRevenue ?? 0,
+      newBusinesses: totals[0]?.newBusinesses ?? 0,
+      activeUsers: totals[0]?.activeUsers ?? 0,
+      totalSubscriptionRevenueTillDate: allTimeSubscription[0]?.total ?? 0,
+    },
+    points: dayRows.map((row) => ({
+      date: new Date(row.date).toISOString().slice(0, 10),
+      gmv: row.gmv ?? 0,
+      subscriptionRevenue: row.subscriptionRevenue ?? 0,
+      newBusinesses: row.newBusinesses ?? 0,
+      activeUsers: row.activeUsers ?? 0,
+    })),
   }
 }
 
@@ -325,6 +567,7 @@ export async function listUsers(input: {
   search?: string
   role?: 'SUPER_ADMIN' | 'OWNER' | 'MUNIM'
 }) {
+  await ensureUserEmailsTable()
   const filters: Prisma.Sql[] = [Prisma.sql`1 = 1`]
   if (input.role) filters.push(Prisma.sql`u.role = ${input.role}::"UserRole"`)
   if (input.search) {
@@ -343,6 +586,7 @@ export async function listUsers(input: {
         u.id,
         u.name,
         u.phone,
+        ue.email AS email,
         u.role::text AS role,
         u."isActive" AS "isActive",
         u.permissions,
@@ -354,6 +598,7 @@ export async function listUsers(input: {
         b."isActive" AS "businessActive"
       FROM users u
       LEFT JOIN businesses b ON b.id = u."businessId"
+      LEFT JOIN user_emails ue ON ue.user_id = u.id
       WHERE ${Prisma.join(filters, ' AND ')}
       ORDER BY u."createdAt" DESC
       OFFSET ${skip}
@@ -363,11 +608,93 @@ export async function listUsers(input: {
       SELECT COUNT(*)::int AS count
       FROM users u
       LEFT JOIN businesses b ON b.id = u."businessId"
+      LEFT JOIN user_emails ue ON ue.user_id = u.id
       WHERE ${Prisma.join(filters, ' AND ')}
     `),
   ])
 
   return { items, total: totalRows[0]?.count ?? 0 }
+}
+
+export async function getUserById(userId: string) {
+  await ensureUserEmailsTable()
+  const rows = await prisma.$queryRaw<Array<{
+    id: string
+    name: string
+    phone: string
+    email: string | null
+    role: 'SUPER_ADMIN' | 'OWNER' | 'MUNIM'
+    isActive: boolean
+    permissions: string[]
+    businessId: string | null
+    businessName: string | null
+    businessCity: string | null
+    businessActive: boolean | null
+    lastSeenAt: Date | null
+    createdAt: Date
+  }>>`
+    SELECT
+      u.id,
+      u.name,
+      u.phone,
+      ue.email AS email,
+      u.role::text AS role,
+      u."isActive" AS "isActive",
+      u.permissions,
+      u."businessId" AS "businessId",
+      b.name AS "businessName",
+      b.city AS "businessCity",
+      b."isActive" AS "businessActive",
+      u."lastSeenAt" AS "lastSeenAt",
+      u."createdAt" AS "createdAt"
+    FROM users u
+    LEFT JOIN businesses b ON b.id = u."businessId"
+    LEFT JOIN user_emails ue ON ue.user_id = u.id
+    WHERE u.id = ${userId}
+    LIMIT 1
+  `
+  return rows.length > 0 ? rows[0] : null
+}
+
+export async function updateUserBySuperAdmin(input: {
+  userId: string
+  name?: string
+  phone?: string
+  role?: 'SUPER_ADMIN' | 'OWNER' | 'MUNIM'
+  isActive?: boolean
+  permissions?: string[]
+  email?: string
+  passwordHash?: string
+}) {
+  await ensureUserEmailsTable()
+  await prisma.$transaction(async (tx) => {
+    const updates: Prisma.Sql[] = []
+    if (input.name !== undefined) updates.push(Prisma.sql`name = ${input.name}`)
+    if (input.phone !== undefined) updates.push(Prisma.sql`phone = ${input.phone}`)
+    if (input.role !== undefined) updates.push(Prisma.sql`role = ${input.role}::"UserRole"`)
+    if (input.isActive !== undefined) updates.push(Prisma.sql`"isActive" = ${input.isActive}`)
+    if (input.permissions !== undefined) updates.push(Prisma.sql`permissions = ${input.permissions}`)
+    if (input.passwordHash !== undefined) updates.push(Prisma.sql`"passwordHash" = ${input.passwordHash}`)
+    if (updates.length > 0) {
+      updates.push(Prisma.sql`"updatedAt" = NOW()`)
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE users
+        SET ${Prisma.join(updates, ', ')}
+        WHERE id = ${input.userId}
+      `)
+    }
+
+    if (input.email !== undefined) {
+      await tx.$executeRaw`
+        INSERT INTO user_emails (user_id, email)
+        VALUES (${input.userId}, ${input.email})
+        ON CONFLICT (user_id)
+        DO UPDATE SET email = EXCLUDED.email
+      `
+    }
+  })
+
+  return getUserById(input.userId)
 }
 
 export async function getBusinessById(businessId: string) {

@@ -19,6 +19,14 @@ type LineItem = {
 
 const PAYMENT_MODES = ['CASH', 'UPI', 'CHEQUE', 'CREDIT', 'PARTIAL']
 
+function todayDateInput() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 interface NewOrderFormProps {
   redirectOnSuccess?: boolean
   onSuccess?: () => void
@@ -44,6 +52,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
   const selectedCustomer = (customers ?? []).find((c: any) => c.id === customerId)
   const totalAmount = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0)
   const totalDue = Math.max(0, totalAmount - amountPaid)
+  const minDeliveryDate = todayDateInput()
 
   function updateItem(idx: number, field: keyof LineItem, value: any) {
     setItems((prev) =>
@@ -81,6 +90,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
     if (!customerId) return setError('Select a customer')
     if (items.some((i) => !i.materialId)) return setError('Select a material for each item')
     if (items.some((i) => i.quantity <= 0)) return setError('Quantity must be greater than 0')
+    if (deliveryDate && deliveryDate < minDeliveryDate) return setError('Delivery date cannot be earlier than order creation date')
     try {
       await createOrder.mutateAsync({ customerId, deliveryDate: deliveryDate || undefined, paymentMode, amountPaid, notes, items })
       if (redirectOnSuccess) {
@@ -129,7 +139,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
             <select
               value={customerId}
               onChange={(e) => setCustomerId(e.target.value)}
-              className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
+              className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               required
             >
               <option value="">Select customer...</option>
@@ -146,7 +156,8 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
               type="date"
               value={deliveryDate}
               onChange={(e) => setDeliveryDate(e.target.value)}
-              className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
+              min={minDeliveryDate}
+              className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
         </div>
@@ -175,7 +186,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
                 <select
                   value={item.materialId}
                   onChange={(e) => updateItem(idx, 'materialId', e.target.value)}
-                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 >
                   <option value="">Select...</option>
                   {(materials ?? []).map((m: any) => (
@@ -192,7 +203,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
                   min={0.01}
                   step={0.01}
                   onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
-                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 />
               </div>
               <div className="col-span-2">
@@ -201,10 +212,10 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
                   value={item.unitPrice}
                   min={0}
                   onChange={(e) => updateItem(idx, 'unitPrice', e.target.value)}
-                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 />
               </div>
-              <div className="col-span-3 rounded-lg bg-stone-50 px-2 py-1.5 text-xs font-medium text-stone-700 dark:bg-stone-800 dark:text-stone-300">
+              <div className="col-span-3 rounded-lg bg-stone-50 px-2 py-1.5 text-xs font-medium text-stone-700 dark:bg-slate-900 dark:text-slate-300">
                 {fmt(item.quantity * item.unitPrice)}
               </div>
               <div className="col-span-1 flex justify-center">
@@ -246,7 +257,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
               className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
                 paymentMode === m
                   ? 'border-blue-600 bg-blue-600 text-white'
-                  : 'border-stone-200 text-stone-600 hover:bg-stone-50 dark:border-stone-700 dark:text-stone-400 dark:hover:bg-stone-800'
+                  : 'border-stone-200 text-stone-600 hover:bg-stone-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-900'
               }`}
             >
               {m}
@@ -262,7 +273,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
               min={0}
               max={totalAmount}
               onChange={(e) => setAmountPaid(Number(e.target.value))}
-              className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
+              className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
           <div className="flex flex-col justify-end">
@@ -277,7 +288,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Any special instructions..."
-            className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
+            className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
           />
         </div>
       </Card>

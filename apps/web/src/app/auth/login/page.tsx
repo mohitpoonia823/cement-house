@@ -18,6 +18,7 @@ interface RegistrationConfig {
 export default function LoginPage() {
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [loading, setLoading] = useState(false)
@@ -137,15 +138,29 @@ export default function LoginPage() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Password</label>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <label className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Password</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="text-xs font-semibold text-sky-600 hover:underline dark:text-sky-400"
+                  >
+                    {showPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
                   className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
                   required
                 />
+                <div className="mt-2 text-right">
+                  <Link href="/auth/forgot-password" className="text-xs font-semibold text-sky-600 hover:underline dark:text-sky-400">
+                    Forgot password?
+                  </Link>
+                </div>
               </div>
               {error && <div className="rounded-2xl bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950/40">{error}</div>}
               <button

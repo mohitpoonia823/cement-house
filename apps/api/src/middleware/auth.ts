@@ -11,6 +11,7 @@ function isLockedOwnerRouteAllowed(req: FastifyRequest, role: string) {
   if (role !== 'OWNER') return false
   if (path === '/api/settings' && req.method === 'GET') return true
   if (path.startsWith('/api/settings/subscription')) return true
+  if (path.startsWith('/api/support')) return true
   return false
 }
 

@@ -31,6 +31,7 @@ export type UserListItem = {
   id: string
   name: string
   phone: string
+  email?: string | null
   role: 'SUPER_ADMIN' | 'OWNER' | 'MUNIM'
   isActive: boolean
   permissions: string[]
@@ -58,6 +59,28 @@ export type BillingConfig = {
   trialRequiresCard: boolean
 }
 
+export type AnalyticsRange = '1M' | '3M' | '6M' | '1Y' | 'CUSTOM'
+
+export type SuperAdminOverviewAnalytics = {
+  range: AnalyticsRange
+  startDate: string
+  endDate: string
+  summary: {
+    gmv: number
+    subscriptionRevenue: number
+    newBusinesses: number
+    activeUsers: number
+    totalSubscriptionRevenueTillDate: number
+  }
+  points: Array<{
+    date: string
+    gmv: number
+    subscriptionRevenue: number
+    newBusinesses: number
+    activeUsers: number
+  }>
+}
+
 type ListParams = Record<string, string | number | undefined>
 
 function buildQuery(params: ListParams) {
@@ -74,6 +97,19 @@ export function useSuperAdminOverview() {
     queryKey: ['super-admin', 'overview'],
     queryFn: () => api.get('/api/super-admin/overview').then((res) => res.data.data),
     refetchInterval: 60_000,
+  })
+}
+
+export function useSuperAdminOverviewAnalytics(params: {
+  range: AnalyticsRange
+  startDate?: string
+  endDate?: string
+}) {
+  const query = buildQuery(params)
+  return useQuery({
+    queryKey: ['super-admin', 'overview-analytics', query],
+    queryFn: () => api.get(`/api/super-admin/overview-analytics?${query}`).then((res) => res.data.data as SuperAdminOverviewAnalytics),
+    placeholderData: (prev) => prev,
   })
 }
 

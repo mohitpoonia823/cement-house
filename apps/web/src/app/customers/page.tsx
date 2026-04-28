@@ -210,7 +210,7 @@ export default function CustomersPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name..."
-            className="flex-1 rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
+            className="flex-1 rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
           />
         </div>
       </div>
@@ -227,7 +227,7 @@ export default function CustomersPage() {
                   placeholder={f.placeholder}
                   value={(form as any)[f.key]}
                   onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                   required={f.key === 'name' || f.key === 'phone'}
                 />
               </div>
@@ -237,7 +237,7 @@ export default function CustomersPage() {
               <select
                 value={form.riskTag}
                 onChange={(e) => setForm((p) => ({ ...p, riskTag: e.target.value }))}
-                className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
+                className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               >
                 <option value="RELIABLE">Reliable</option>
                 <option value="WATCH">Watch</option>
@@ -283,7 +283,7 @@ export default function CustomersPage() {
                     placeholder={f.placeholder}
                     value={(form as any)[f.key]}
                     onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                    className="w-full rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
+                    className="w-full rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                     required={f.key === 'name' || f.key === 'phone'}
                   />
                 </div>
@@ -293,7 +293,7 @@ export default function CustomersPage() {
                 <select
                   value={form.riskTag}
                   onChange={(e) => setForm((p) => ({ ...p, riskTag: e.target.value }))}
-                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 >
                   <option value="RELIABLE">Reliable</option>
                   <option value="WATCH">Watch</option>
@@ -368,7 +368,7 @@ export default function CustomersPage() {
                     />
                   </th>
                   {['Name', 'Phone', 'Address', 'Credit limit', 'Outstanding', 'Orders', 'Risk', ''].map((h) => (
-                    <th key={h} className="py-3 pr-3 text-left font-normal uppercase tracking-[0.18em] text-slate-400">
+                    <th key={h} className="py-3 pr-3 text-left font-normal uppercase tracking-[0.18em] text-slate-400 dark:text-slate-300">
                       {h}
                     </th>
                   ))}
@@ -393,13 +393,13 @@ export default function CustomersPage() {
                         />
                       </td>
                       <td className="py-2.5 pr-3 font-medium text-stone-800 dark:text-stone-200">{c.name}</td>
-                      <td className="py-2.5 pr-3 text-stone-500">{c.phone}</td>
-                      <td className="max-w-32 truncate py-2.5 pr-3 text-stone-500">{c.address ?? '-'}</td>
+                      <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300">{c.phone}</td>
+                      <td className="max-w-32 truncate py-2.5 pr-3 text-stone-500 dark:text-slate-300">{c.address ?? '-'}</td>
                       <td className="py-2.5 pr-3">{fmt(Number(c.creditLimit))}</td>
                       <td className={`py-2.5 pr-3 font-medium ${c.balance > 0 ? 'text-red-600 dark:text-red-400' : 'text-stone-400'}`}>
                         {c.balance > 0 ? fmt(c.balance) : '-'}
                       </td>
-                      <td className="py-2.5 pr-3 text-stone-500">{c.orderCount}</td>
+                      <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300">{c.orderCount}</td>
                       <td className="py-2.5 pr-3">
                         <Badge variant={statusBadge(c.riskTag)}>{c.riskTag}</Badge>
                       </td>
@@ -408,7 +408,7 @@ export default function CustomersPage() {
                           <Link href={`/khata?customer=${c.id}`} className="text-blue-500 hover:underline">
                             Khata
                           </Link>
-                          <button onClick={() => handleEditClick(c)} className="text-stone-500 transition-colors hover:text-stone-700">
+                          <button onClick={() => handleEditClick(c)} className="text-stone-500 transition-colors hover:text-stone-700 dark:text-slate-300 dark:hover:text-slate-100">
                             Edit
                           </button>
                           <button onClick={() => handleDelete(c.id, c.name)} className="text-red-400 transition-colors hover:text-red-600">

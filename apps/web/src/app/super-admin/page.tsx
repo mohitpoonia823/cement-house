@@ -1,16 +1,47 @@
 'use client'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { SuperAdminShell } from '@/components/layout/SuperAdminShell'
 import { Badge } from '@/components/ui/Badge'
 import { Card, MetricCard, MetricGrid, SectionHeader } from '@/components/ui/Card'
 import { PageLoader } from '@/components/ui/Spinner'
-import { fmt, fmtDate } from '@/lib/utils'
-import { useSuperAdminOverview } from '@/lib/super-admin'
+import { fmt } from '@/lib/utils'
+import { type AnalyticsRange, useSuperAdminOverview, useSuperAdminOverviewAnalytics } from '@/lib/super-admin'
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+
+const rangeOptions: Array<{ label: string; value: AnalyticsRange }> = [
+  { label: '1M', value: '1M' },
+  { label: '3M', value: '3M' },
+  { label: '6M', value: '6M' },
+  { label: '1Y', value: '1Y' },
+  { label: 'Custom', value: 'CUSTOM' },
+]
+
+function toInputDate(date: Date) {
+  return date.toISOString().slice(0, 10)
+}
 
 export default function SuperAdminOverviewPage() {
+  const now = new Date()
+  const [range, setRange] = useState<AnalyticsRange>('1M')
+  const [startDate, setStartDate] = useState<string>(toInputDate(new Date(now.getFullYear(), now.getMonth() - 1, now.getDate())))
+  const [endDate, setEndDate] = useState<string>(toInputDate(now))
   const { data, isLoading } = useSuperAdminOverview()
+  const analytics = useSuperAdminOverviewAnalytics({
+    range,
+    startDate: range === 'CUSTOM' ? startDate : undefined,
+    endDate: range === 'CUSTOM' ? endDate : undefined,
+  })
+  const chartData = useMemo(
+    () =>
+      (analytics.data?.points ?? []).map((point) => ({
+        ...point,
+        dateLabel: point.date,
+      })),
+    [analytics.data?.points]
+  )
 
-  if (isLoading) {
+  if (isLoading || analytics.isLoading) {
     return (
       <SuperAdminShell>
         <PageLoader />
@@ -51,51 +82,81 @@ export default function SuperAdminOverviewPage() {
           hint={`${data?.financialVolume?.pastDueAccounts ?? 0} accounts are past due`}
           tone={(data?.financialVolume?.pastDueAccounts ?? 0) > 0 ? 'warning' : 'default'}
         />
+        <MetricCard
+          label="Subscription revenue till today"
+          value={fmt(data?.financialVolume?.totalSubscriptionRevenueTillDate ?? analytics.data?.summary?.totalSubscriptionRevenueTillDate ?? 0)}
+          hint="All successful subscription collections till date"
+          tone="success"
+        />
       </MetricGrid>
 
-      <div className="mb-6 grid items-start gap-6 xl:grid-cols-[1.2fr_0.9fr]">
-        <Card className="h-fit">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Feature adoption</div>
-              <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">Signals that matter to growth and retention</div>
-            </div>
-            <Link href="/super-admin/metrics" className="text-sm font-semibold text-emerald-700 hover:underline dark:text-emerald-300">
-              View all metrics
-            </Link>
+      <Card className="mb-6">
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Revenue analytics</div>
+            <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">GMV and subscription trends</div>
           </div>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <InsightTile label="Challan PDFs" value={String(data?.featureAdoption?.challanPdfsToday ?? 0)} sub="Generated today" />
-            <InsightTile label="WhatsApp reminders" value={String(data?.featureAdoption?.remindersSentToday ?? 0)} sub="Successfully sent today" />
-            <InsightTile label="Pro businesses" value={String(data?.featureAdoption?.businessesOnPro ?? 0)} sub="Paid expansion accounts" />
-            <InsightTile label="Trial businesses" value={String(data?.featureAdoption?.businessesInTrial ?? 0)} sub="Activation pipeline" />
-          </div>
-        </Card>
-
-        <Card className="h-fit xl:sticky xl:top-6">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Activity feed</div>
-              <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">Recent platform actions and warnings</div>
-            </div>
-            <Badge variant="info">Live</Badge>
-          </div>
-          <div className="max-h-[560px] space-y-3 overflow-y-auto pr-1">
-            {(data?.activityFeed ?? []).map((item: any) => (
-              <div key={`${item.kind}-${item.id}`} className="rounded-[22px] border border-slate-200/70 bg-slate-50/70 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/60">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-950 dark:text-white">{item.title}</div>
-                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{item.description}</div>
-                  </div>
-                  <Badge variant={item.kind === 'ERROR' ? 'danger' : 'default'}>{item.kind}</Badge>
-                </div>
-                <div className="mt-3 text-xs text-slate-400 dark:text-slate-500">{fmtDate(item.createdAt)}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            {rangeOptions.map((option) => {
+              const active = range === option.value
+              return (
+                <button
+                  key={option.value}
+                  onClick={() => setRange(option.value)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    active
+                      ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950'
+                      : 'border border-slate-200 bg-white/80 text-slate-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              )
+            })}
+            {range === 'CUSTOM' && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(event) => setStartDate(event.target.value)}
+                  className="rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                />
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(event) => setEndDate(event.target.value)}
+                  className="rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                />
               </div>
-            ))}
+            )}
           </div>
-        </Card>
-      </div>
+        </div>
+
+        <div className="mb-4 grid gap-4 md:grid-cols-4">
+          <MiniStat label="Selected GMV" value={fmt(analytics.data?.summary?.gmv ?? 0)} />
+          <MiniStat label="Selected subscription" value={fmt(analytics.data?.summary?.subscriptionRevenue ?? 0)} />
+          <MiniStat label="New businesses" value={String(analytics.data?.summary?.newBusinesses ?? 0)} />
+          <MiniStat label="Active users" value={String(analytics.data?.summary?.activeUsers ?? 0)} />
+        </div>
+
+        <div className="h-[320px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={chartData}
+            >
+              <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(148,163,184,0.2)" />
+              <XAxis dataKey="dateLabel" tickLine={false} axisLine={false} minTickGap={24} tick={{ fill: '#64748b', fontSize: 12 }} />
+              <YAxis tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+              <Tooltip
+                formatter={(value: number, name: string) => [name.includes('Revenue') || name.includes('GMV') ? fmt(value) : value, name]}
+                labelFormatter={(value) => `Date: ${String(value)}`}
+              />
+              <Line type="monotone" dataKey="gmv" name="GMV" stroke="#0ea5e9" strokeWidth={2.5} dot={false} />
+              <Line type="monotone" dataKey="subscriptionRevenue" name="Subscription Revenue" stroke="#10b981" strokeWidth={2.5} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
 
       <Card>
         <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
@@ -127,16 +188,6 @@ export default function SuperAdminOverviewPage() {
         </div>
       </Card>
     </SuperAdminShell>
-  )
-}
-
-function InsightTile({ label, value, sub }: { label: string; value: string; sub: string }) {
-  return (
-    <div className="rounded-[24px] border border-slate-200/70 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/60">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{label}</div>
-      <div className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">{value}</div>
-      <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">{sub}</div>
-    </div>
   )
 }
 

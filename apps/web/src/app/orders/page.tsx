@@ -221,7 +221,7 @@ function OrdersContent() {
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[780px] text-xs">
+            <table className="w-full min-w-[860px] text-xs">
               <thead>
                 <tr className="border-b border-slate-200/70 dark:border-slate-800">
                   <th className="w-8 py-2 pr-2 text-left">
@@ -232,8 +232,8 @@ function OrdersContent() {
                       className="cursor-pointer rounded border-stone-300 text-blue-600 focus:ring-blue-500"
                     />
                   </th>
-                  {['Order #', 'Date', 'Customer', 'Items', 'Amount', 'Paid', 'Due', 'Status', ''].map((h) => (
-                    <th key={h} className="py-3 pr-3 text-left font-normal uppercase tracking-[0.18em] text-slate-400">
+                  {['Order #', 'Order Date', 'Delivery Date', 'Customer', 'Items', 'Amount', 'Paid', 'Due', 'Status', 'Actions'].map((h) => (
+                    <th key={h} className="py-3 pr-3 text-left font-normal uppercase tracking-[0.18em] text-slate-400 dark:text-slate-300">
                       {h}
                     </th>
                   ))}
@@ -259,9 +259,10 @@ function OrdersContent() {
                         />
                       </td>
                       <td className="py-2.5 pr-3 font-medium text-stone-700 dark:text-stone-300">{o.orderNumber}</td>
-                      <td className="py-2.5 pr-3 text-stone-500">{fmtDate(o.createdAt)}</td>
+                      <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300">{fmtDate(o.orderDate ?? o.createdAt)}</td>
+                      <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300">{o.deliveryDate ? fmtDate(o.deliveryDate) : '-'}</td>
                       <td className="py-2.5 pr-3 font-medium text-stone-800 dark:text-stone-200">{o.customer?.name}</td>
-                      <td className="py-2.5 pr-3 text-stone-500">{o.items?.length}</td>
+                      <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300">{o.items?.length}</td>
                       <td className="py-2.5 pr-3 font-medium">{fmt(Number(o.totalAmount))}</td>
                       <td className="py-2.5 pr-3 text-green-700 dark:text-green-400">{fmt(Number(o.amountPaid))}</td>
                       <td className={`py-2.5 pr-3 font-medium ${due > 0 ? 'text-red-600 dark:text-red-400' : 'text-stone-400'}`}>

@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { randomUUID } from 'node:crypto'
 import { prisma } from '../client'
 
 export interface OrderListItemRow {
@@ -345,9 +346,11 @@ export async function createOrder(input: {
   deliveryDate?: string
   items: Array<{ materialId: string; quantity: number; unitPrice: number; purchasePrice: number }>
 }) {
+  const newOrderId = randomUUID()
   const rows = await prisma.$transaction(async (tx) => {
     const created = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       INSERT INTO orders (
+        id,
         "orderNumber",
         "customerId",
         "createdById",
@@ -364,6 +367,7 @@ export async function createOrder(input: {
         "createdAt",
         "updatedAt"
       ) VALUES (
+        ${newOrderId},
         ${input.orderNumber},
         ${input.customerId},
         ${input.createdById},
@@ -382,13 +386,15 @@ export async function createOrder(input: {
       ) RETURNING id
     `)
 
-    const orderId = created[0]?.id
-    if (!orderId) throw new Error('Failed to create order')
+    const createdOrderId = created[0]?.id
+    if (!createdOrderId) throw new Error('Failed to create order')
 
     for (const item of input.items) {
       const lineTotal = item.quantity * item.unitPrice
+      const orderItemId = randomUUID()
       await tx.$executeRaw(Prisma.sql`
         INSERT INTO order_items (
+          id,
           "orderId",
           "materialId",
           quantity,
@@ -396,7 +402,8 @@ export async function createOrder(input: {
           "purchasePrice",
           "lineTotal"
         ) VALUES (
-          ${orderId},
+          ${orderItemId},
+          ${createdOrderId},
           ${item.materialId},
           ${item.quantity},
           ${item.unitPrice},
@@ -421,8 +428,10 @@ export async function createOrder(input: {
         WHERE id = ${item.materialId}
       `)
 
+      const stockMovementId = randomUUID()
       await tx.$executeRaw(Prisma.sql`
         INSERT INTO stock_movements (
+          id,
           "materialId",
           "orderId",
           type,
@@ -433,8 +442,9 @@ export async function createOrder(input: {
           "createdAt",
           "businessId"
         ) VALUES (
+          ${stockMovementId},
           ${item.materialId},
-          ${orderId},
+          ${createdOrderId},
           'OUT'::"StockMovementType",
           ${item.quantity},
           ${stockAfter},
@@ -446,8 +456,10 @@ export async function createOrder(input: {
       `)
     }
 
+    const debitLedgerEntryId = randomUUID()
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO ledger_entries (
+        id,
         "customerId",
         "orderId",
         type,
@@ -458,8 +470,9 @@ export async function createOrder(input: {
         "createdAt",
         "businessId"
       ) VALUES (
+        ${debitLedgerEntryId},
         ${input.customerId},
-        ${orderId},
+        ${createdOrderId},
         'DEBIT'::"LedgerEntryType",
         ${input.totalAmount},
         ${input.paymentMode}::"PaymentMode",
@@ -471,8 +484,10 @@ export async function createOrder(input: {
     `)
 
     if (input.amountPaid > 0) {
+      const creditLedgerEntryId = randomUUID()
       await tx.$executeRaw(Prisma.sql`
         INSERT INTO ledger_entries (
+          id,
           "customerId",
           "orderId",
           type,
@@ -483,8 +498,9 @@ export async function createOrder(input: {
           "createdAt",
           "businessId"
         ) VALUES (
+          ${creditLedgerEntryId},
           ${input.customerId},
-          ${orderId},
+          ${createdOrderId},
           'CREDIT'::"LedgerEntryType",
           ${input.amountPaid},
           ${input.paymentMode}::"PaymentMode",
@@ -525,8 +541,10 @@ export async function appendItemToOrder(input: {
 }) {
   await prisma.$transaction(async (tx) => {
     const lineTotal = input.quantity * input.unitPrice
+    const orderItemId = randomUUID()
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO order_items (
+        id,
         "orderId",
         "materialId",
         quantity,
@@ -534,6 +552,7 @@ export async function appendItemToOrder(input: {
         "purchasePrice",
         "lineTotal"
       ) VALUES (
+        ${orderItemId},
         ${input.orderId},
         ${input.materialId},
         ${input.quantity},
@@ -558,8 +577,10 @@ export async function appendItemToOrder(input: {
       WHERE id = ${input.orderId} AND "businessId" = ${input.businessId}
     `)
 
+    const debitLedgerEntryId = randomUUID()
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO ledger_entries (
+        id,
         "customerId",
         "orderId",
         type,
@@ -570,6 +591,7 @@ export async function appendItemToOrder(input: {
         "createdAt",
         "businessId"
       ) VALUES (
+        ${debitLedgerEntryId},
         ${input.customerId},
         ${input.orderId},
         'DEBIT'::"LedgerEntryType",
@@ -598,8 +620,10 @@ export async function appendItemToOrder(input: {
       WHERE id = ${input.materialId}
     `)
 
+    const stockMovementId = randomUUID()
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO stock_movements (
+        id,
         "materialId",
         "orderId",
         type,
@@ -610,6 +634,7 @@ export async function appendItemToOrder(input: {
         "createdAt",
         "businessId"
       ) VALUES (
+        ${stockMovementId},
         ${input.materialId},
         ${input.orderId},
         'OUT'::"StockMovementType",
@@ -642,14 +667,17 @@ export async function createDispatchDelivery(orderId: string, challanNumber: str
       WHERE "orderId" = ${orderId}
     `)
 
+    const deliveryId = randomUUID()
     const delivery = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       INSERT INTO deliveries (
+        id,
         "orderId",
         "challanNumber",
         status,
         "createdAt",
         "updatedAt"
       ) VALUES (
+        ${deliveryId},
         ${orderId},
         ${challanNumber},
         'IN_TRANSIT'::"DeliveryStatus",
@@ -658,18 +686,21 @@ export async function createDispatchDelivery(orderId: string, challanNumber: str
       ) RETURNING id
     `)
 
-    const deliveryId = delivery[0]?.id
-    if (!deliveryId) throw new Error('Failed to create delivery')
+    const createdDeliveryId = delivery[0]?.id
+    if (!createdDeliveryId) throw new Error('Failed to create delivery')
 
     for (const item of items) {
+      const deliveryItemId = randomUUID()
       await tx.$executeRaw(Prisma.sql`
         INSERT INTO delivery_items (
+          id,
           "deliveryId",
           "materialId",
           "orderedQty",
           "deliveredQty"
         ) VALUES (
-          ${deliveryId},
+          ${deliveryItemId},
+          ${createdDeliveryId},
           ${item.materialId},
           ${item.quantity},
           ${item.quantity}

@@ -4,7 +4,7 @@ export function Card({ children, className }: { children: React.ReactNode; class
   return (
     <div
       className={cn(
-        'rounded-[28px] border border-white/60 bg-white/82 p-5 shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur dark:border-white/10 dark:bg-slate-950/70 dark:shadow-[0_24px_60px_rgba(2,6,23,0.45)]',
+        'rounded-[28px] border border-white/60 bg-white/82 p-5 shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur dark:border-white/20 dark:bg-slate-900/72 dark:shadow-[0_24px_60px_rgba(2,6,23,0.45)]',
         className
       )}
     >
@@ -89,7 +89,7 @@ export function MetricCard({
   return (
     <div
       className={cn(
-        'rounded-[26px] border border-white/60 bg-white/84 p-5 text-slate-950 shadow-[0_18px_40px_rgba(15,23,42,0.10)] backdrop-blur dark:border-white/10 dark:bg-slate-950/70 dark:text-white'
+        'rounded-[26px] border border-white/60 bg-white/84 p-5 text-slate-950 shadow-[0_18px_40px_rgba(15,23,42,0.10)] backdrop-blur dark:border-white/20 dark:bg-slate-900/72 dark:text-white'
       )}
     >
       <div className={cn('text-[11px] font-semibold uppercase tracking-[0.24em]', accents[tone])}>{label}</div>

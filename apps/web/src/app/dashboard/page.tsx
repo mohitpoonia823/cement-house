@@ -36,6 +36,8 @@ const RANGE_OPTIONS = [
   { value: 'custom', label: 'Custom' },
 ] as const
 
+const LIST_LIMIT_OPTIONS = [5, 10, 50] as const
+
 type RangePreset = (typeof RANGE_OPTIONS)[number]['value']
 
 function addDays(date: Date, days: number) {
@@ -83,6 +85,9 @@ function DashboardContent() {
 
   const [customStartDate, setCustomStartDate] = useState(startDateParam || fallbackCustomStart)
   const [customEndDate, setCustomEndDate] = useState(endDateParam || fallbackCustomEnd)
+  const [recentOrdersLimit, setRecentOrdersLimit] = useState<number>(5)
+  const [topCustomersLimit, setTopCustomersLimit] = useState<number>(5)
+  const [stockAlertsLimit, setStockAlertsLimit] = useState<number>(5)
 
   useEffect(() => {
     setCustomStartDate(startDateParam || fallbackCustomStart)
@@ -95,8 +100,11 @@ function DashboardContent() {
           range: activeRange,
           startDate: startDateParam || customStartDate || fallbackCustomStart,
           endDate: endDateParam || customEndDate || fallbackCustomEnd,
+          recentOrdersLimit,
+          topCustomersLimit,
+          stockAlertsLimit,
         }
-      : { range: activeRange }
+      : { range: activeRange, recentOrdersLimit, topCustomersLimit, stockAlertsLimit }
 
   const { data, isLoading } = useDashboard(dashboardQuery)
   const { data: customers } = useCustomers()
@@ -161,7 +169,7 @@ function DashboardContent() {
     }
   }
 
-  if (isLoading) {
+  if (isLoading && !data) {
     return (
       <AppShell>
         <PageLoader />
@@ -331,12 +339,17 @@ function DashboardContent() {
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr_0.9fr_0.85fr]">
         <Card>
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex items-start justify-between gap-3">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Recent flow</div>
               <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">Latest orders in selection</div>
             </div>
-            <Badge>{`${data?.recentOrders?.length ?? 0} tracked`}</Badge>
+            <div className="shrink-0 pt-0.5">
+              <SectionLimitSelect
+                value={recentOrdersLimit}
+                onChange={setRecentOrdersLimit}
+              />
+            </div>
           </div>
           {(data?.recentOrders ?? []).length > 0 ? (
             <div className="space-y-3">
@@ -366,9 +379,17 @@ function DashboardContent() {
         </Card>
 
         <Card>
-          <div className="mb-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Customer concentration</div>
-            <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">Top revenue accounts</div>
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Customer concentration</div>
+              <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">Top revenue accounts</div>
+            </div>
+            <div className="shrink-0 pt-0.5">
+              <SectionLimitSelect
+                value={topCustomersLimit}
+                onChange={setTopCustomersLimit}
+              />
+            </div>
           </div>
           {(data?.topCustomers ?? []).length > 0 ? (
             <div className="space-y-3">
@@ -397,9 +418,17 @@ function DashboardContent() {
         </Card>
 
         <Card>
-          <div className="mb-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Inventory watch</div>
-            <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">Items needing attention</div>
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Inventory watch</div>
+              <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">Items needing attention</div>
+            </div>
+            <div className="shrink-0 pt-0.5">
+              <SectionLimitSelect
+                value={stockAlertsLimit}
+                onChange={setStockAlertsLimit}
+              />
+            </div>
           </div>
           <div className="space-y-3">
             {(data?.stockAlerts ?? []).length > 0 ? (
@@ -483,6 +512,38 @@ function LegendDot({ color, label }: { color: string; label: string }) {
     <div className="flex items-center gap-2">
       <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
       <span>{label}</span>
+    </div>
+  )
+}
+
+function SectionLimitSelect({
+  value,
+  onChange,
+}: {
+  value: number
+  onChange: (value: number) => void
+}) {
+  return (
+    <div className="inline-flex items-center text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+      <div className="inline-flex items-center overflow-hidden rounded-full border border-slate-200 bg-white/85 dark:border-slate-700 dark:bg-slate-950/60">
+        {LIST_LIMIT_OPTIONS.map((option, index) => {
+          const active = value === option
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onChange(option)}
+              className={`px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                active
+                  ? 'bg-slate-900 text-white dark:bg-sky-400 dark:text-slate-950'
+                  : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+              } ${index > 0 ? 'border-l border-slate-200 dark:border-slate-700' : ''}`}
+            >
+              {option}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }

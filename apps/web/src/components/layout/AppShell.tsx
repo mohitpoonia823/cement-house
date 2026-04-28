@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
+import { AskAdminFab } from './AskAdminFab'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { token, user, originalAdminSession, restoreAdminSession, logout } = useAuthStore()
@@ -44,7 +45,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen overflow-x-hidden">
       <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col xl:ml-[292px]">
         <Topbar />
         {originalAdminSession && (
           <div className="px-4 pb-1 md:px-6">
@@ -67,6 +68,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         )}
         <main className="flex-1 px-3 pb-6 sm:px-4 md:px-6">{children}</main>
+        {!pathname.startsWith('/tickets') ? <AskAdminFab /> : null}
       </div>
     </div>
   )

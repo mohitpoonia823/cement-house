@@ -5,6 +5,7 @@ import { navItems, pageTitles } from './navigation'
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/store/auth'
 import { getDeferredInstallPrompt } from '@/lib/pwa-install'
+import { NotificationBell } from './NotificationBell'
 
 type InstallTarget = 'android' | 'ios' | 'desktop' | 'other'
 
@@ -32,7 +33,6 @@ function exportPageForPath(pathname: string) {
 }
 
 function exportLabel(page: string) {
-  if (page === 'dashboard' || page === 'reports') return 'Export PDF'
   return 'Export CSV'
 }
 
@@ -45,6 +45,7 @@ export function Topbar() {
   const page = exportPageForPath(pathname)
   const [isExporting, setIsExporting] = useState(false)
   const [installTarget, setInstallTarget] = useState<InstallTarget>('other')
+  const [isDarkMode, setIsDarkMode] = useState(false)
   const today = new Date().toLocaleDateString('en-IN', {
     weekday: 'long',
     day: 'numeric',
@@ -58,7 +59,8 @@ export function Topbar() {
       ? `${trialDaysRemaining} day${trialDaysRemaining === 1 ? '' : 's'} remaining in your free trial. Get a subscription to actively access the platform without interruption.`
       : 'Your free trial has ended. Subscribe now to keep accessing the full platform.'
   const mobileNavItems = navItems.filter((item) => {
-    if (item.group === 'workspace' || item.group === 'insights') return isOwner
+    if (item.group === 'workspace' && item.href !== '/tickets') return isOwner
+    if (item.group === 'insights') return isOwner
     if (isOwner) return true
     if (item.permissionId) return user?.permissions?.includes(item.permissionId)
     return true
@@ -70,6 +72,25 @@ export function Topbar() {
     const target = detectInstallTarget()
     setInstallTarget(standalone ? 'other' : target)
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const root = document.documentElement
+    const stored = window.localStorage.getItem('theme_preference')
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const shouldUseDark = stored ? stored === 'dark' : prefersDark
+    root.classList.toggle('dark', shouldUseDark)
+    setIsDarkMode(shouldUseDark)
+  }, [])
+
+  function toggleTheme() {
+    if (typeof window === 'undefined') return
+    const next = !isDarkMode
+    const root = document.documentElement
+    root.classList.toggle('dark', next)
+    window.localStorage.setItem('theme_preference', next ? 'dark' : 'light')
+    setIsDarkMode(next)
+  }
 
   async function handleExport() {
     try {
@@ -163,6 +184,23 @@ export function Topbar() {
           </div>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          <button
+            onClick={toggleTheme}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDarkMode ? (
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2.5M12 19.5V22M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M2 12h2.5M19.5 12H22M4.93 19.07l1.77-1.77M17.3 6.7l1.77-1.77" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3c0 0 0 0 0 0a7 7 0 0 0 9.79 9.79z" />
+              </svg>
+            )}
+          </button>
           {installTarget !== 'other' ? (
             <div className="group relative">
               <button
@@ -183,6 +221,7 @@ export function Topbar() {
           >
             {isExporting ? 'Exporting...' : exportLabel(page)}
           </button>
+          <NotificationBell />
           <Link
             href="/orders/new"
             className="hidden rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400 xl:inline-flex"

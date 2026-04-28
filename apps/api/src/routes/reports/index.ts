@@ -15,7 +15,15 @@ const DashboardQuerySchema = z.object({
   range: z.enum(['7d', '1m', '2m', '1y', 'custom']).default('7d'),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
+  recentOrdersLimit: z.coerce.number().int().min(1).max(50).optional(),
+  topCustomersLimit: z.coerce.number().int().min(1).max(50).optional(),
+  stockAlertsLimit: z.coerce.number().int().min(1).max(50).optional(),
 })
+
+function clampListLimit(value: number | undefined, fallback = 5) {
+  if (!value || Number.isNaN(value)) return fallback
+  return Math.min(50, Math.max(1, Math.trunc(value)))
+}
 
 function startOfDay(date: Date) {
   const next = new Date(date)
@@ -286,6 +294,11 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
   const now = new Date()
   const todayStart = startOfDay(now)
   const todayEnd = endOfDay(now)
+  const parsedQuery = DashboardQuerySchema.safeParse(queryInput)
+  const query = parsedQuery.success ? parsedQuery.data : DashboardQuerySchema.parse({})
+  const recentOrdersLimit = clampListLimit(query.recentOrdersLimit, 5)
+  const topCustomersLimit = clampListLimit(query.topCustomersLimit, 5)
+  const stockAlertsLimit = clampListLimit(query.stockAlertsLimit, 5)
   const range = dashboardRangeFromQuery(queryInput, now)
 
   const [todayOrders, todayCredits, rangeOrders, rangeCredits, previousOrders, previousCredits, materials, customers, deliveries] = await Promise.all([
@@ -400,7 +413,7 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
 
   const topCustomers = [...customerPerformance.values()]
     .sort((a, b) => b.totalSales - a.totalSales)
-    .slice(0, 5)
+    .slice(0, topCustomersLimit)
 
   const stockAlerts = materials
     .map((material: reportsRepository.MaterialRow) => {
@@ -419,7 +432,7 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
     })
     .filter((material: { status: string }) => material.status !== 'OK')
     .sort((a: { stockQty: number }, b: { stockQty: number }) => a.stockQty - b.stockQty)
-    .slice(0, 6)
+    .slice(0, stockAlertsLimit)
 
   const deliverySnapshot = deliveries.reduce(
     (acc: { total: number; SCHEDULED: number; IN_TRANSIT: number; DELIVERED: number; FAILED: number }, delivery: reportsRepository.DeliveryRow) => {
@@ -430,7 +443,7 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
     { total: 0, SCHEDULED: 0, IN_TRANSIT: 0, DELIVERED: 0, FAILED: 0 }
   )
 
-  const recentOrders = rangeOrders.slice(0, 6).map((order: reportsRepository.DashboardOrderRow) => ({
+  const recentOrders = rangeOrders.slice(0, recentOrdersLimit).map((order: reportsRepository.DashboardOrderRow) => ({
     id: order.id,
     orderNumber: order.orderNumber,
     customerName: order.customerName ?? 'Unknown customer',
@@ -504,6 +517,11 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
     stockAlerts,
     deliverySnapshot,
     recentOrders,
+    displayLimits: {
+      recentOrders: recentOrdersLimit,
+      topCustomers: topCustomersLimit,
+      stockAlerts: stockAlertsLimit,
+    },
   }
 }
 
@@ -523,63 +541,36 @@ export async function reportRoutes(app: FastifyInstance) {
 
     if (page === 'dashboard') {
       const dashboard = await loadDashboardData(bizId, req.query)
-      const fileName = `dashboard-${dashboard.range.exportSuffix}.pdf`
-      await createExportAuditLog(req, {
-        page,
-        format: 'pdf',
-        fileName,
-        label: `Dashboard snapshot - ${dashboard.range.label}`,
-        query: {
+      return sendCsv(
+        `dashboard-${dashboard.range.exportSuffix}.csv`,
+        csv(
+          ['Metric', 'Value'],
+          [
+            ['Range', dashboard.range.label],
+            ['Orders in selection', dashboard.summary.orderCount],
+            ['Total sales', dashboard.summary.totalSales],
+            ['Cash collected', dashboard.summary.cashCollected],
+            ['Outstanding', dashboard.summary.totalOutstanding],
+            ['Collection rate %', dashboard.summary.collectionRate],
+            ['Average order value', dashboard.summary.averageOrderValue],
+            ['Active customers in range', dashboard.summary.activeCustomersInRange],
+            ['Active materials', dashboard.summary.activeMaterials],
+            ['Low stock items', dashboard.summary.lowStockCount],
+            ['Today sales', dashboard.todaySnapshot.sales],
+            ['Today collected', dashboard.todaySnapshot.collected],
+            ['Today orders', dashboard.todaySnapshot.orderCount],
+            ['Sales delta %', dashboard.comparison.salesDeltaPct],
+            ['Collected delta %', dashboard.comparison.collectedDeltaPct],
+            ['Outstanding delta %', dashboard.comparison.outstandingDeltaPct],
+            ['Order delta %', dashboard.comparison.orderDeltaPct],
+          ]
+        ),
+        `Dashboard snapshot - ${dashboard.range.label}`,
+        {
           range: dashboard.range.preset,
           startDate: dashboard.range.startDate,
           endDate: dashboard.range.endDate,
-        },
-      })
-
-      return streamAnalyticsSnapshot(
-        {
-          title: 'Dashboard snapshot',
-          subtitle: `Operations and collection summary for ${dashboard.range.label}`,
-          generatedAt,
-          businessName: jwtUser.businessName ?? 'Cement House',
-          businessCity: jwtUser.businessCity ?? '',
-          metrics: [
-            { label: dashboard.range.label, value: `Rs. ${new Intl.NumberFormat('en-IN').format(dashboard.summary.totalSales)}` },
-            { label: 'Collections', value: `Rs. ${new Intl.NumberFormat('en-IN').format(dashboard.summary.cashCollected)}` },
-            { label: 'Outstanding', value: `Rs. ${new Intl.NumberFormat('en-IN').format(dashboard.summary.totalOutstanding)}` },
-            { label: 'Low stock items', value: String(dashboard.summary.lowStockCount) },
-          ],
-          sections: [
-            {
-              title: 'Recent orders',
-              rows: dashboard.recentOrders.length > 0
-                ? dashboard.recentOrders.map((order: { orderNumber: string; customerName: string; totalAmount: number }) => ({
-                    label: `${order.orderNumber} - ${order.customerName}`,
-                    value: `Rs. ${new Intl.NumberFormat('en-IN').format(order.totalAmount)}`,
-                  }))
-                : [{ label: 'No orders in selected period', value: 'N/A' }],
-            },
-            {
-              title: 'Top revenue accounts',
-              rows: dashboard.topCustomers.length > 0
-                ? dashboard.topCustomers.map((customer: { customerName: string; totalSales: number }) => ({
-                    label: customer.customerName,
-                    value: `Rs. ${new Intl.NumberFormat('en-IN').format(customer.totalSales)}`,
-                  }))
-                : [{ label: 'No customer activity in selected period', value: 'N/A' }],
-            },
-            {
-              title: 'Operational totals',
-              rows: [
-                { label: 'Orders in selection', value: String(dashboard.summary.orderCount) },
-                { label: 'Active customers billed', value: String(dashboard.summary.activeCustomersInRange) },
-                { label: 'Active materials', value: String(dashboard.summary.activeMaterials) },
-                { label: 'Low stock watchlist', value: dashboard.stockAlerts.map((item: { name: string }) => item.name).slice(0, 5).join(', ') || 'None' },
-              ],
-            },
-          ],
-        },
-        reply
+        }
       )
     }
 

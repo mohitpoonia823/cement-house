@@ -44,6 +44,12 @@ const BulkDeleteSchema = z.object({
   ids: z.array(z.string().uuid()).min(1),
 })
 
+function startOfDay(date: Date) {
+  const next = new Date(date)
+  next.setHours(0, 0, 0, 0)
+  return next
+}
+
 export async function orderRoutes(app: FastifyInstance) {
   app.get('/', async (req, reply) => {
     const bizId = getBizId(req)
@@ -87,6 +93,16 @@ export async function orderRoutes(app: FastifyInstance) {
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
     const { customerId, paymentMode, amountPaid, notes, items, deliveryDate } = body.data
+    if (deliveryDate) {
+      const parsedDeliveryDate = new Date(`${deliveryDate}T00:00:00`)
+      if (Number.isNaN(parsedDeliveryDate.getTime())) {
+        return reply.status(400).send({ success: false, error: 'Invalid delivery date' })
+      }
+      if (startOfDay(parsedDeliveryDate) < startOfDay(new Date())) {
+        return reply.status(400).send({ success: false, error: 'Delivery date cannot be earlier than order creation date' })
+      }
+    }
+
     const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
     const avgMargin = items.reduce((sum, item) => sum + marginPct(item.unitPrice, item.purchasePrice), 0) / items.length
 

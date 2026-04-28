@@ -10,6 +10,7 @@ export default function SuperAdminSetupPage() {
   const { login } = useAuthStore()
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [setupKey, setSetupKey] = useState('')
   const [error, setError] = useState('')
@@ -59,6 +60,7 @@ export default function SuperAdminSetupPage() {
       const res = await api.post('/api/auth/super-admin/setup', {
         name,
         phone,
+        email,
         password,
         setupKey,
       })
@@ -116,6 +118,19 @@ export default function SuperAdminSetupPage() {
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="9999999999"
                 maxLength={10}
+                required
+                disabled={!isAvailable}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">Email *</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="admin@cementhouse.com"
                 required
                 disabled={!isAvailable}
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
