@@ -36,6 +36,13 @@ function MenuIcon({ href, className = '' }: { href: string; className?: string }
       </svg>
     )
   }
+  if (href === '/imported-bills') {
+    return (
+      <svg {...common}>
+        <path d="M5 4h11l3 3v13H5zM8 9h8M8 13h8M8 17h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
   if (href === '/delivery') {
     return (
       <svg {...common}>

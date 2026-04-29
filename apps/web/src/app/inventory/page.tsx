@@ -5,10 +5,11 @@ import { Badge, statusBadge } from '@/components/ui/Badge'
 import { PageLoader }  from '@/components/ui/Spinner'
 import { useInventory, useStockIn, useCreateMaterial, useDeleteMaterial, useBulkDeleteMaterials } from '@/hooks/useInventory'
 import { fmt }         from '@/lib/utils'
-import { useState }    from 'react'
+import { useMemo, useState }    from 'react'
 import { useQuery }    from '@tanstack/react-query'
 import { api }         from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
+import { BillScanPanel } from '@/components/inventory/BillScanPanel'
 
 function useMovements(materialId: string) {
   return useQuery({
@@ -21,7 +22,7 @@ function useMovements(materialId: string) {
   })
 }
 
-const UNITS = ['bags', 'MT', 'feet', 'pieces', 'kg', 'litres']
+const DEFAULT_UNITS = ['bags', 'MT', 'ton', 'tons', 'tonne', 'tonnes', 'feet', 'cft', 'm3', 'pieces', 'kg', 'quintal', 'litres']
 
 export default function InventoryPage() {
   const { language } = useI18n()
@@ -35,6 +36,8 @@ export default function InventoryPage() {
   const [selectedId,  setSelectedId]  = useState('')
   const [showStockIn, setShowStockIn] = useState(false)
   const [showAddNew,  setShowAddNew]  = useState(false)
+  const [showBillScan, setShowBillScan] = useState(false)
+  const [billImportMessage, setBillImportMessage] = useState('')
   const [siQty,   setSiQty]   = useState('')
   const [siPrice, setSiPrice] = useState('')
   const [siNote,  setSiNote]  = useState('')
@@ -49,6 +52,16 @@ export default function InventoryPage() {
   // Bulk selection
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const list = materials ?? []
+  const unitOptions = useMemo(() => {
+    const merged = [...DEFAULT_UNITS, ...list.map((m: any) => String(m.unit ?? '').trim()).filter(Boolean)]
+    const seen = new Set<string>()
+    return merged.filter((unit) => {
+      const key = unit.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }, [list])
   const allSelected = list.length > 0 && selected.size === list.length
 
   function toggleOne(id: string) {
@@ -109,12 +122,35 @@ export default function InventoryPage() {
         title={language === 'hi' ? 'इन्वेंट्री नियंत्रण' : language === 'hinglish' ? 'Inventory control' : 'Inventory control'}
         description={language === 'hi' ? 'स्टॉक, रीप्लेनिशमेंट और प्राइसिंग को एक जगह से मैनेज करें।' : language === 'hinglish' ? 'Stock, replenishment aur pricing ek jagah manage karo.' : 'Balance stock health, replenishment activity, and pricing signals without losing the operational workflows.'}
         action={
-          <button onClick={() => setShowAddNew(true)}
-            className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950">
-            {language === 'hi' ? '+ मटेरियल जोड़ें' : language === 'hinglish' ? '+ Material add karo' : '+ Add material'}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => { setShowBillScan(s => !s); setShowAddNew(false); setBillImportMessage('') }}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-800 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800">
+              {showBillScan
+                ? (language === 'hi' ? 'स्कैनर बंद करें' : language === 'hinglish' ? 'Scanner band karo' : 'Close scanner')
+                : (language === 'hi' ? 'बिल स्कैन करें' : language === 'hinglish' ? 'Bill scan karo' : 'Scan bill')}
+            </button>
+            <button onClick={() => { setShowAddNew(true); setShowBillScan(false); setBillImportMessage('') }}
+              className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950">
+              {language === 'hi' ? '+ मटेरियल जोड़ें' : language === 'hinglish' ? '+ Material add karo' : '+ Add material'}
+            </button>
+          </div>
         }
       />
+
+      {billImportMessage && (
+        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">
+          {billImportMessage}
+        </div>
+      )}
+
+      {showBillScan && (
+        <BillScanPanel
+          materials={list}
+          units={unitOptions}
+          onClose={() => setShowBillScan(false)}
+          onImported={setBillImportMessage}
+        />
+      )}
 
       <MetricGrid className="mb-6">
         <MetricCard label={t('Active materials', 'सक्रिय मटेरियल')} value={String(list.length)} hint={t('Live catalog count', 'लाइव कैटलॉग संख्या')} />
@@ -139,7 +175,7 @@ export default function InventoryPage() {
                 <label className="block text-xs text-stone-500 mb-1">{t('Unit *', 'यूनिट *')}</label>
                 <select value={newForm.unit} onChange={e => setNewForm(p => ({ ...p, unit: e.target.value }))}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                  {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
               </div>
               <div>

@@ -83,8 +83,52 @@ Authorization: Bearer <jwt_token>
 |--------|--------------------------------|---------------------------------|-------|
 | GET    | /api/inventory                 | All materials with stock status | Both  |
 | POST   | /api/inventory/stock-in        | Add stock from supplier         | Both  |
+| POST   | /api/inventory/bill-scans      | Scan seller bill image into editable draft | Both |
+| GET    | /api/inventory/bill-scans/:id  | Get bill scan draft with match candidates | Both |
+| POST   | /api/inventory/bill-scans/:id/commit | Import reviewed bill lines into stock | Both |
 | POST   | /api/inventory/adjust          | Manual stock correction         | Owner |
 | GET    | /api/inventory/:id/movements   | Audit trail for one material    | Both  |
+
+### POST /api/inventory/bill-scans — body
+```json
+{
+  "fileName": "supplier-bill.jpg",
+  "dataUrl": "data:image/jpeg;base64,..."
+}
+```
+
+Returns an editable draft. Inventory is not changed until commit.
+
+Requires `GEMINI_API_KEY`; optional `GEMINI_BILL_SCAN_MODEL` defaults to `gemini-2.0-flash`.
+
+### POST /api/inventory/bill-scans/:id/commit — body
+```json
+{
+  "lines": [
+    {
+      "lineId": "uuid",
+      "action": "APPLY",
+      "materialId": "existing-material-uuid",
+      "unit": "bags",
+      "quantity": 200,
+      "purchasePrice": 250,
+      "lineTotal": 50000
+    },
+    {
+      "lineId": "uuid",
+      "action": "APPLY",
+      "createMaterial": {
+        "name": "New Cement Brand",
+        "unit": "bags",
+        "salePrice": 350
+      },
+      "unit": "bags",
+      "quantity": 100,
+      "purchasePrice": 260
+    }
+  ]
+}
+```
 
 ---
 
