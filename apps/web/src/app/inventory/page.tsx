@@ -56,6 +56,13 @@ export default function InventoryPage() {
 
   // Bulk selection
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    open: boolean
+    mode: 'single' | 'bulk'
+    id?: string
+    name?: string
+    ids?: string[]
+  }>({ open: false, mode: 'single' })
   const list = materials ?? []
   const unitOptions = useMemo(() => {
     const merged = [...unitPreset.all, ...list.map((m: any) => String(m.unit ?? '').trim()).filter(Boolean)]
@@ -115,19 +122,46 @@ export default function InventoryPage() {
   }
 
   function handleDelete(id: string, name: string) {
-    if (!confirm(`Delete "${name}" from ${terms.inventory.toLowerCase()}? It will be deactivated.`)) return
-    deleteMaterial.mutate(id, { onSuccess: () => {
-      setSelected(prev => { const n = new Set(prev); n.delete(id); return n })
-      if (selectedId === id) setSelectedId('')
-    }})
+    setDeleteConfirm({ open: true, mode: 'single', id, name })
   }
 
   function handleBulkDelete() {
-    if (!confirm(`Delete ${selected.size} selected ${terms.material.toLowerCase()}(s) from ${terms.inventory.toLowerCase()}?`)) return
-    bulkDelete.mutate([...selected], { onSuccess: () => {
-      setSelected(new Set())
-      if (selected.has(selectedId)) setSelectedId('')
-    }})
+    if (selected.size === 0) return
+    setDeleteConfirm({ open: true, mode: 'bulk', ids: [...selected] })
+  }
+
+  function closeDeleteConfirm() {
+    if (deleteMaterial.isPending || bulkDelete.isPending) return
+    setDeleteConfirm({ open: false, mode: 'single' })
+  }
+
+  function confirmDelete() {
+    if (deleteConfirm.mode === 'single' && deleteConfirm.id) {
+      const id = deleteConfirm.id
+      deleteMaterial.mutate(id, {
+        onSuccess: () => {
+          setSelected((prev) => {
+            const n = new Set(prev)
+            n.delete(id)
+            return n
+          })
+          if (selectedId === id) setSelectedId('')
+          setDeleteConfirm({ open: false, mode: 'single' })
+        },
+      })
+      return
+    }
+
+    if (deleteConfirm.mode === 'bulk' && deleteConfirm.ids && deleteConfirm.ids.length > 0) {
+      const ids = deleteConfirm.ids
+      bulkDelete.mutate(ids, {
+        onSuccess: () => {
+          setSelected(new Set())
+          if (selected.has(selectedId)) setSelectedId('')
+          setDeleteConfirm({ open: false, mode: 'single' })
+        },
+      })
+    }
   }
 
   const selectedMat = list.find((m: any) => m.id === selectedId)
@@ -454,6 +488,49 @@ export default function InventoryPage() {
           {language === 'hi' ? '+ स्टॉक जोड़ें' : language === 'hinglish' ? `+ ${terms.inventory} add karo` : `+ Add ${terms.inventory.toLowerCase()}`}
         </button>
       ) : null}
+
+      {deleteConfirm.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="text-lg font-semibold text-slate-950 dark:text-slate-100">
+              {t('Confirm deletion', 'हटाने की पुष्टि करें', 'Delete confirm karo')}
+            </div>
+            <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              {deleteConfirm.mode === 'single'
+                ? t(
+                    `Delete "${deleteConfirm.name ?? ''}" from ${terms.inventory.toLowerCase()}? It will be deactivated.`,
+                    `"${deleteConfirm.name ?? ''}" को ${terms.inventory.toLowerCase()} से हटाना है? यह निष्क्रिय हो जाएगा।`,
+                    `"${deleteConfirm.name ?? ''}" ko ${terms.inventory.toLowerCase()} se delete karna hai? Ye deactivate ho jayega.`
+                  )
+                : t(
+                    `Delete ${deleteConfirm.ids?.length ?? 0} selected ${terms.material.toLowerCase()}(s) from ${terms.inventory.toLowerCase()}?`,
+                    `${deleteConfirm.ids?.length ?? 0} चयनित ${terms.material.toLowerCase()}(s) को ${terms.inventory.toLowerCase()} से हटाना है?`,
+                    `${deleteConfirm.ids?.length ?? 0} selected ${terms.material.toLowerCase()}(s) ko ${terms.inventory.toLowerCase()} se delete karna hai?`
+                  )}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeDeleteConfirm}
+                disabled={deleteMaterial.isPending || bulkDelete.isPending}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                {t('Cancel', 'रद्द करें', 'Cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleteMaterial.isPending || bulkDelete.isPending}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {(deleteMaterial.isPending || bulkDelete.isPending)
+                  ? t('Deleting...', 'हटाया जा रहा है...', 'Delete ho raha hai...')
+                  : t('Delete', 'हटाएं', 'Delete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   )
 }
