@@ -508,12 +508,12 @@ export default function InventoryPage() {
                     `${deleteConfirm.ids?.length ?? 0} selected ${terms.material.toLowerCase()}(s) ko ${terms.inventory.toLowerCase()} se delete karna hai?`
                   )}
             </div>
-            <div className="mt-5 flex justify-end gap-2">
+            <div className="mt-5 flex justify-end gap-2 select-none">
               <button
                 type="button"
                 onClick={closeDeleteConfirm}
                 disabled={deleteMaterial.isPending || bulkDelete.isPending}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+                className="select-none rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
               >
                 {t('Cancel', 'रद्द करें', 'Cancel')}
               </button>
@@ -521,7 +521,7 @@ export default function InventoryPage() {
                 type="button"
                 onClick={confirmDelete}
                 disabled={deleteMaterial.isPending || bulkDelete.isPending}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                className="select-none rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-50"
               >
                 {(deleteMaterial.isPending || bulkDelete.isPending)
                   ? t('Deleting...', 'हटाया जा रहा है...', 'Delete ho raha hai...')

@@ -261,6 +261,23 @@ export async function orderRoutes(app: FastifyInstance) {
       return { success: true }
     }
 
+    if (body.data.status === 'CANCELLED') {
+      try {
+        await ordersRepository.cancelOrderWithReversal(params.data.id, bizId)
+      } catch (error: any) {
+        if (error?.message === 'ORDER_NOT_FOUND') return reply.status(404).send({ success: false, error: 'Order not found' })
+        if (error?.message === 'DELIVERED_ORDER_CANNOT_BE_CANCELLED') {
+          return reply.status(409).send({
+            success: false,
+            error: 'Delivered orders cannot be cancelled. Create a return/credit note flow instead.',
+          })
+        }
+        throw error
+      }
+      invalidateOrderCachesForBusiness(bizId)
+      return { success: true }
+    }
+
     const updated = await ordersRepository.setOrderStatus(params.data.id, bizId, body.data.status)
     if (!updated) return reply.status(404).send({ success: false, error: 'Order not found' })
     invalidateOrderCachesForBusiness(bizId)
@@ -274,8 +291,12 @@ export async function orderRoutes(app: FastifyInstance) {
 
     const order = await ordersRepository.getOrderDetail(params.data.id, bizId)
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
-
-    await ordersRepository.softDeleteOrder(params.data.id, bizId)
+    try {
+      await ordersRepository.softDeleteOrder(params.data.id, bizId)
+    } catch (error: any) {
+      if (error?.message === 'ORDER_NOT_FOUND') return reply.status(404).send({ success: false, error: 'Order not found' })
+      throw error
+    }
     invalidateOrderCachesForBusiness(bizId)
     return { success: true }
   })

@@ -4,7 +4,7 @@ import { Card, MetricCard, MetricGrid, SectionHeader } from '@/components/ui/Car
 import { Badge, statusBadge } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/Spinner'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { useOrders, useDeleteOrder, useBulkDeleteOrders } from '@/hooks/useOrders'
+import { useOrders, useDeleteOrder, useBulkDeleteOrders, useUpdateOrderStatus } from '@/hooks/useOrders'
 import { fmt, fmtDate } from '@/lib/utils'
 import { useI18n } from '@/lib/i18n'
 import { useAuthStore } from '@/store/auth'
@@ -104,11 +104,21 @@ function OrdersContent() {
   const { data, isLoading } = useOrders({ status: status === 'ALL' ? undefined : status } as any)
   const deleteOrder = useDeleteOrder()
   const bulkDelete = useBulkDeleteOrders()
+  const updateStatus = useUpdateOrderStatus()
   const orders = data?.items ?? []
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [alert, setAlert] = useState<{ tone: 'success' | 'danger'; message: string } | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    open: boolean
+    mode: 'single' | 'bulk'
+    id?: string
+    orderNumber?: string
+    ids?: string[]
+  }>({ open: false, mode: 'single' })
+  const [cancelConfirm, setCancelConfirm] = useState<{ open: boolean; id?: string; orderNumber?: string }>({ open: false })
   const allSelected = orders.length > 0 && selected.size === orders.length
+  const selectedOrders = useMemo(() => orders.filter((o: any) => selected.has(o.id)), [orders, selected])
 
   useEffect(() => {
     const message = sessionStorage.getItem('orders_success_message')
@@ -141,34 +151,80 @@ function OrdersContent() {
     }
   }
 
-  function handleDelete(id: string, orderNumber: string) {
-    if (!confirm(`${tr.del} ${orderNumber}? ${tr.deleteHint}`)) return
-    deleteOrder.mutate(id, {
-      onSuccess: () => {
-        setSelected((prev) => {
-          const n = new Set(prev)
-          n.delete(id)
-          return n
-        })
-        setAlert({ tone: 'success', message: tr.orderDeleted })
-      },
-      onError: (error: any) => {
-        setAlert({ tone: 'danger', message: error?.response?.data?.error ?? tr.deleteFailed })
-      },
-    })
+  function handleDelete(id: string, orderNumber: string, status: string) {
+    setDeleteConfirm({ open: true, mode: 'single', id, orderNumber })
   }
 
   function handleBulkDelete() {
-    if (!confirm(`${tr.del} ${selected.size}? ${tr.deleteSelectedHint}`)) return
-    bulkDelete.mutate([...selected], {
-      onSuccess: () => {
-        setSelected(new Set())
-        setAlert({ tone: 'success', message: tr.orderDeleted })
-      },
-      onError: (error: any) => {
-        setAlert({ tone: 'danger', message: error?.response?.data?.error ?? tr.deleteSelectedFailed })
-      },
-    })
+    if (selected.size === 0) return
+    setDeleteConfirm({ open: true, mode: 'bulk', ids: [...selected] })
+  }
+
+  function closeDeleteConfirm() {
+    if (deleteOrder.isPending || bulkDelete.isPending) return
+    setDeleteConfirm({ open: false, mode: 'single' })
+  }
+
+  function confirmDelete() {
+    if (deleteConfirm.mode === 'single' && deleteConfirm.id) {
+      const id = deleteConfirm.id
+      deleteOrder.mutate(id, {
+        onSuccess: () => {
+          setSelected((prev) => {
+            const n = new Set(prev)
+            n.delete(id)
+            return n
+          })
+          setAlert({ tone: 'success', message: tr.orderDeleted })
+          setDeleteConfirm({ open: false, mode: 'single' })
+        },
+        onError: (error: any) => {
+          setAlert({ tone: 'danger', message: error?.response?.data?.error ?? tr.deleteFailed })
+          setDeleteConfirm({ open: false, mode: 'single' })
+        },
+      })
+      return
+    }
+
+    if (deleteConfirm.mode === 'bulk' && deleteConfirm.ids && deleteConfirm.ids.length > 0) {
+      bulkDelete.mutate(deleteConfirm.ids, {
+        onSuccess: () => {
+          setSelected(new Set())
+          setAlert({ tone: 'success', message: tr.orderDeleted })
+          setDeleteConfirm({ open: false, mode: 'single' })
+        },
+        onError: (error: any) => {
+          setAlert({ tone: 'danger', message: error?.response?.data?.error ?? tr.deleteSelectedFailed })
+          setDeleteConfirm({ open: false, mode: 'single' })
+        },
+      })
+    }
+  }
+
+  function openCancelConfirm(id: string, orderNumber: string) {
+    setCancelConfirm({ open: true, id, orderNumber })
+  }
+
+  function closeCancelConfirm() {
+    if (updateStatus.isPending) return
+    setCancelConfirm({ open: false })
+  }
+
+  function confirmCancelOrder() {
+    if (!cancelConfirm.id) return
+    updateStatus.mutate(
+      { id: cancelConfirm.id, status: 'CANCELLED' },
+      {
+        onSuccess: () => {
+          setAlert({ tone: 'success', message: t('Order cancelled successfully', 'ऑर्डर सफलतापूर्वक रद्द किया गया।', 'Order successfully cancel ho gaya.') })
+          setCancelConfirm({ open: false })
+        },
+        onError: (error: any) => {
+          setAlert({ tone: 'danger', message: error?.response?.data?.error ?? t('Failed to cancel order', 'ऑर्डर रद्द करने में समस्या हुई।', 'Order cancel karne me problem hui.') })
+          setCancelConfirm({ open: false })
+        },
+      }
+    )
   }
 
   return (
@@ -220,13 +276,22 @@ function OrdersContent() {
 
       {alert ? (
         <div
-          className={`mb-4 rounded-lg border px-4 py-2 text-sm ${
-            alert.tone === 'success'
+          className={`mb-4 rounded-lg border px-4 py-2 text-sm ${alert.tone === 'success'
               ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-950/30 dark:text-emerald-200'
               : 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-500/30 dark:bg-rose-950/30 dark:text-rose-200'
-          }`}
+            }`}
         >
-          {alert.message}
+          <div className="flex items-center justify-between gap-3">
+            <span>{alert.message}</span>
+            <button
+              type="button"
+              onClick={() => setAlert(null)}
+              className="rounded px-2 py-0.5 text-xs font-semibold opacity-80 hover:opacity-100"
+              aria-label={t('Dismiss alert', 'अलर्ट बंद करें', 'Alert band karo')}
+            >
+              ×
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -239,11 +304,10 @@ function OrdersContent() {
                 setStatus(s)
                 setSelected(new Set())
               }}
-              className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
-                status === s
+              className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${status === s
                   ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950'
                   : 'border border-slate-200 bg-white/75 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300'
-              }`}
+                }`}
             >
               {statusLabels[s]}
             </button>
@@ -314,15 +378,24 @@ function OrdersContent() {
                   return (
                     <tr
                       key={o.id}
-                      className={`last:border-0 border-b border-stone-50 transition-colors dark:border-stone-800 ${
-                        isSelected ? 'bg-sky-50 dark:bg-sky-950/30' : 'hover:bg-slate-50/80 dark:hover:bg-slate-900/40'
-                      }`}
+                      onClick={() => router.push(`/orders/${o.id}`)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          router.push(`/orders/${o.id}`)
+                        }
+                      }}
+                      className={`last:border-0 border-b border-stone-50 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:border-stone-800 ${isSelected ? 'bg-sky-50 dark:bg-sky-900/40' : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/70'
+                        }`}
                     >
                       <td className="py-2.5 pr-2">
                         <input
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleOne(o.id)}
+                          onClick={(e) => e.stopPropagation()}
                           className="cursor-pointer rounded border-stone-300 text-blue-600 focus:ring-blue-500"
                         />
                       </td>
@@ -340,12 +413,32 @@ function OrdersContent() {
                         <Badge variant={statusBadge(o.status)}>{statusLabels[o.status as keyof typeof statusLabels] ?? o.status}</Badge>
                       </td>
                       <td className="py-2.5">
-                        <div className="flex gap-2">
-                          <Link href={`/orders/${o.id}`} className="text-blue-500 hover:underline">
-                            {tr.view}
-                          </Link>
-                          <button onClick={() => handleDelete(o.id, o.orderNumber)} className="text-red-400 transition-colors hover:text-red-600">
-                            {tr.del}
+                        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => router.push(`/orders/${o.id}`)}
+                            title={t('Open order', 'ऑर्डर खोलें', 'Order kholo')}
+                            aria-label={t('Open order', 'ऑर्डर खोलें', 'Order kholo')}
+                            className="rounded-md p-1.5 text-sky-600 transition-colors hover:bg-sky-50 hover:text-sky-700 dark:text-sky-400 dark:hover:bg-sky-950/40"
+                          >
+                            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M12 20h9" />
+                              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(o.id, o.orderNumber, o.status)}
+                            title={t('Delete order', 'ऑर्डर हटाएं', 'Order delete karo')}
+                            aria-label={t('Delete order', 'ऑर्डर हटाएं', 'Order delete karo')}
+                            className="rounded-md p-1.5 text-rose-500 transition-colors hover:bg-rose-50 hover:text-rose-600 dark:text-rose-400 dark:hover:bg-rose-950/40"
+                          >
+                            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M3 6h18" />
+                              <path d="M8 6V4h8v2" />
+                              <path d="M19 6l-1 14H6L5 6" />
+                              <path d="M10 11v6M14 11v6" />
+                            </svg>
                           </button>
                         </div>
                       </td>
@@ -357,6 +450,119 @@ function OrdersContent() {
           </div>
         )}
       </Card>
+
+      {deleteConfirm.open ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex items-start justify-between gap-3">
+              <div className="text-lg font-semibold text-slate-950 dark:text-slate-100">
+                {t('????? ?? ?????? ????', '????? ?? ?????? ????', 'Delete confirm karo')}
+              </div>
+              <button
+                type="button"
+                onClick={closeDeleteConfirm}
+                disabled={deleteOrder.isPending || bulkDelete.isPending}
+                className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                aria-label={t('Close', 'Close', 'Close')}
+              >
+                &times;
+              </button>
+            </div>
+            <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              {(() => {
+                if (deleteConfirm.mode === 'single') {
+                  const target = orders.find((o: any) => o.id === deleteConfirm.id)
+                  const deliveredWarning = target?.status === 'DELIVERED'
+                    ? t('Delivered order: inventory will not be restored. If due is pending, khata entries stay linked to this soft-deleted order.', '?? ???????? ????? ??? ????????? ???? ???? ????? ????? ???? ?? ???? ?????? ???? ??????', 'Delivered order hai: inventory restore nahi hoga. Agar due pending hai to khata entries is soft-deleted order se linked rahengi.')
+                    : t('Non-delivered order: inventory will be restored and related khata/ledger entries will be removed.', 'Non-delivered order: inventory will be restored and related khata/ledger entries will be removed.', 'Non-delivered order: inventory restore hoga aur related khata/ledger entries remove hongi.')
+                  return `${tr.del} ${deleteConfirm.orderNumber}? ${deliveredWarning}`
+                }
+
+                const count = deleteConfirm.ids?.length ?? 0
+                const deliveredCount = selectedOrders.filter((o: any) => o.status === 'DELIVERED').length
+                if (count === 1 && selectedOrders[0]?.orderNumber) {
+                  const deliveredWarning = selectedOrders[0].status === 'DELIVERED'
+                    ? t('Delivered order: inventory will not be restored. If due is pending, khata entries stay linked to this soft-deleted order.', '?? ???????? ????? ??? ????????? ???? ???? ????? ????? ???? ?? ???? ?????? ???? ??????', 'Delivered order hai: inventory restore nahi hoga. Agar due pending hai to khata entries is soft-deleted order se linked rahengi.')
+                    : t('Non-delivered order: inventory will be restored and related khata/ledger entries will be removed.', 'Non-delivered order: inventory will be restored and related khata/ledger entries will be removed.', 'Non-delivered order: inventory restore hoga aur related khata/ledger entries remove hongi.')
+                  return `${tr.del} ${selectedOrders[0].orderNumber}? ${deliveredWarning}`
+                }
+                if (deliveredCount > 0) {
+                  return t(
+                    `Delete ${count} selected orders? Includes ${deliveredCount} delivered order(s): delivered inventory will not be restored and pending khata remains linked. Non-delivered inventory will be restored and related khata/ledger entries will be removed.`,
+                    `${count} चयनित ऑर्डर हटाने हैं? इनमें ${deliveredCount} डिलीवर्ड ऑर्डर शामिल हैं; बिक्री, स्टॉक और लेजर प्रभाव हट जाएगा।`,
+                    `${count} selected orders delete karne hain? ${deliveredCount} delivered orders included hain: delivered inventory restore nahi hoga aur pending khata linked rahega. Non-delivered inventory restore hoga aur related khata/ledger entries remove hongi.`
+                  )
+                }
+                return `${tr.del} ${count}? ${t('Non-delivered order: inventory will be restored and related khata/ledger entries will be removed.', 'Non-delivered order: inventory will be restored and related khata/ledger entries will be removed.', 'Non-delivered order: inventory restore hoga aur related khata/ledger entries remove hongi.')}`
+              })()}
+            </div>
+            <div className="mt-5 flex justify-end gap-2 select-none">
+              <button
+                type="button"
+                onClick={closeDeleteConfirm}
+                disabled={deleteOrder.isPending || bulkDelete.isPending}
+                className="select-none rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                {t('Cancel', 'रद्द करें', 'Cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleteOrder.isPending || bulkDelete.isPending}
+                className="select-none rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-50"
+              >
+                {deleteOrder.isPending || bulkDelete.isPending ? tr.deleting : tr.del}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {cancelConfirm.open ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex items-start justify-between gap-3">
+              <div className="text-lg font-semibold text-slate-950 dark:text-slate-100">
+                {t('???? ???? ?? ?????? ????', '???? ???? ?? ?????? ????', 'Cancel confirm karo')}
+              </div>
+              <button
+                type="button"
+                onClick={closeCancelConfirm}
+                disabled={updateStatus.isPending}
+                className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                aria-label={t('Close', 'Close', 'Close')}
+              >
+                &times;
+              </button>
+            </div>
+            <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              {t(
+                `Cancel ${cancelConfirm.orderNumber}? This will reverse stock and remove related ledger/order entries.`,
+                `${cancelConfirm.orderNumber} को रद्द करना है? इससे स्टॉक रिवर्स होगा और संबंधित लेजर/ऑर्डर प्रभाव हटेगा।`,
+                `${cancelConfirm.orderNumber} cancel karna hai? Isse stock reverse hoga aur related ledger/order impact remove hoga.`
+              )}
+            </div>
+            <div className="mt-5 flex justify-end gap-2 select-none">
+              <button
+                type="button"
+                onClick={closeCancelConfirm}
+                disabled={updateStatus.isPending}
+                className="select-none rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                {t('Keep order', 'ऑर्डर रखें', 'Order rakho')}
+              </button>
+              <button
+                type="button"
+                onClick={confirmCancelOrder}
+                disabled={updateStatus.isPending}
+                className="select-none rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-50"
+              >
+                {updateStatus.isPending ? t('Cancelling...', 'रद्द किया जा रहा है...', 'Cancel ho raha hai...') : t('Cancel order', 'ऑर्डर रद्द करें', 'Order cancel karo')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {data?.total > 0 && <div className="mt-3 text-right text-xs text-stone-400">{data.total} {tr.totalOrdersSuffix}</div>}
 
@@ -387,3 +593,4 @@ function OrdersContent() {
     </AppShell>
   )
 }
+
