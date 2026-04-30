@@ -144,7 +144,7 @@ export async function scanPurchaseBillImage(input: {
             },
             {
               text: [
-                'You extract purchase bill data for a construction material inventory system.',
+                'You extract purchase bill data for a business inventory system.',
                 'Read the attached seller invoice/bill image and return ONLY a JSON object.',
                 'Extract only actual material/product line items. Ignore freight, loading, round-off, discounts, tax rows, totals, and payment notes as items.',
                 'For every item, preserve the bill description, quantity, unit, per-unit buying price, line total, and a confidence score.',

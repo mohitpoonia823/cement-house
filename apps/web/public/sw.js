@@ -1,5 +1,5 @@
-// Service Worker — Cement House PWA
-const CACHE_NAME = 'cement-house-v1'
+// Service Worker - Business Hub PWA
+const CACHE_NAME = 'business-hub-v1'
 
 // Cache essential assets on install
 self.addEventListener('install', (event) => {
@@ -24,7 +24,7 @@ self.addEventListener('activate', (event) => {
   self.clients.claim()
 })
 
-// Network-first strategy — try network, fall back to cache
+// Network-first strategy - try network, fall back to cache
 self.addEventListener('fetch', (event) => {
   // Skip non-GET requests and API calls
   if (event.request.method !== 'GET') return

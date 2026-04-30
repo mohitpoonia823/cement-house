@@ -33,9 +33,19 @@ const RegisterSchema = z.object({
   password: z.string().min(6),
   role: z.enum(['OWNER', 'MUNIM']).default('OWNER'),
   businessName: z.string().min(2),
+  businessType: z.enum(['GENERAL', 'CEMENT', 'HARDWARE_SANITARY', 'KIRYANA', 'CUSTOM']).default('GENERAL'),
+  customBusinessTypeName: z.string().trim().min(2).max(60).optional(),
   city: z.string().min(2),
   businessPhone: z.string().min(10).max(10).optional(),
   address: z.string().optional(),
+}).superRefine((value, ctx) => {
+  if (value.businessType === 'CUSTOM' && !value.customBusinessTypeName) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['customBusinessTypeName'],
+      message: 'Custom business type name is required',
+    })
+  }
 })
 
 const SuperAdminSetupSchema = z.object({
@@ -77,6 +87,8 @@ function buildAuthUser(user: {
   business?: {
     name: string
     city: string
+    businessType?: string | null
+    customLabels?: Record<string, string> | null
     subscriptionStatus: string
     subscriptionEndsAt: Date | null
     subscriptionInterval: 'MONTHLY' | 'YEARLY' | null
@@ -98,6 +110,8 @@ function buildAuthUser(user: {
     businessId: user.businessId ?? null,
     businessName: user.business?.name ?? null,
     businessCity: user.business?.city ?? null,
+    businessType: user.business?.businessType ?? 'GENERAL',
+    customLabels: user.business?.customLabels ?? null,
     permissions: user.permissions,
     subscriptionStatus: user.business?.subscriptionStatus ?? null,
     subscriptionEndsAt: user.business?.subscriptionEndsAt?.toISOString?.() ?? null,
@@ -112,18 +126,18 @@ function buildAuthUser(user: {
 }
 
 async function sendPasswordResetEmail(email: string, resetUrl: string) {
-  const subject = 'Reset your Cement House password'
+  const subject = 'Reset your Business Hub password'
   const text = [
     'Hello,',
     '',
-    'We received a request to reset your Cement House password.',
+    'We received a request to reset your Business Hub password.',
     `Reset link: ${resetUrl}`,
     'This link expires in 30 minutes.',
     'If you did not request this, you can ignore this email.',
   ].join('\n')
   const html = `
     <p>Hello,</p>
-    <p>We received a request to reset your Cement House password.</p>
+    <p>We received a request to reset your Business Hub password.</p>
     <p><a href="${resetUrl}">Click here to reset your password</a></p>
     <p>This link expires in 30 minutes.</p>
     <p>If you did not request this, you can ignore this email.</p>
@@ -399,6 +413,11 @@ export async function authRoutes(app: FastifyInstance) {
       const business = await tx.business.create({
         data: {
           name: body.data.businessName,
+          businessType: body.data.businessType,
+          customLabels:
+            body.data.businessType === 'CUSTOM' && body.data.customBusinessTypeName
+              ? ({ businessTypeName: body.data.customBusinessTypeName } as Prisma.JsonObject)
+              : undefined,
           city: body.data.city,
           phone: body.data.businessPhone || body.data.phone,
           address: body.data.address || undefined,

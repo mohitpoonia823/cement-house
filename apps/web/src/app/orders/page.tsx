@@ -7,6 +7,8 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { useOrders, useDeleteOrder, useBulkDeleteOrders } from '@/hooks/useOrders'
 import { fmt, fmtDate } from '@/lib/utils'
 import { useI18n } from '@/lib/i18n'
+import { useAuthStore } from '@/store/auth'
+import { businessTerms } from '@/lib/business-terms'
 import Link from 'next/link'
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
@@ -30,8 +32,10 @@ export default function OrdersPage() {
 }
 
 function OrdersContent() {
+  const { user } = useAuthStore()
   const { language } = useI18n()
   const t = (en: string, hi: string, hinglish?: string) => (language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en)
+  const terms = businessTerms(user?.businessType as any, user?.customLabels as any)
 
   const tr = {
     eyebrow: t('Order analytics', 'ऑर्डर विश्लेषण'),
@@ -72,8 +76,8 @@ function OrdersContent() {
       orderNo: t('Order #', 'ऑर्डर #'),
       orderDate: t('Order Date', 'ऑर्डर तिथि'),
       deliveryDate: t('Delivery Date', 'डिलीवरी तिथि'),
-      customer: t('Customer', 'ग्राहक'),
-      items: t('Items', 'आइटम'),
+      customer: language === 'hi' ? 'ग्राहक' : terms.customer,
+      items: language === 'hi' ? 'आइटम' : `${terms.material}s`,
       amount: t('Amount', 'राशि'),
       paid: t('Paid', 'भुगतान'),
       due: t('Due', 'बकाया'),

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { startTransition, useEffect, useState, Suspense } from 'react'
 import Link from 'next/link'
@@ -13,6 +13,7 @@ import { useDashboard } from '@/hooks/useDashboard'
 import { cn, fmt, fmtDate } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth'
 import { useI18n } from '@/lib/i18n'
+import { businessTerms } from '@/lib/business-terms'
 
 const RevenueRhythmChart = dynamic(
   () => import('@/components/dashboard/DashboardCharts').then((mod) => mod.RevenueRhythmChart),
@@ -112,6 +113,7 @@ function DashboardContent() {
 
   const { data, isLoading } = useDashboard(dashboardQuery)
   const { user } = useAuthStore()
+  const terms = businessTerms(user?.businessType as any, user?.customLabels as any)
   const { data: customers } = useCustomers(undefined, { enabled: user?.role === 'OWNER' })
   const sendReminders = useSendReminders()
 
@@ -397,8 +399,8 @@ function DashboardContent() {
         <Card>
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{tr('Customer concentration', 'ग्राहक संकेंद्रण', 'Customer concentration')}</div>
-              <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">{tr('Top revenue accounts', 'टॉप रेवेन्यू अकाउंट्स', 'Top revenue accounts')}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{tr(`${terms.customer} concentration`, 'ग्राहक संकेंद्रण', `${terms.customer} concentration`)}</div>
+              <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">{tr(`Top revenue ${terms.customer.toLowerCase()}`, 'टॉप रेवेन्यू अकाउंट्स', `Top revenue ${terms.customer.toLowerCase()}`)}</div>
             </div>
             <div className="shrink-0 pt-0.5">
               <SectionLimitSelect
@@ -427,8 +429,8 @@ function DashboardContent() {
             </div>
           ) : (
             <EmptyDashboardState
-              title={tr('No customer billing in this range', 'इस रेंज में ग्राहक बिलिंग नहीं', 'Is range me customer billing nahi')}
-              description={tr('Top accounts will appear here once orders are present in the selected period.', 'चयनित अवधि में ऑर्डर आते ही टॉप अकाउंट्स यहां दिखेंगे।', 'Selected period me orders aate hi top accounts yahan dikhenge.')}
+              title={tr(`No ${terms.customer.toLowerCase()} billing in this range`, 'इस रेंज में ग्राहक बिलिंग नहीं', `Is range me ${terms.customer.toLowerCase()} billing nahi`)}
+              description={tr(`Top ${terms.customer.toLowerCase()} will appear here once orders are present in the selected period.`, 'चयनित अवधि में ऑर्डर आते ही टॉप अकाउंट्स यहां दिखेंगे।', `Selected period me orders aate hi top ${terms.customer.toLowerCase()} yahan dikhenge.`)}
             />
           )}
         </Card>
@@ -436,8 +438,8 @@ function DashboardContent() {
         <Card>
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{tr('Inventory watch', 'इन्वेंट्री वॉच', 'Inventory watch')}</div>
-              <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">{tr('Items needing attention', 'ध्यान देने योग्य आइटम', 'Items needing attention')}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{tr(`${terms.inventory} watch`, 'इन्वेंट्री वॉच', `${terms.inventory} watch`)}</div>
+              <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">{tr(`${terms.material}s needing attention`, 'ध्यान देने योग्य आइटम', `${terms.material}s needing attention`)}</div>
             </div>
             <div className="shrink-0 pt-0.5">
               <SectionLimitSelect
@@ -466,8 +468,8 @@ function DashboardContent() {
               ))
             ) : (
               <EmptyDashboardState
-                title={tr('All tracked items are healthy', 'सभी ट्रैक किए गए आइटम स्वस्थ हैं', 'All tracked items are healthy')}
-                description={tr('No low-stock or out-of-stock materials need action right now.', 'अभी किसी लो-स्टॉक या आउट-ऑफ-स्टॉक मैटेरियल पर कार्रवाई की जरूरत नहीं है।', 'Abhi kisi low-stock ya out-of-stock material par action ki zarurat nahi hai.')}
+                title={tr(`All tracked ${terms.material.toLowerCase()}s are healthy`, 'सभी ट्रैक किए गए आइटम स्वस्थ हैं', `All tracked ${terms.material.toLowerCase()}s are healthy`)}
+                description={tr(`No low-${terms.inventory.toLowerCase()} or out-of-${terms.inventory.toLowerCase()} ${terms.material.toLowerCase()}s need action right now.`, 'अभी किसी लो-स्टॉक या आउट-ऑफ-स्टॉक मैटेरियल पर कार्रवाई की जरूरत नहीं है।', `Abhi kisi low-${terms.inventory.toLowerCase()} ya out-of-${terms.inventory.toLowerCase()} ${terms.material.toLowerCase()} par action ki zarurat nahi hai.`)}
               />
             )}
           </div>
@@ -636,3 +638,4 @@ export default function DashboardPage() {
     </Suspense>
   )
 }
+

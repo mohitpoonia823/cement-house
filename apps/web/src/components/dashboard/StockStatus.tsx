@@ -31,7 +31,7 @@ export function StockStatus() {
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs font-medium text-gray-900 dark:text-gray-100">Stock status</span>
-        <Link href="/inventory" className="text-xs text-blue-500 cursor-pointer hover:text-blue-600">Manage →</Link>
+        <Link href="/inventory" className="text-xs text-blue-500 cursor-pointer hover:text-blue-600">Manage -></Link>
       </div>
 
       {/* Material rows */}
@@ -64,7 +64,7 @@ export function StockStatus() {
 
       {/* Footer */}
       <div className="border-t border-gray-100 dark:border-gray-700 pt-3 mt-1 flex justify-between items-center">
-        <span className="text-[11px] text-gray-400">{materials.length} materials tracked</span>
+        <span className="text-[11px] text-gray-400">{materials.length} items tracked</span>
         <Link href="/inventory" className="border border-gray-200 dark:border-gray-600 text-[11px] px-2.5 py-1 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
           + Add purchase
         </Link>

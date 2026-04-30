@@ -5,11 +5,13 @@ import { Badge, statusBadge } from '@/components/ui/Badge'
 import { PageLoader }  from '@/components/ui/Spinner'
 import { useInventory, useStockIn, useCreateMaterial, useDeleteMaterial, useBulkDeleteMaterials } from '@/hooks/useInventory'
 import { fmt }         from '@/lib/utils'
-import { useMemo, useState }    from 'react'
+import { useEffect, useMemo, useRef, useState }    from 'react'
 import { useQuery }    from '@tanstack/react-query'
 import { api }         from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 import { BillScanPanel } from '@/components/inventory/BillScanPanel'
+import { useAuthStore } from '@/store/auth'
+import { businessTerms, businessUnitOptions, splitPreferredUnits } from '@/lib/business-terms'
 
 function useMovements(materialId: string) {
   return useQuery({
@@ -22,11 +24,12 @@ function useMovements(materialId: string) {
   })
 }
 
-const DEFAULT_UNITS = ['bags', 'MT', 'ton', 'tons', 'tonne', 'tonnes', 'feet', 'cft', 'm3', 'pieces', 'kg', 'quintal', 'litres']
-
 export default function InventoryPage() {
+  const { user } = useAuthStore()
   const { language } = useI18n()
   const t = (en: string, hi: string, hinglish?: string) => (language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en)
+  const terms = businessTerms(user?.businessType as any, user?.customLabels as any)
+  const unitPreset = businessUnitOptions(user?.businessType as any)
   const { data: materials, isLoading } = useInventory()
   const stockIn        = useStockIn()
   const createMaterial = useCreateMaterial()
@@ -42,10 +45,12 @@ export default function InventoryPage() {
   const [siPrice, setSiPrice] = useState('')
   const [siNote,  setSiNote]  = useState('')
   const [siError, setSiError] = useState('')
+  const stockInPanelRef = useRef<HTMLDivElement | null>(null)
+  const inventoryContentRef = useRef<HTMLDivElement | null>(null)
 
   // New material form
   const [newForm, setNewForm] = useState({
-    name: '', unit: 'bags', stockQty: '', minThreshold: '', maxThreshold: '', purchasePrice: '', salePrice: ''
+    name: '', unit: unitPreset.defaultUnit, stockQty: '', minThreshold: '', maxThreshold: '', purchasePrice: '', salePrice: ''
   })
   const [newError, setNewError] = useState('')
 
@@ -53,7 +58,7 @@ export default function InventoryPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const list = materials ?? []
   const unitOptions = useMemo(() => {
-    const merged = [...DEFAULT_UNITS, ...list.map((m: any) => String(m.unit ?? '').trim()).filter(Boolean)]
+    const merged = [...unitPreset.all, ...list.map((m: any) => String(m.unit ?? '').trim()).filter(Boolean)]
     const seen = new Set<string>()
     return merged.filter((unit) => {
       const key = unit.toLowerCase()
@@ -61,8 +66,20 @@ export default function InventoryPage() {
       seen.add(key)
       return true
     })
-  }, [list])
+  }, [list, unitPreset.all])
+  const { preferred: preferredUnits, others: otherUnits } = useMemo(
+    () => splitPreferredUnits(unitOptions, unitPreset.preferred),
+    [unitOptions, unitPreset.preferred]
+  )
   const allSelected = list.length > 0 && selected.size === list.length
+
+  useEffect(() => {
+    setNewForm((prev) => {
+      const hasCurrent = unitOptions.some((u) => u.toLowerCase() === String(prev.unit).toLowerCase())
+      if (hasCurrent) return prev
+      return { ...prev, unit: unitPreset.defaultUnit }
+    })
+  }, [unitOptions, unitPreset.defaultUnit])
 
   function toggleOne(id: string) {
     setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -93,12 +110,12 @@ export default function InventoryPage() {
         salePrice: Number(newForm.salePrice || 0),
       })
       setShowAddNew(false)
-      setNewForm({ name: '', unit: 'bags', stockQty: '', minThreshold: '', maxThreshold: '', purchasePrice: '', salePrice: '' })
-    } catch (err: any) { setNewError(err.response?.data?.error ?? 'Failed to create material') }
+      setNewForm({ name: '', unit: unitPreset.defaultUnit, stockQty: '', minThreshold: '', maxThreshold: '', purchasePrice: '', salePrice: '' })
+    } catch (err: any) { setNewError(err.response?.data?.error ?? `Failed to create ${terms.material.toLowerCase()}`) }
   }
 
   function handleDelete(id: string, name: string) {
-    if (!confirm(`Delete "${name}" from inventory? It will be deactivated.`)) return
+    if (!confirm(`Delete "${name}" from ${terms.inventory.toLowerCase()}? It will be deactivated.`)) return
     deleteMaterial.mutate(id, { onSuccess: () => {
       setSelected(prev => { const n = new Set(prev); n.delete(id); return n })
       if (selectedId === id) setSelectedId('')
@@ -106,7 +123,7 @@ export default function InventoryPage() {
   }
 
   function handleBulkDelete() {
-    if (!confirm(`Delete ${selected.size} selected material(s) from inventory?`)) return
+    if (!confirm(`Delete ${selected.size} selected ${terms.material.toLowerCase()}(s) from ${terms.inventory.toLowerCase()}?`)) return
     bulkDelete.mutate([...selected], { onSuccess: () => {
       setSelected(new Set())
       if (selected.has(selectedId)) setSelectedId('')
@@ -115,14 +132,43 @@ export default function InventoryPage() {
 
   const selectedMat = list.find((m: any) => m.id === selectedId)
 
+  useEffect(() => {
+    if (!selectedId) return
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null
+      const root = inventoryContentRef.current
+      if (!target || !root) return
+      if (!root.contains(target)) return
+      const insideCard = (target as HTMLElement).closest('[data-material-card="true"]')
+      const insidePanel = (target as HTMLElement).closest('[data-stock-panel="true"]')
+      const insideToolbar = (target as HTMLElement).closest('[data-inventory-toolbar="true"]')
+      if (insideCard || insidePanel || insideToolbar) return
+      setSelectedId('')
+      setShowStockIn(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [selectedId])
+
   return (
     <AppShell>
       <SectionHeader
         eyebrow={language === 'hi' ? 'इन्वेंट्री एनालिटिक्स' : language === 'hinglish' ? 'Inventory analytics' : 'Inventory analytics'}
-        title={language === 'hi' ? 'इन्वेंट्री नियंत्रण' : language === 'hinglish' ? 'Inventory control' : 'Inventory control'}
+        title={language === 'hi' ? 'इन्वेंट्री नियंत्रण' : language === 'hinglish' ? `${terms.inventory} control` : `${terms.inventory} control`}
         description={language === 'hi' ? 'स्टॉक, रीप्लेनिशमेंट और प्राइसिंग को एक जगह से मैनेज करें।' : language === 'hinglish' ? 'Stock, replenishment aur pricing ek jagah manage karo.' : 'Balance stock health, replenishment activity, and pricing signals without losing the operational workflows.'}
         action={
           <div className="flex flex-wrap gap-2">
+            {selectedMat ? (
+              <button
+                onClick={() => {
+                  setShowStockIn(true)
+                  stockInPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }}
+                className="rounded-full border border-blue-300 bg-blue-50 px-4 py-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900"
+              >
+                {language === 'hi' ? '+ स्टॉक जोड़ें' : language === 'hinglish' ? `+ ${terms.inventory} add karo` : `+ Add ${terms.inventory.toLowerCase()}`}
+              </button>
+            ) : null}
             <button onClick={() => { setShowBillScan(s => !s); setShowAddNew(false); setBillImportMessage('') }}
               className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-800 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800">
               {showBillScan
@@ -131,51 +177,57 @@ export default function InventoryPage() {
             </button>
             <button onClick={() => { setShowAddNew(true); setShowBillScan(false); setBillImportMessage('') }}
               className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950">
-              {language === 'hi' ? '+ मटेरियल जोड़ें' : language === 'hinglish' ? '+ Material add karo' : '+ Add material'}
+              {language === 'hi' ? '+ मटेरियल जोड़ें' : language === 'hinglish' ? `+ ${terms.material} add karo` : `+ Add ${terms.material.toLowerCase()}`}
             </button>
           </div>
         }
       />
 
-      {billImportMessage && (
-        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">
-          {billImportMessage}
-        </div>
-      )}
+      <div ref={inventoryContentRef}>
+        {billImportMessage && (
+          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">
+            {billImportMessage}
+          </div>
+        )}
 
       {showBillScan && (
         <BillScanPanel
           materials={list}
           units={unitOptions}
+          preferredUnits={preferredUnits}
+          materialLabel={terms.material}
+          inventoryLabel={terms.inventory}
           onClose={() => setShowBillScan(false)}
           onImported={setBillImportMessage}
         />
       )}
 
       <MetricGrid className="mb-6">
-        <MetricCard label={t('Active materials', 'सक्रिय मटेरियल')} value={String(list.length)} hint={t('Live catalog count', 'लाइव कैटलॉग संख्या')} />
+        <MetricCard label={t(`Active ${terms.material.toLowerCase()}s`, 'सक्रिय मटेरियल', `Active ${terms.material.toLowerCase()}s`)} value={String(list.length)} hint={t('Live catalog count', 'लाइव कैटलॉग संख्या')} />
         <MetricCard label={t('Low / out of stock', 'लो / आउट ऑफ स्टॉक')} value={String(list.filter((m: any) => m.stockStatus !== 'OK').length)} hint={t('Items needing replenishment', 'जिन आइटम को रीप्लेनिशमेंट चाहिए')} tone="danger" />
-        <MetricCard label={t('Inventory value', 'इन्वेंट्री वैल्यू')} value={fmt(list.reduce((sum: number, m: any) => sum + Number(m.stockQty) * Number(m.purchasePrice), 0))} hint={t('Estimated purchase-side stock value', 'अनुमानित खरीद-आधारित स्टॉक मूल्य')} tone="brand" />
-        <MetricCard label={t('Selected material', 'चयनित मटेरियल')} value={selectedMat?.name ?? t('None', 'कोई नहीं')} hint={selectedMat ? `${Number(selectedMat.stockQty).toFixed(1)} ${selectedMat.unit} ${t('available', 'उपलब्ध')}` : t('Open a card for movement details', 'मूवमेंट विवरण के लिए कार्ड चुनें')} tone="default" />
+        <MetricCard label={t(`${terms.inventory} value`, 'इन्वेंट्री वैल्यू', `${terms.inventory} value`)} value={fmt(list.reduce((sum: number, m: any) => sum + Number(m.stockQty) * Number(m.purchasePrice), 0))} hint={t('Estimated purchase-side stock value', 'अनुमानित खरीद-आधारित स्टॉक मूल्य')} tone="brand" />
+        <MetricCard label={t(`Selected ${terms.material.toLowerCase()}`, 'चयनित मटेरियल', `Selected ${terms.material.toLowerCase()}`)} value={selectedMat?.name ?? t('None', 'कोई नहीं')} hint={selectedMat ? `${Number(selectedMat.stockQty).toFixed(1)} ${selectedMat.unit} ${t('available', 'उपलब्ध')}` : t('Open a card for movement details', 'मूवमेंट विवरण के लिए कार्ड चुनें')} tone="default" />
       </MetricGrid>
 
       {/* Add new material form */}
       {showAddNew && (
         <Card className="mb-4">
-          <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">{t('New material', 'नया मटेरियल')}</div>
+          <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">{t(`New ${terms.material.toLowerCase()}`, 'नया मटेरियल', `New ${terms.material.toLowerCase()}`)}</div>
           <form onSubmit={handleCreateMaterial} className="space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div className="sm:col-span-2">
                 <label className="block text-xs text-stone-500 mb-1">{t('Name *', 'नाम *')}</label>
                 <input type="text" value={newForm.name} onChange={e => setNewForm(p => ({ ...p, name: e.target.value }))}
-                  placeholder="e.g. PPC Cement" required
+                  placeholder={language === 'hi' ? 'जैसे: उदाहरण आइटम' : language === 'hinglish' ? `e.g. Sample ${terms.material}` : `e.g. Sample ${terms.material}`} required
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">{t('Unit *', 'यूनिट *')}</label>
                 <select value={newForm.unit} onChange={e => setNewForm(p => ({ ...p, unit: e.target.value }))}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
+                  {preferredUnits.map((u) => <option key={`pref-${u}`} value={u}>{u}</option>)}
+                  {preferredUnits.length > 0 && otherUnits.length > 0 ? <option disabled>--------</option> : null}
+                  {otherUnits.map((u) => <option key={`other-${u}`} value={u}>{u}</option>)}
                 </select>
               </div>
               <div>
@@ -214,7 +266,7 @@ export default function InventoryPage() {
             <div className="flex gap-2">
               <button type="submit" disabled={createMaterial.isPending}
                 className="text-xs px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                {createMaterial.isPending ? (language === 'hi' ? 'सेव हो रहा है...' : language === 'hinglish' ? 'Save ho raha hai...' : 'Saving...') : (language === 'hi' ? 'मटेरियल सेव करें' : language === 'hinglish' ? 'Material save karo' : 'Save material')}
+                {createMaterial.isPending ? (language === 'hi' ? 'सेव हो रहा है...' : language === 'hinglish' ? 'Save ho raha hai...' : 'Saving...') : (language === 'hi' ? 'सेव करें' : language === 'hinglish' ? `${terms.material} save karo` : `Save ${terms.material.toLowerCase()}`)}
               </button>
               <button type="button" onClick={() => setShowAddNew(false)}
                 className="text-xs px-3 py-1.5 border border-stone-200 dark:border-stone-700 rounded-lg hover:bg-stone-50 dark:hover:bg-stone-800">{language === 'hi' ? 'रद्द करें' : 'Cancel'}</button>
@@ -228,7 +280,7 @@ export default function InventoryPage() {
       {selected.size > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 dark:border-red-800 dark:bg-red-950">
           <span className="text-xs font-medium text-red-800 dark:text-red-200">
-            {selected.size} material{selected.size > 1 ? 's' : ''} selected
+            {selected.size} {terms.material.toLowerCase()}{selected.size > 1 ? 's' : ''} selected
           </span>
           <button onClick={handleBulkDelete} disabled={bulkDelete.isPending}
             className="text-xs px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 font-medium transition-colors">
@@ -251,12 +303,12 @@ export default function InventoryPage() {
       )}
 
       {/* Material cards grid */}
-      <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div data-inventory-toolbar="true" className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {isLoading ? <div className="md:col-span-2 xl:col-span-3"><PageLoader /></div> :
           list.map((m: any) => {
             const isSelected = selected.has(m.id)
             return (
-              <div key={m.id} className={`relative rounded-xl border transition-all ${
+              <div data-material-card="true" key={m.id} className={`relative rounded-xl border transition-all ${
                 selectedId === m.id
                   ? 'border-blue-400 bg-blue-50 dark:bg-blue-950'
                   : isSelected
@@ -296,7 +348,7 @@ export default function InventoryPage() {
                 {/* Delete button */}
                 <button onClick={(e) => { e.stopPropagation(); handleDelete(m.id, m.name) }}
                   className="absolute top-3 right-3 text-stone-300 hover:text-red-500 transition-colors text-xs z-10"
-                  title="Delete material">✕</button>
+                  title={`Delete ${terms.material.toLowerCase()}`}>✕</button>
               </div>
             )
           })
@@ -304,16 +356,16 @@ export default function InventoryPage() {
       </div>
 
       {selectedId && (
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div data-stock-panel="true" ref={stockInPanelRef} className="grid gap-4 xl:grid-cols-2">
           {/* Stock in form */}
           <Card>
             <div className="flex items-center justify-between mb-3">
               <div className="text-xs font-medium text-stone-500 uppercase tracking-wide">
-                Stock in — {selectedMat?.name}
+                {terms.inventory} in - {selectedMat?.name}
               </div>
               <button onClick={() => setShowStockIn(s => !s)}
                 className="text-xs text-blue-600 hover:underline">
-                {showStockIn ? (language === 'hi' ? 'रद्द करें' : 'Cancel') : (language === 'hi' ? '+ स्टॉक जोड़ें' : language === 'hinglish' ? '+ Stock add karo' : '+ Add stock')}
+                {showStockIn ? (language === 'hi' ? 'रद्द करें' : 'Cancel') : (language === 'hi' ? '+ स्टॉक जोड़ें' : language === 'hinglish' ? `+ ${terms.inventory} add karo` : `+ Add ${terms.inventory.toLowerCase()}`)}
               </button>
             </div>
             {showStockIn && (
@@ -335,19 +387,19 @@ export default function InventoryPage() {
                 <div>
                   <label className="block text-xs text-stone-500 mb-1">Note / supplier</label>
                   <input type="text" value={siNote} onChange={e => setSiNote(e.target.value)}
-                    placeholder="e.g. ACC Cement purchase"
+                    placeholder={language === 'hi' ? 'जैसे: सप्लायर से खरीद' : language === 'hinglish' ? 'e.g. Supplier purchase' : 'e.g. Supplier purchase'}
                     className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 {siError && <div className="text-xs text-red-600">{siError}</div>}
                 <button type="submit" disabled={stockIn.isPending}
                   className="w-full py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                  {stockIn.isPending ? (language === 'hi' ? 'सेव हो रहा है...' : language === 'hinglish' ? 'Save ho raha hai...' : 'Saving...') : (language === 'hi' ? 'स्टॉक में जोड़ें' : language === 'hinglish' ? 'Stock me add karo' : 'Add to stock')}
+                  {stockIn.isPending ? (language === 'hi' ? 'सेव हो रहा है...' : language === 'hinglish' ? 'Save ho raha hai...' : 'Saving...') : (language === 'hi' ? 'स्टॉक में जोड़ें' : language === 'hinglish' ? `${terms.inventory} me add karo` : `Add to ${terms.inventory.toLowerCase()}`)}
                 </button>
               </form>
             )}
             {!showStockIn && (
               <div className="text-xs text-stone-400 py-4 text-center">
-                Click &quot;+ Add stock&quot; to record a purchase from supplier
+                {`Click "+ Add ${terms.inventory.toLowerCase()}" to record a purchase from supplier`}
               </div>
             )}
           </Card>
@@ -388,6 +440,22 @@ export default function InventoryPage() {
           </Card>
         </div>
       )}
+      </div>
+
+      {selectedMat ? (
+        <button
+          type="button"
+          onClick={() => {
+            setShowStockIn(true)
+            stockInPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }}
+          className="fixed bottom-20 right-4 z-40 rounded-full bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-lg transition-colors hover:bg-blue-700 md:bottom-6 md:right-6"
+        >
+          {language === 'hi' ? '+ स्टॉक जोड़ें' : language === 'hinglish' ? `+ ${terms.inventory} add karo` : `+ Add ${terms.inventory.toLowerCase()}`}
+        </button>
+      ) : null}
     </AppShell>
   )
 }
+
+

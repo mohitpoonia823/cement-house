@@ -99,6 +99,7 @@ export function Topbar() {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'
       const params = new URLSearchParams()
       params.set('page', page)
+      params.set('format', 'csv')
       if (page === 'dashboard') {
         const range = searchParams.get('range')
         const startDate = searchParams.get('startDate')
@@ -161,10 +162,10 @@ export function Topbar() {
 
   const installTooltip =
     installTarget === 'desktop'
-      ? 'Install Cement House as a desktop app for faster access.'
+      ? 'Install Business Hub as a desktop app for faster access.'
       : installTarget === 'ios'
       ? 'Tap Share and choose Add to Home Screen.'
-      : 'Install Cement House for faster access.'
+      : 'Install Business Hub for faster access.'
 
   return (
     <header className="sticky top-0 z-20 shrink-0 px-4 pb-4 pt-4 md:px-6">

@@ -4,13 +4,13 @@ import { Providers } from './providers'
 import { PWARegister } from '@/components/PWARegister'
 
 export const metadata: Metadata = {
-  title: 'Cement House — Management Platform',
-  description: 'Construction Materials Distributor Management',
+  title: 'Business Hub - Management Platform',
+  description: 'Multi-business management platform',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Cement House',
+    title: 'Business Hub',
   },
 }
 
@@ -24,8 +24,23 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function () {
+                try {
+                  var stored = window.localStorage.getItem('theme_preference');
+                  var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                  var isDark = stored ? stored === 'dark' : prefersDark;
+                  if (isDark) document.documentElement.classList.add('dark');
+                  else document.documentElement.classList.remove('dark');
+                } catch (_) {}
+              })();
+            `,
+          }}
+        />
         <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/icons/icon.svg" />
       </head>

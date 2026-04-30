@@ -1,6 +1,6 @@
 /**
  * PDF generation service using pdfkit.
- * Produces: delivery challan, customer statement.
+ * Produces: delivery challan, party statement.
  * Called by GET /api/orders/:id/challan and GET /api/ledger/:customerId/statement
  */
 import PDFDocument from 'pdfkit'
@@ -22,6 +22,9 @@ interface ChallanData {
   vehicleNumber?: string
   businessName:   string
   businessCity:   string
+  totalAmount: number
+  amountPaid: number
+  paymentMode: string
   items: Array<{
     materialName: string
     unit:         string
@@ -73,6 +76,10 @@ function rupees(n: number) {
 export function streamChallan(data: ChallanData, reply: FastifyReply) {
   reply.hijack()
   const doc = new PDFDocument({ size: 'A5', margin: 40 })
+  const pageWidth = doc.page.width
+  const left = doc.page.margins.left
+  const right = pageWidth - doc.page.margins.right
+  const contentWidth = right - left
   applyManualDownloadHeaders(reply)
   reply.raw.setHeader('Content-Type', 'application/pdf')
   reply.raw.setHeader('Content-Disposition', `inline; filename="${data.challanNumber}.pdf"`)
@@ -82,10 +89,10 @@ export function streamChallan(data: ChallanData, reply: FastifyReply) {
   // ── Header ──
   doc.fontSize(16).font('Helvetica-Bold').text(data.businessName, { align: 'center' })
   doc.fontSize(9).font('Helvetica').fillColor('#666')
-    .text(`${data.businessCity}  |  Construction Materials Distributor`, { align: 'center' })
+    .text(`${data.businessCity}  |  Business Hub`, { align: 'center' })
   doc.moveDown(0.5)
 
-  doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor('#ccc').stroke()
+  doc.moveTo(left, doc.y).lineTo(right, doc.y).strokeColor('#ccc').stroke()
   doc.moveDown(0.5)
 
   // ── Challan title + meta ──
@@ -112,48 +119,75 @@ export function streamChallan(data: ChallanData, reply: FastifyReply) {
   }
 
   doc.moveDown(0.3)
-  doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor('#ddd').stroke()
+  doc.moveTo(left, doc.y).lineTo(right, doc.y).strokeColor('#ddd').stroke()
   doc.moveDown(0.4)
 
   // ── Items table ──
-  const cols = { material: 40, ordered: 310, delivered: 400, unit: 480 }
+  const cols = {
+    material: left,
+    ordered: left + contentWidth * 0.61,
+    delivered: left + contentWidth * 0.76,
+    unit: left + contentWidth * 0.9,
+  }
   doc.fontSize(9).font('Helvetica-Bold').fillColor('#666')
-  doc.text('Material',   cols.material,  doc.y, { width: 260 })
-  doc.text('Ordered',    cols.ordered,   doc.y - 11, { width: 80 })
-  doc.text('Delivered',  cols.delivered, doc.y - 11, { width: 70 })
-  doc.text('Unit',       cols.unit,      doc.y - 11, { width: 60 })
+  doc.text('Item',       cols.material,  doc.y, { width: contentWidth * 0.58 })
+  doc.text('Ordered',    cols.ordered,   doc.y - 11, { width: contentWidth * 0.14, align: 'right' })
+  doc.text('Delivered',  cols.delivered, doc.y - 11, { width: contentWidth * 0.13, align: 'right' })
+  doc.text('Unit',       cols.unit,      doc.y - 11, { width: contentWidth * 0.08, align: 'right' })
   doc.moveDown(0.4)
-  doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor('#eee').stroke()
+  doc.moveTo(left, doc.y).lineTo(right, doc.y).strokeColor('#eee').stroke()
   doc.moveDown(0.3)
 
   doc.font('Helvetica').fillColor('#111')
   for (const item of data.items) {
     const mismatch = item.orderedQty !== item.deliveredQty
     const rowY = doc.y
-    doc.text(item.materialName, cols.material, rowY, { width: 260 })
-    doc.text(String(item.orderedQty), cols.ordered, rowY, { width: 80 })
+    doc.text(item.materialName, cols.material, rowY, { width: contentWidth * 0.58 })
+    doc.text(String(item.orderedQty), cols.ordered, rowY, { width: contentWidth * 0.14, align: 'right' })
     doc.fillColor(mismatch ? '#c00' : '#111')
-      .text(String(item.deliveredQty), cols.delivered, rowY, { width: 70 })
+      .text(String(item.deliveredQty), cols.delivered, rowY, { width: contentWidth * 0.13, align: 'right' })
     doc.fillColor('#666')
-      .text(item.unit, cols.unit, rowY, { width: 60 })
+      .text(item.unit, cols.unit, rowY, { width: contentWidth * 0.08, align: 'right' })
     doc.fillColor('#111')
     doc.moveDown(0.5)
   }
 
   doc.moveDown(0.5)
-  doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor('#ccc').stroke()
-  doc.moveDown(1.5)
+  doc.moveTo(left, doc.y).lineTo(right, doc.y).strokeColor('#ccc').stroke()
+  doc.moveDown(0.8)
+
+  const outstanding = Math.max(0, Number(data.totalAmount) - Number(data.amountPaid))
+  doc.fontSize(8).font('Helvetica-Bold').fillColor('#666').text('PAYMENT', left, doc.y)
+  doc.moveDown(0.25)
+  doc.fontSize(9).font('Helvetica')
+  const valueX = left + contentWidth * 0.62
+  const valueW = contentWidth * 0.38
+  const writePaymentRow = (label: string, value: string, color: string) => {
+    const rowY = doc.y
+    doc.fillColor('#555').text(label, left, rowY, { width: contentWidth * 0.6 })
+    doc.fillColor(color).text(value, valueX, rowY, { width: valueW, align: 'right' })
+    doc.moveDown(0.05)
+  }
+  writePaymentRow('Order total', rupees(Number(data.totalAmount)), '#111')
+  writePaymentRow('Paid', rupees(Number(data.amountPaid)), '#0a7d2e')
+  writePaymentRow('Outstanding', outstanding > 0 ? rupees(outstanding) : 'Cleared', outstanding > 0 ? '#c00' : '#0a7d2e')
+  writePaymentRow('Mode', data.paymentMode, '#111')
+
+  doc.moveDown(0.6)
+  doc.moveTo(left, doc.y).lineTo(right, doc.y).strokeColor('#ccc').stroke()
+  doc.moveDown(1.0)
 
   // ── Signature boxes ──
   const sigY = doc.y
   doc.fontSize(9).fillColor('#555')
-  doc.text('Driver signature:', 40,  sigY)
-  doc.text('Customer signature:', 300, sigY)
-  doc.moveTo(40,  sigY + 40).lineTo(240, sigY + 40).strokeColor('#aaa').stroke()
-  doc.moveTo(300, sigY + 40).lineTo(500, sigY + 40).strokeColor('#aaa').stroke()
+  const sigCol2 = left + contentWidth * 0.58
+  doc.text('Driver signature:', left, sigY)
+  doc.text('Receiver signature:', sigCol2, sigY)
+  doc.moveTo(left, sigY + 40).lineTo(left + contentWidth * 0.42, sigY + 40).strokeColor('#aaa').stroke()
+  doc.moveTo(sigCol2, sigY + 40).lineTo(right, sigY + 40).strokeColor('#aaa').stroke()
   doc.fontSize(7).fillColor('#999')
-  doc.text('Name + sign', 40, sigY + 44)
-  doc.text('Name + sign', 300, sigY + 44)
+  doc.text('Name + sign', left, sigY + 44)
+  doc.text('Name + sign', sigCol2, sigY + 44)
 
   doc.end()
 }
@@ -171,14 +205,14 @@ export function streamStatement(data: StatementData, reply: FastifyReply) {
   // Header
   doc.fontSize(18).font('Helvetica-Bold').text(data.businessName)
   doc.fontSize(10).font('Helvetica').fillColor('#666')
-    .text(`${data.businessCity}  |  Construction Materials Distributor`)
+    .text(`${data.businessCity}  |  Business Hub`)
   doc.moveDown(0.5)
   doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ccc').stroke()
   doc.moveDown(0.5)
 
   doc.fontSize(13).font('Helvetica-Bold').fillColor('#111').text('Account Statement')
   doc.fontSize(10).font('Helvetica').fillColor('#444')
-  doc.text(`Customer: ${data.customerName}  ·  ${data.customerPhone}`)
+  doc.text(`Party: ${data.customerName}  ·  ${data.customerPhone}`)
   doc.text(`Generated: ${data.generatedAt.toLocaleDateString('en-IN')}`)
   doc.moveDown(0.5)
 

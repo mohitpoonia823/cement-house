@@ -13,6 +13,5 @@
     <!-- Chimney -->
     <rect x="60" y="-80" width="25" height="50" fill="#2d5a8a" stroke="#e2b45a" stroke-width="8"/>
   </g>
-  <!-- CH text -->
-  <text x="256" y="440" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" font-size="48" fill="#ffffff" letter-spacing="8">CEMENT HOUSE</text>
+  <text x="256" y="440" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" font-size="44" fill="#ffffff" letter-spacing="4">BUSINESS HUB</text>
 </svg>

@@ -334,8 +334,11 @@ export async function orderChallanRoute(app: FastifyInstance) {
       customerAddress: order.customer.address ?? undefined,
       driverName: delivery?.driverName ?? undefined,
       vehicleNumber: delivery?.vehicleNumber ?? undefined,
-      businessName: jwtUser.businessName ?? 'Cement House',
+      businessName: jwtUser.businessName ?? 'Business Hub',
       businessCity: jwtUser.businessCity ?? '',
+      totalAmount: Number(order.totalAmount ?? 0),
+      amountPaid: Number(order.amountPaid ?? 0),
+      paymentMode: String(order.paymentMode ?? 'CASH'),
       items,
     }, reply)
   })

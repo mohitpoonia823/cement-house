@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMemo, useTransition, Suspense } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -9,6 +9,8 @@ import { PageLoader } from '@/components/ui/Spinner'
 import { api } from '@/lib/api'
 import { fmt, fmtDate } from '@/lib/utils'
 import { useI18n } from '@/lib/i18n'
+import { useAuthStore } from '@/store/auth'
+import { businessTerms } from '@/lib/business-terms'
 
 type ReportGranularity = 'monthly' | 'yearly'
 
@@ -64,9 +66,9 @@ async function downloadReportExport(input: {
 }
 
 function ReportsContent() {
-  const { language } = useI18n()
-  const t = (en: string, hi: string, hinglish?: string) =>
-    language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en
+  const { user } = useAuthStore()
+  const { language, tr: t } = useI18n()
+  const terms = businessTerms(user?.businessType as any, user?.customLabels as any)
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
@@ -81,8 +83,8 @@ function ReportsContent() {
   const { data: history, isLoading: historyLoading, refetch: refetchHistory } = useReportHistory()
 
   const summaryTitle = useMemo(() => {
-    if (granularity === 'yearly') return `${year} — ${t('summary', 'सारांश', 'summary')}`
-    return `${months[month - 1]} ${year} — ${t('summary', 'सारांश', 'summary')}`
+    if (granularity === 'yearly') return `${year} - ${t('summary', 'सारांश', 'summary')}`
+    return `${months[month - 1]} ${year} - ${t('summary', 'सारांश', 'summary')}`
   }, [granularity, month, months, t, year])
 
   function updateParams(next: Partial<{ granularity: ReportGranularity; year: number; month: number }>) {
@@ -108,7 +110,7 @@ function ReportsContent() {
     <AppShell>
       <SectionHeader
         eyebrow={t('Owner analytics', 'ओनर एनालिटिक्स', 'Owner analytics')}
-        title={t('Business reports', 'बिज़नेस रिपोर्ट्स', 'Business reports')}
+        title={t(`${terms.inventory} reports`, 'बिज़नेस रिपोर्ट्स', `${terms.inventory} reports`)}
         description={t(
           'Switch between monthly and yearly views, then review every PDF or CSV you exported anywhere in the workspace.',
           'मंथली/ईयरली व्यू बदलें और वर्कस्पेस में एक्सपोर्ट की गई सभी PDF/CSV रिपोर्ट्स देखें।',
@@ -191,20 +193,22 @@ function ReportsContent() {
             <div className="mb-4 text-xs font-medium uppercase tracking-wide text-stone-500">{summaryTitle}</div>
             {data?.orderCount === 0 ? (
               <div className="py-8 text-center text-sm text-stone-400 dark:text-slate-400">
-                {language === 'hi'
-                  ? `इस ${granularity === 'yearly' ? 'साल' : 'महीने'} के लिए कोई ऑर्डर नहीं मिला`
-                  : language === 'hinglish'
-                    ? `Is ${granularity === 'yearly' ? 'saal' : 'mahine'} ke liye koi order nahi mila`
-                    : `No orders found for this ${granularity === 'yearly' ? 'year' : 'month'}`}
+                {t(
+                  `No orders found for this ${granularity === 'yearly' ? 'year' : 'month'}`,
+                  `इस ${granularity === 'yearly' ? 'साल' : 'महीने'} के लिए कोई ऑर्डर नहीं मिला`,
+                  `Is ${granularity === 'yearly' ? 'saal' : 'mahine'} ke liye koi order nahi mila`
+                )}
               </div>
             ) : (
               <div className="space-y-4">
                 <div className="text-sm text-stone-600 dark:text-slate-300">
                   {language === 'hi' ? (
                     <>
-                      कुल राजस्व <strong className="text-stone-900 dark:text-stone-100">{fmt(data?.totalSales ?? 0)}</strong>,{' '}
-                      <strong className="text-stone-900 dark:text-stone-100">{data?.orderCount ?? 0}</strong> ऑर्डर में, औसत ग्रॉस मार्जिन{' '}
-                      <strong className="text-stone-900 dark:text-stone-100">{(data?.avgMargin ?? 0).toFixed(1)}%</strong>।
+                      {t('Total revenue', 'कुल राजस्व')}{' '}
+                      <strong className="text-stone-900 dark:text-stone-100">{fmt(data?.totalSales ?? 0)}</strong>,{' '}
+                      <strong className="text-stone-900 dark:text-stone-100">{data?.orderCount ?? 0}</strong> {t('orders', 'ऑर्डर')}{' '}
+                      {t('with avg gross margin', 'में, औसत ग्रॉस मार्जिन')}{' '}
+                      <strong className="text-stone-900 dark:text-stone-100">{(data?.avgMargin ?? 0).toFixed(1)}%</strong>.
                     </>
                   ) : language === 'hinglish' ? (
                     <>
@@ -254,7 +258,7 @@ function ReportsContent() {
             ) : (history?.length ?? 0) === 0 ? (
               <EmptyState
                 title={t('No exports yet', 'अभी कोई एक्सपोर्ट नहीं', 'Abhi koi export nahi')}
-                sub={t('PDF and CSV exports from dashboard, reports, orders, customers, inventory, delivery, khata, and settings will appear here.', 'डैशबोर्ड, रिपोर्ट्स, ऑर्डर्स, कस्टमर्स, इन्वेंट्री, डिलीवरी, खाता और सेटिंग्स के PDF/CSV एक्सपोर्ट यहां दिखेंगे।', 'Dashboard, reports, orders, customers, inventory, delivery, khata aur settings ke PDF/CSV exports yahan dikhenge.')}
+                sub={t(`PDF and CSV exports from dashboard, reports, orders, ${terms.customer.toLowerCase()}s, ${terms.inventory.toLowerCase()}, delivery, khata, and settings will appear here.`, 'डैशबोर्ड, रिपोर्ट्स, ऑर्डर्स, कस्टमर्स, इन्वेंट्री, डिलीवरी, खाता और सेटिंग्स के PDF/CSV एक्सपोर्ट यहां दिखेंगे।', `Dashboard, reports, orders, ${terms.customer.toLowerCase()}s, ${terms.inventory.toLowerCase()}, delivery, khata aur settings ke PDF/CSV exports yahan dikhenge.`)}
               />
             ) : (
               <div className="overflow-x-auto rounded-[24px] border border-slate-200/70 dark:border-slate-800">
@@ -274,7 +278,7 @@ function ReportsContent() {
                     <div className="font-medium uppercase text-slate-600 dark:text-slate-300">{item.format}</div>
                     <div className="text-slate-600 dark:text-slate-300">
                       {item.query?.granularity
-                        ? `${item.query.granularity === 'yearly' ? t('Yearly', 'ईयरली', 'Yearly') : t('Monthly', 'मंथली', 'Monthly')} • ${item.query?.year}${item.query?.month ? ` / ${months[item.query.month - 1]}` : ''}`
+                        ? `${item.query.granularity === 'yearly' ? t('Yearly', 'ईयरली', 'Yearly') : t('Monthly', 'मंथली', 'Monthly')} - ${item.query?.year}${item.query?.month ? ` / ${months[item.query.month - 1]}` : ''}`
                         : t('Workspace snapshot', 'वर्कस्पेस स्नैपशॉट', 'Workspace snapshot')}
                     </div>
                     <div className="text-slate-500 dark:text-slate-300">{fmtDate(item.exportedAt)}</div>
@@ -311,3 +315,4 @@ export default function ReportsPage() {
     </Suspense>
   )
 }
+

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/auth'
@@ -16,6 +16,42 @@ interface RegistrationConfig {
   updatedAt?: string | null
 }
 
+type RegisterBusinessType = 'GENERAL' | 'CEMENT' | 'HARDWARE_SANITARY' | 'KIRYANA' | 'CUSTOM'
+
+type BusinessTypeChoice = {
+  key: string
+  label: string
+  businessType: RegisterBusinessType
+  customTypeName?: string
+}
+
+const BUSINESS_TYPE_CHOICES: BusinessTypeChoice[] = [
+  { key: 'GENERAL', label: 'General store', businessType: 'GENERAL' },
+  { key: 'CEMENT', label: 'Cement', businessType: 'CEMENT' },
+  { key: 'HARDWARE_SANITARY', label: 'Hardware & sanitary', businessType: 'HARDWARE_SANITARY' },
+  { key: 'KIRYANA', label: 'Kiryana / grocery', businessType: 'KIRYANA' },
+  { key: 'PHARMACY', label: 'Pharmacy / medical store', businessType: 'CUSTOM', customTypeName: 'Pharmacy' },
+  { key: 'ELECTRONICS', label: 'Electronics', businessType: 'CUSTOM', customTypeName: 'Electronics' },
+  { key: 'MOBILE_ACCESSORIES', label: 'Mobile accessories', businessType: 'CUSTOM', customTypeName: 'Mobile Accessories' },
+  { key: 'FASHION_APPAREL', label: 'Fashion / apparel', businessType: 'CUSTOM', customTypeName: 'Fashion Apparel' },
+  { key: 'FOOTWEAR', label: 'Footwear', businessType: 'CUSTOM', customTypeName: 'Footwear' },
+  { key: 'JEWELLERY', label: 'Jewellery', businessType: 'CUSTOM', customTypeName: 'Jewellery' },
+  { key: 'BOOK_STATIONERY', label: 'Books & stationery', businessType: 'CUSTOM', customTypeName: 'Books and Stationery' },
+  { key: 'SPORTS_FITNESS', label: 'Sports & fitness', businessType: 'CUSTOM', customTypeName: 'Sports and Fitness' },
+  { key: 'HOME_KITCHEN', label: 'Home & kitchen', businessType: 'CUSTOM', customTypeName: 'Home and Kitchen' },
+  { key: 'FURNITURE', label: 'Furniture', businessType: 'CUSTOM', customTypeName: 'Furniture' },
+  { key: 'AUTOMOTIVE_PARTS', label: 'Automotive parts', businessType: 'CUSTOM', customTypeName: 'Automotive Parts' },
+  { key: 'ELECTRICALS', label: 'Electricals', businessType: 'CUSTOM', customTypeName: 'Electricals' },
+  { key: 'PAINTS', label: 'Paints', businessType: 'CUSTOM', customTypeName: 'Paints' },
+  { key: 'AGRI_INPUTS', label: 'Agri inputs', businessType: 'CUSTOM', customTypeName: 'Agri Inputs' },
+  { key: 'TOYS_GIFTS', label: 'Toys & gifts', businessType: 'CUSTOM', customTypeName: 'Toys and Gifts' },
+  { key: 'BAKERY', label: 'Bakery', businessType: 'CUSTOM', customTypeName: 'Bakery' },
+  { key: 'SWEETS_SNACKS', label: 'Sweets & snacks', businessType: 'CUSTOM', customTypeName: 'Sweets and Snacks' },
+  { key: 'RESTAURANT_CAFE', label: 'Restaurant / cafe', businessType: 'CUSTOM', customTypeName: 'Restaurant and Cafe' },
+  { key: 'LIQUOR', label: 'Liquor store', businessType: 'CUSTOM', customTypeName: 'Liquor Store' },
+  { key: 'CUSTOM_MANUAL', label: 'Custom (enter manually)', businessType: 'CUSTOM' },
+]
+
 function onlyDigits(value: string, maxLength: number) {
   return value.replace(/\D/g, '').slice(0, maxLength)
 }
@@ -26,6 +62,9 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [businessName, setBusinessName] = useState('')
+  const [businessTypeChoice, setBusinessTypeChoice] = useState<string>('GENERAL')
+  const [businessType, setBusinessType] = useState<RegisterBusinessType>('GENERAL')
+  const [customBusinessTypeName, setCustomBusinessTypeName] = useState('')
   const [city, setCity] = useState('')
   const [businessPhone, setBusinessPhone] = useState('')
   const [address, setAddress] = useState('')
@@ -37,6 +76,22 @@ export default function RegisterPage() {
     language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en
   const { login } = useAuthStore()
   const router = useRouter()
+
+  function handleBusinessTypeChoice(nextChoiceKey: string) {
+    setBusinessTypeChoice(nextChoiceKey)
+    const choice = BUSINESS_TYPE_CHOICES.find((item) => item.key === nextChoiceKey)
+    if (!choice) return
+    setBusinessType(choice.businessType)
+    if (choice.businessType === 'CUSTOM') {
+      if (choice.customTypeName) {
+        setCustomBusinessTypeName(choice.customTypeName)
+      } else {
+        setCustomBusinessTypeName('')
+      }
+    } else {
+      setCustomBusinessTypeName('')
+    }
+  }
 
   useEffect(() => {
     api
@@ -57,6 +112,8 @@ export default function RegisterPage() {
       return setError(tr('Phone number must be exactly 10 digits', 'फोन नंबर ठीक 10 अंकों का होना चाहिए', 'Phone number exactly 10 digits ka hona chahiye'))
     if (businessPhone && !/^\d{10}$/.test(onlyDigits(businessPhone, 10)))
       return setError(tr('Business phone must be exactly 10 digits', 'बिज़नेस फोन ठीक 10 अंकों का होना चाहिए', 'Business phone exactly 10 digits ka hona chahiye'))
+    if (businessType === 'CUSTOM' && customBusinessTypeName.trim().length < 2)
+      return setError(tr('Custom business type name is required', 'कस्टम बिज़नेस टाइप नाम आवश्यक है', 'Custom business type name required hai'))
 
     setLoading(true)
     try {
@@ -67,6 +124,8 @@ export default function RegisterPage() {
         password,
         role: 'OWNER',
         businessName,
+        businessType,
+        customBusinessTypeName: businessType === 'CUSTOM' ? customBusinessTypeName.trim() : undefined,
         city,
         businessPhone: onlyDigits(businessPhone || phone, 10),
         address,
@@ -120,7 +179,7 @@ export default function RegisterPage() {
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               <PlanTile title={tr('Monthly', 'मंथली', 'Monthly')} price={fmt(config?.monthlyPrice ?? 200)} sub={tr('Good for ongoing local trading operations', 'लगातार स्थानीय ट्रेडिंग ऑपरेशंस के लिए बेहतर', 'Ongoing local trading operations ke liye sahi')} />
-              <PlanTile title={tr('Yearly', 'ईयरली', 'Yearly')} price={fmt(config?.yearlyPrice ?? 2100)} sub={tr('Best value for full-season teams', 'पूरे सीज़न के लिए सबसे बेहतर वैल्यू', 'Full-season teams ke liye best value')} />
+              <PlanTile title={tr('Yearly', 'ईयरली', 'Yearly')} price={fmt(config?.yearlyPrice ?? 2100)} sub={tr('Best value for full-season teams', 'पूरे सीजन के लिए सबसे बेहतर वैल्यू', 'Full-season teams ke liye best value')} />
             </div>
             <div className="mt-4 text-xs text-slate-500 dark:text-slate-400">
               {tr('Paid renewal and subscription checkout are handled directly via Razorpay.', 'पेड रिन्यूअल और सब्सक्रिप्शन चेकआउट सीधे Razorpay से होता है।', 'Paid renewal aur subscription checkout direct Razorpay se hota hai.')}
@@ -134,11 +193,29 @@ export default function RegisterPage() {
               <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{tr('Business details', 'बिज़नेस डिटेल्स', 'Business details')}</div>
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <Field label={tr('Business name *', 'बिज़नेस नाम *', 'Business name *')}>
-                  <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} required placeholder={tr('e.g. Sharma Cement Store', 'जैसे: शर्मा सीमेंट स्टोर', 'e.g. Sharma Cement Store')} className={inputCls} />
+                  <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} required placeholder={tr('e.g. Sharma Trading Store', 'जैसे: शर्मा ट्रेडिंग स्टोर', 'e.g. Sharma Trading Store')} className={inputCls} />
                 </Field>
                 <Field label={tr('City *', 'शहर *', 'City *')}>
                   <input value={city} onChange={(e) => setCity(e.target.value)} required placeholder={tr('e.g. Hisar', 'जैसे: हिसार', 'e.g. Hisar')} className={inputCls} />
                 </Field>
+                <Field label={tr('Business type *', 'बिज़नेस टाइप *', 'Business type *')}>
+                  <select value={businessTypeChoice} onChange={(e) => handleBusinessTypeChoice(e.target.value)} className={inputCls}>
+                    {BUSINESS_TYPE_CHOICES.map((choice) => (
+                      <option key={choice.key} value={choice.key}>{choice.label}</option>
+                    ))}
+                  </select>
+                </Field>
+                {businessType === 'CUSTOM' ? (
+                  <Field label={tr('Custom type name *', 'कस्टम टाइप नाम *', 'Custom type name *')}>
+                    <input
+                      value={customBusinessTypeName}
+                      onChange={(e) => setCustomBusinessTypeName(e.target.value)}
+                      placeholder={tr('e.g. Pharmacy', 'जैसे: फार्मेसी', 'e.g. Pharmacy')}
+                      className={inputCls}
+                      required
+                    />
+                  </Field>
+                ) : null}
                 <Field label={tr('Business phone', 'बिज़नेस फोन', 'Business phone')}>
                   <input value={businessPhone} onChange={(e) => setBusinessPhone(onlyDigits(e.target.value, 10))} placeholder={tr('Optional if same as owner', 'यदि ओनर जैसा हो तो वैकल्पिक', 'Owner ke jaisa ho to optional')} maxLength={10} className={inputCls} />
                 </Field>
@@ -187,7 +264,7 @@ export default function RegisterPage() {
             </Link>
           </div>
           <div className="mt-2 text-center text-sm text-slate-600 dark:text-slate-300">
-            {tr('Need platform access?', 'प्लेटफ़ॉर्म एक्सेस चाहिए?', 'Platform access chahiye?')}{' '}
+            {tr('Need platform access?', 'प्लेटफॉर्म एक्सेस चाहिए?', 'Platform access chahiye?')}{' '}
             <Link href="/auth/admin-setup" className="font-semibold text-emerald-700 hover:underline dark:text-emerald-300">
               {t('auth.createSuperAdmin')}
             </Link>
@@ -219,3 +296,4 @@ function PlanTile({ title, price, sub }: { title: string; price: string; sub: st
 
 const inputCls =
   'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500'
+

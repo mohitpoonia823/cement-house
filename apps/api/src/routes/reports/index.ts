@@ -561,9 +561,10 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
 export async function reportRoutes(app: FastifyInstance) {
   app.get('/export', async (req, reply) => {
     const bizId = getBizId(req)
-    const { page = 'dashboard' } = req.query as { page?: string }
+    const { page = 'dashboard', format } = req.query as { page?: string; format?: string }
     const jwtUser = req.user as any
     const generatedAt = new Date()
+    const exportFormat = format === 'pdf' ? 'pdf' : 'csv'
 
     const sendCsv = async (filename: string, body: string, label: string, query?: Record<string, unknown>) => {
       await createExportAuditLog(req, { page, format: 'csv', fileName: filename, label, query })
@@ -609,6 +610,30 @@ export async function reportRoutes(app: FastifyInstance) {
 
     if (page === 'reports') {
       const summary = await loadReportSummary(bizId, req.query)
+      if (exportFormat === 'csv') {
+        return sendCsv(
+          `business-report-${summary.exportSuffix}.csv`,
+          csv(
+            ['Metric', 'Value'],
+            [
+              ['Granularity', summary.granularity],
+              ['Period', summary.label],
+              ['Total sales', summary.totalSales],
+              ['Order count', summary.orderCount],
+              ['Avg margin %', Number(summary.avgMargin.toFixed(2))],
+              ['Collected', summary.paidAmount],
+              ['Outstanding', summary.outstanding],
+            ]
+          ),
+          `${summary.granularity === 'yearly' ? 'Yearly' : 'Monthly'} report - ${summary.label}`,
+          {
+            granularity: summary.granularity,
+            year: summary.year,
+            month: summary.month,
+          }
+        )
+      }
+
       const fileName = `business-report-${summary.exportSuffix}.pdf`
 
       await createExportAuditLog(req, {
@@ -628,7 +653,7 @@ export async function reportRoutes(app: FastifyInstance) {
           title: `${summary.granularity === 'yearly' ? 'Yearly' : 'Monthly'} business report`,
           subtitle: `Performance summary for ${summary.label}`,
           generatedAt,
-          businessName: jwtUser.businessName ?? 'Cement House',
+          businessName: jwtUser.businessName ?? 'Business Hub',
           businessCity: jwtUser.businessCity ?? '',
           metrics: [
             { label: 'Total sales', value: `Rs. ${new Intl.NumberFormat('en-IN').format(summary.totalSales)}` },

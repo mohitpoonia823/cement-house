@@ -68,7 +68,7 @@ export async function reminderRoutes(app: FastifyInstance) {
     if (!customer) return reply.status(404).send({ success: false, error: 'Customer not found' })
 
     const jwtUser = req.user as any
-    const businessName = jwtUser?.businessName ?? 'Cement House'
+    const businessName = jwtUser?.businessName ?? 'Business Hub'
     const message = WA_TEMPLATES.paymentReminder(customer.name, body.data.amount, body.data.days, businessName)
 
     const todayStr = new Date().toLocaleDateString('en-GB')

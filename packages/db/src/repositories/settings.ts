@@ -40,6 +40,8 @@ export interface SettingsBusinessRow {
   address: string | null
   phone: string | null
   gstin: string | null
+  businessType: string
+  customLabels: Record<string, string> | null
   isActive: boolean
   remindersEnabled: boolean
   reminderSoftDays: number
@@ -99,6 +101,8 @@ export interface SettingsSessionUserRow {
   businessId: string | null
   businessName: string | null
   businessCity: string | null
+  businessType: string | null
+  customLabels: Record<string, string> | null
   subscriptionStatus: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'SUSPENDED' | null
   subscriptionEndsAt: Date | null
   subscriptionInterval: 'MONTHLY' | 'YEARLY' | null
@@ -130,6 +134,8 @@ interface UpdateBusinessInput {
   address?: string
   phone?: string
   gstin?: string
+  businessType?: string
+  customLabels?: Record<string, string>
 }
 
 interface UpdateReminderRulesInput {
@@ -197,6 +203,8 @@ function settingsBusinessSelectSql() {
       address,
       phone,
       gstin,
+      "businessType" AS "businessType",
+      "customLabels" AS "customLabels",
       "isActive" AS "isActive",
       "remindersEnabled" AS "remindersEnabled",
       "reminderSoftDays" AS "reminderSoftDays",
@@ -293,6 +301,8 @@ export async function getSettingsSessionUserById(userId: string) {
       u."businessId" AS "businessId",
       b.name AS "businessName",
       b.city AS "businessCity",
+      b."businessType" AS "businessType",
+      b."customLabels" AS "customLabels",
       b."subscriptionStatus"::text AS "subscriptionStatus",
       b."subscriptionEndsAt" AS "subscriptionEndsAt",
       b."subscriptionInterval"::text AS "subscriptionInterval",
@@ -348,8 +358,10 @@ export async function getRecentPaymentTransactionsByBusiness(businessId: string,
 }
 
 export async function createPendingPaymentTransaction(input: CreatePendingTransactionInput) {
+  const transactionId = randomUUID()
   const rows = await prisma.$queryRaw<SettingsPaymentTransactionRow[]>(Prisma.sql`
     INSERT INTO payment_transactions (
+      id,
       "businessId",
       "paymentMethodId",
       provider,
@@ -362,6 +374,7 @@ export async function createPendingPaymentTransaction(input: CreatePendingTransa
       "createdAt",
       "updatedAt"
     ) VALUES (
+      ${transactionId},
       ${input.businessId},
       ${input.paymentMethodId},
       'DUMMY'::"PaymentProvider",
@@ -471,6 +484,8 @@ export async function cancelSubscriptionByBusiness(businessId: string) {
       address,
       phone,
       gstin,
+      "businessType" AS "businessType",
+      "customLabels" AS "customLabels",
       "isActive" AS "isActive",
       "remindersEnabled" AS "remindersEnabled",
       "reminderSoftDays" AS "reminderSoftDays",
@@ -498,6 +513,8 @@ export async function updateBusinessProfile(businessId: string, input: UpdateBus
   if (input.address !== undefined) updates.push(Prisma.sql`address = ${input.address}`)
   if (input.phone !== undefined) updates.push(Prisma.sql`phone = ${input.phone}`)
   if (input.gstin !== undefined) updates.push(Prisma.sql`gstin = ${input.gstin}`)
+  if (input.businessType !== undefined) updates.push(Prisma.sql`"businessType" = ${input.businessType}`)
+  if (input.customLabels !== undefined) updates.push(Prisma.sql`"customLabels" = ${JSON.stringify(input.customLabels)}::jsonb`)
   if (updates.length === 0) return getSettingsBusinessById(businessId)
   updates.push(Prisma.sql`"updatedAt" = NOW()`)
 
@@ -512,6 +529,8 @@ export async function updateBusinessProfile(businessId: string, input: UpdateBus
       address,
       phone,
       gstin,
+      "businessType" AS "businessType",
+      "customLabels" AS "customLabels",
       "isActive" AS "isActive",
       "remindersEnabled" AS "remindersEnabled",
       "reminderSoftDays" AS "reminderSoftDays",
@@ -553,6 +572,8 @@ export async function updateBusinessReminders(businessId: string, input: UpdateR
       address,
       phone,
       gstin,
+      "businessType" AS "businessType",
+      "customLabels" AS "customLabels",
       "isActive" AS "isActive",
       "remindersEnabled" AS "remindersEnabled",
       "reminderSoftDays" AS "reminderSoftDays",
