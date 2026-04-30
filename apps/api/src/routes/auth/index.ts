@@ -88,7 +88,7 @@ function buildAuthUser(user: {
     name: string
     city: string
     businessType?: string | null
-    customLabels?: Record<string, string> | null
+    customLabels?: Prisma.JsonValue | Record<string, string> | null
     subscriptionStatus: string
     subscriptionEndsAt: Date | null
     subscriptionInterval: 'MONTHLY' | 'YEARLY' | null
@@ -102,6 +102,12 @@ function buildAuthUser(user: {
   accessLocked?: boolean
   accessReason?: string
 }) {
+  const normalizeCustomLabels = (value: Prisma.JsonValue | Record<string, string> | null | undefined): Record<string, string> | null => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+    const entries = Object.entries(value as Record<string, unknown>).filter(([, entryValue]) => typeof entryValue === 'string')
+    return entries.length > 0 ? Object.fromEntries(entries) as Record<string, string> : null
+  }
+
   return {
     id: user.id,
     name: user.name,
@@ -111,7 +117,7 @@ function buildAuthUser(user: {
     businessName: user.business?.name ?? null,
     businessCity: user.business?.city ?? null,
     businessType: user.business?.businessType ?? 'GENERAL',
-    customLabels: user.business?.customLabels ?? null,
+    customLabels: normalizeCustomLabels(user.business?.customLabels),
     permissions: user.permissions,
     subscriptionStatus: user.business?.subscriptionStatus ?? null,
     subscriptionEndsAt: user.business?.subscriptionEndsAt?.toISOString?.() ?? null,
