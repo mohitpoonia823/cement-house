@@ -57,6 +57,9 @@ export interface OrderChallanRow {
   id: string
   orderNumber: string
   createdAt: Date
+  paymentMode: 'CASH' | 'UPI' | 'CHEQUE' | 'CREDIT' | 'PARTIAL'
+  amountPaid: number
+  totalAmount: number
   customer: any
   items: any[]
   deliveries: any[]
@@ -254,6 +257,9 @@ export async function getOrderForChallan(orderId: string, businessId: string) {
       o.id,
       o."orderNumber" AS "orderNumber",
       o."createdAt" AS "createdAt",
+      o."paymentMode"::text AS "paymentMode",
+      o."amountPaid"::double precision AS "amountPaid",
+      o."totalAmount"::double precision AS "totalAmount",
       json_build_object(
         'id', c.id,
         'name', c.name,

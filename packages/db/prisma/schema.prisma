@@ -121,6 +121,8 @@ model Business {
   address     String?
   phone       String?
   gstin       String?
+  businessType String  @default("GENERAL")
+  customLabels Json?
   isActive    Boolean  @default(true)
   remindersEnabled Boolean @default(true)
   reminderSoftDays Int     @default(7)

@@ -89,6 +89,11 @@ export default function SettingsPage() {
   const [bizAddr, setBizAddr] = useState('')
   const [bizPhone, setBizPhone] = useState('')
   const [bizGstin, setBizGstin] = useState('')
+  const [bizType, setBizType] = useState<'GENERAL' | 'CEMENT' | 'HARDWARE_SANITARY' | 'KIRYANA' | 'CUSTOM'>('GENERAL')
+  const [bizTypeName, setBizTypeName] = useState('')
+  const [labelInventory, setLabelInventory] = useState('')
+  const [labelMaterial, setLabelMaterial] = useState('')
+  const [labelCustomer, setLabelCustomer] = useState('')
 
   const [profEdit, setProfEdit] = useState(false)
   const [profName, setProfName] = useState('')
@@ -188,6 +193,11 @@ export default function SettingsPage() {
     setBizAddr(data.business?.address ?? '')
     setBizPhone(data.business?.phone ?? '')
     setBizGstin(data.business?.gstin ?? '')
+    setBizType(data.business?.businessType ?? 'GENERAL')
+    setBizTypeName(data.business?.customLabels?.businessTypeName ?? '')
+    setLabelInventory(data.business?.customLabels?.inventory ?? '')
+    setLabelMaterial(data.business?.customLabels?.material ?? '')
+    setLabelCustomer(data.business?.customLabels?.customer ?? '')
     setProfName(data.user?.name ?? '')
     setProfPhone(data.user?.phone ?? '')
     setProfEmail(data.user?.email ?? '')
@@ -213,7 +223,15 @@ export default function SettingsPage() {
     onSuccess: (biz) => {
       qc.invalidateQueries({ queryKey: ['settings'] })
       setBizEdit(false)
-      if (token && user) login(token, { ...user, businessName: biz.name, businessCity: biz.city })
+      if (token && user) {
+        login(token, {
+          ...user,
+          businessName: biz.name,
+          businessCity: biz.city,
+          businessType: biz.businessType ?? user.businessType ?? 'GENERAL',
+          customLabels: biz.customLabels ?? user.customLabels ?? null,
+        })
+      }
       setAlert({ tone: 'success', message: 'Business details updated successfully.' })
     },
     onError: (error) => setAlert({ tone: 'danger', message: getAlertMessage(error, 'Failed to update business details.') }),
@@ -525,7 +543,20 @@ export default function SettingsPage() {
                   <form
                     onSubmit={(e) => {
                       e.preventDefault()
-                      updateBiz.mutate({ name: bizName, city: bizCity, address: bizAddr || undefined, phone: bizPhone || undefined, gstin: bizGstin || undefined })
+                      updateBiz.mutate({
+                        name: bizName,
+                        city: bizCity,
+                        address: bizAddr || undefined,
+                        phone: bizPhone || undefined,
+                        gstin: bizGstin || undefined,
+                        businessType: bizType,
+                        customLabels: {
+                          businessTypeName: bizType === 'CUSTOM' ? (bizTypeName || undefined) : undefined,
+                          inventory: labelInventory || undefined,
+                          material: labelMaterial || undefined,
+                          customer: labelCustomer || undefined,
+                        },
+                      })
                     }}
                     className="space-y-3"
                   >
@@ -537,6 +568,35 @@ export default function SettingsPage() {
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <Field label="Phone"><input value={bizPhone} onChange={(e) => setBizPhone(e.target.value)} className={inputCls} /></Field>
                       <Field label="GSTIN"><input value={bizGstin} onChange={(e) => setBizGstin(e.target.value)} className={inputCls} /></Field>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <Field label="Business type">
+                        <select value={bizType} onChange={(e) => setBizType(e.target.value as any)} className={inputCls}>
+                          <option value="GENERAL">General store</option>
+                          <option value="CEMENT">Cement shop</option>
+                          <option value="HARDWARE_SANITARY">Hardware / Sanitary</option>
+                          <option value="KIRYANA">Kiryana / Grocery</option>
+                          <option value="CUSTOM">Custom</option>
+                        </select>
+                      </Field>
+                      {bizType === 'CUSTOM' ? (
+                        <Field label="Custom business type">
+                          <input value={bizTypeName} onChange={(e) => setBizTypeName(e.target.value)} placeholder="e.g. Electrical store" className={inputCls} />
+                        </Field>
+                      ) : (
+                        <Field label="Inventory label (optional)">
+                          <input value={labelInventory} onChange={(e) => setLabelInventory(e.target.value)} placeholder="Inventory" className={inputCls} />
+                        </Field>
+                      )}
+                    </div>
+                    {bizType === 'CUSTOM' ? (
+                      <Field label="Inventory label (optional)">
+                        <input value={labelInventory} onChange={(e) => setLabelInventory(e.target.value)} placeholder="Inventory" className={inputCls} />
+                      </Field>
+                    ) : null}
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <Field label="Material label (optional)"><input value={labelMaterial} onChange={(e) => setLabelMaterial(e.target.value)} placeholder="Material" className={inputCls} /></Field>
+                      <Field label="Customer label (optional)"><input value={labelCustomer} onChange={(e) => setLabelCustomer(e.target.value)} placeholder="Customer" className={inputCls} /></Field>
                     </div>
                     <div className="flex gap-2">
                       <button type="submit" disabled={updateBiz.isPending} className={saveBtnCls}>{updateBiz.isPending ? t('Saving...', 'सेव हो रहा है...') : t('Save changes', 'बदलाव सेव करें')}</button>
@@ -551,6 +611,10 @@ export default function SettingsPage() {
                       ['Address', data?.business?.address],
                       ['Phone', data?.business?.phone],
                       ['GSTIN', data?.business?.gstin],
+                      ['Business type', data?.business?.businessType === 'CUSTOM' ? (data?.business?.customLabels?.businessTypeName ?? 'Custom') : (data?.business?.businessType ?? 'GENERAL')],
+                      ['Inventory label', data?.business?.customLabels?.inventory ?? 'Inventory'],
+                      ['Material label', data?.business?.customLabels?.material ?? 'Material'],
+                      ['Customer label', data?.business?.customLabels?.customer ?? 'Customer'],
                     ]}
                   />
                 )}

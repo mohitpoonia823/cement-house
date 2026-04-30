@@ -8,6 +8,14 @@ interface AuthUser {
   businessId: string | null
   businessName: string | null
   businessCity: string | null
+  businessType?: 'GENERAL' | 'CEMENT' | 'HARDWARE_SANITARY' | 'KIRYANA' | 'CUSTOM' | null
+  customLabels?: {
+    businessTypeName?: string
+    inventory?: string
+    material?: string
+    customer?: string
+    supplier?: string
+  } | null
   permissions?: string[]
   subscriptionStatus?: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'SUSPENDED' | null
   subscriptionEndsAt?: string | null

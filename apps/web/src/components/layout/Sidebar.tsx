@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/auth'
 import { cn } from '@/lib/utils'
 import { groupLabels, navItems } from './navigation'
 import { useI18n } from '@/lib/i18n'
+import { businessTerms } from '@/lib/business-terms'
 
 function MenuIcon({ href, className = '' }: { href: string; className?: string }) {
   const common = { className, viewBox: '0 0 24 24', fill: 'none' as const, 'aria-hidden': true }
@@ -83,6 +84,9 @@ export function Sidebar() {
   const { user, logout } = useAuthStore()
   const { t } = useI18n()
   const isOwner = user?.role === 'OWNER'
+  const terms = businessTerms(user?.businessType as any, user?.customLabels as any)
+  const hasCustomCustomerLabel = Boolean(user?.customLabels?.customer?.trim())
+  const hasCustomInventoryLabel = Boolean(user?.customLabels?.inventory?.trim())
 
   const visible = navItems.filter((item) => {
     if (item.group === 'workspace' && item.href !== '/tickets') return isOwner
@@ -137,7 +141,13 @@ export function Sidebar() {
                 >
                   <span className="flex items-center gap-2">
                     <MenuIcon href={item.href} className="h-4 w-4" />
-                    <span className="font-medium">{t(item.label)}</span>
+                    <span className="font-medium">
+                      {item.label === 'nav.inventory'
+                        ? (hasCustomInventoryLabel ? terms.inventory : t('nav.inventory'))
+                        : item.label === 'nav.customers'
+                          ? (hasCustomCustomerLabel ? terms.customer : t('nav.customers'))
+                        : t(item.label)}
+                    </span>
                   </span>
                   <span className={cn('h-2.5 w-2.5 rounded-full', active ? 'bg-emerald-400 dark:bg-emerald-100' : 'bg-slate-400 dark:bg-slate-500')} />
                 </Link>

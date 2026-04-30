@@ -9,6 +9,8 @@ import { fmt } from '@/lib/utils'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useI18n } from '@/lib/i18n'
+import { useAuthStore } from '@/store/auth'
+import { businessTerms } from '@/lib/business-terms'
 
 const RISK_TAGS = ['ALL', 'RELIABLE', 'WATCH', 'BLOCKED']
 
@@ -29,20 +31,21 @@ const emptyForm: CustomerForm = {
 }
 
 export default function CustomersPage() {
-  const { language } = useI18n()
-  const t = (en: string, hi: string, hinglish?: string) => (language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en)
+  const { user } = useAuthStore()
+  const { language, tr: t } = useI18n()
+  const terms = businessTerms(user?.businessType as any, user?.customLabels as any)
   const tr = {
-    title: language === 'hi' ? 'ग्राहक विश्लेषण' : language === 'hinglish' ? 'Customer intelligence' : 'Customer intelligence',
-    eyebrow: language === 'hi' ? 'ग्राहक एनालिटिक्स' : language === 'hinglish' ? 'Customer analytics' : 'Customer analytics',
-    add: language === 'hi' ? '+ ग्राहक जोड़ें' : language === 'hinglish' ? '+ Customer add karo' : '+ Add customer',
-    search: language === 'hi' ? 'नाम से खोजें...' : language === 'hinglish' ? 'Naam se search karo...' : 'Search by name...',
-    noData: language === 'hi' ? 'कोई ग्राहक नहीं मिला' : language === 'hinglish' ? 'Koi customer nahi mila' : 'No customers found',
-    emptySub: language === 'hi' ? 'शुरू करने के लिए पहला ग्राहक जोड़ें' : language === 'hinglish' ? 'Start karne ke liye pehla customer add karo' : 'Add your first customer to get started',
-    save: language === 'hi' ? 'ग्राहक सेव करें' : language === 'hinglish' ? 'Customer save karo' : 'Save customer',
-    saving: language === 'hi' ? 'सेव हो रहा है...' : language === 'hinglish' ? 'Save ho raha hai...' : 'Saving...',
-    cancel: language === 'hi' ? 'रद्द करें' : language === 'hinglish' ? 'Cancel' : 'Cancel',
-    edit: language === 'hi' ? 'संपादित करें' : language === 'hinglish' ? 'Edit' : 'Edit',
-    del: language === 'hi' ? 'हटाएं' : language === 'hinglish' ? 'Delete' : 'Delete',
+    title: t('Customer intelligence', 'ग्राहक विश्लेषण', 'Customer intelligence'),
+    eyebrow: t('Customer analytics', 'ग्राहक एनालिटिक्स', 'Customer analytics'),
+    add: t(`+ Add ${terms.customer.toLowerCase()}`, '+ ग्राहक जोड़ें', `+ ${terms.customer} add karo`),
+    search: t(`Search ${terms.customer.toLowerCase()} by name...`, 'नाम से खोजें...', 'Naam se search karo...'),
+    noData: t(`No ${terms.customer.toLowerCase()}s found`, 'कोई ग्राहक नहीं मिला', `Koi ${terms.customer.toLowerCase()} nahi mila`),
+    emptySub: t(`Add your first ${terms.customer.toLowerCase()} to get started`, 'शुरू करने के लिए पहला ग्राहक जोड़ें', `Start karne ke liye pehla ${terms.customer.toLowerCase()} add karo`),
+    save: t(`Save ${terms.customer.toLowerCase()}`, 'ग्राहक सेव करें', `${terms.customer} save karo`),
+    saving: t('Saving...', 'सेव हो रहा है...', 'Save ho raha hai...'),
+    cancel: t('Cancel', 'रद्द करें', 'Cancel'),
+    edit: t('Edit', 'संपादित करें', 'Edit'),
+    del: t('Delete', 'हटाएं', 'Delete'),
     customersInView: t('Customers in view', 'दिख रहे ग्राहक'),
     filteredActiveAccounts: t('Filtered active accounts', 'फिल्टर किए गए सक्रिय खाते'),
     outstanding: t('Outstanding', 'बकाया'),
@@ -51,8 +54,8 @@ export default function CustomersPage() {
     watchBlocked: t('Watch + blocked accounts', 'वॉच + ब्लॉक्ड खाते'),
     orderRelations: t('Order relationships', 'ऑर्डर संबंध'),
     lifetimeOrders: t('Lifetime order count in current list', 'वर्तमान सूची में कुल ऑर्डर संख्या'),
-    editCustomer: t('Edit customer', 'ग्राहक संपादित करें'),
-    newCustomer: t('New customer', 'नया ग्राहक'),
+    editCustomer: t(`Edit ${terms.customer.toLowerCase()}`, 'ग्राहक संपादित करें'),
+    newCustomer: t(`New ${terms.customer.toLowerCase()}`, 'नया ग्राहक'),
     riskTag: t('Risk Tag', 'जोखिम टैग'),
     reliable: t('Reliable', 'विश्वसनीय'),
     watch: t('Watch', 'निगरानी'),
@@ -407,7 +410,7 @@ export default function CustomersPage() {
                       className="cursor-pointer rounded border-stone-300 text-blue-600 focus:ring-blue-500"
                     />
                   </th>
-                  {[language === 'hi' ? 'नाम' : 'Name', language === 'hi' ? 'फोन' : 'Phone', language === 'hi' ? 'पता' : 'Address', language === 'hi' ? 'क्रेडिट सीमा' : 'Credit limit', language === 'hi' ? 'बकाया' : 'Outstanding', language === 'hi' ? 'ऑर्डर' : 'Orders', language === 'hi' ? 'रिस्क' : 'Risk', ''].map((h) => (
+                  {[t('Name', 'नाम'), t('Phone', 'फोन'), t('Address', 'पता'), t('Credit limit', 'क्रेडिट सीमा'), t('Outstanding', 'बकाया'), t('Orders', 'ऑर्डर'), t('Risk', 'रिस्क'), ''].map((h) => (
                     <th key={h} className="py-3 pr-3 text-left font-normal uppercase tracking-[0.18em] text-slate-400 dark:text-slate-300">
                       {h}
                     </th>

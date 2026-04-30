@@ -78,7 +78,7 @@ export default function LoginPage() {
     lockAtExpiry: 'एक्सपायरी पर वर्कस्पेस लॉक हो जाएगा',
     renewalText: 'ट्रायल या प्लान खत्म होते ही ओनर को subscription पेज पर भेजा जाता है, डेटा सुरक्षित रहता है।',
     securePayments: 'सुरक्षित भुगतान सीधे Razorpay checkout में होते हैं।',
-    platformLine: 'कंस्ट्रक्शन मटेरियल मैनेजमेंट प्लेटफ़ॉर्म',
+    platformLine: 'बिज़नेस मैनेजमेंट प्लेटफ़ॉर्म',
     phonePlaceholder: '9876543210',
     passwordPlaceholder: 'अपना पासवर्ड दर्ज करें',
     loginFailed: 'लॉगिन विफल। क्रेडेंशियल जांचें।',
@@ -92,7 +92,7 @@ export default function LoginPage() {
     lockAtExpiry: 'Expiry pe workspace lock hoga',
     renewalText: 'Trial ya plan khatam hote hi owner ko subscription area me bheja jata hai, data safe rehta hai.',
     securePayments: 'Secure payment direct Razorpay checkout me hota hai.',
-    platformLine: 'Construction material management platform',
+    platformLine: 'Business management platform',
     phonePlaceholder: '9876543210',
     passwordPlaceholder: 'Apna password daalo',
     loginFailed: 'Login fail hua. Credentials check karo.',
@@ -106,7 +106,7 @@ export default function LoginPage() {
     lockAtExpiry: 'Workspace locks at expiry',
     renewalText: 'Owners are redirected to the subscription area as soon as trial or plan access ends, while data stays intact.',
     securePayments: 'Secure payments are handled directly in Razorpay checkout.',
-    platformLine: 'Construction material management platform',
+    platformLine: 'Business management platform',
     phonePlaceholder: '9876543210',
     passwordPlaceholder: 'Enter your password',
     loginFailed: 'Login failed. Check credentials.',
@@ -158,13 +158,13 @@ export default function LoginPage() {
               </Link>
             </div>
 
-            <div className="rounded-[28px] border border-white/70 bg-white/80 p-5 shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur dark:border-white/10 dark:bg-slate-950/68">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{languageText.renewalReady}</div>
-              <div className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{languageText.lockAtExpiry}</div>
-              <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            <div className="rounded-[28px] border border-white/70 bg-white/82 p-5 shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/90">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-300">{languageText.renewalReady}</div>
+              <div className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 dark:text-slate-100">{languageText.lockAtExpiry}</div>
+              <div className="mt-2 text-sm text-slate-600 dark:text-slate-200">
                 {languageText.renewalText}
               </div>
-              <div className="mt-4 text-xs text-slate-500 dark:text-slate-400">
+              <div className="mt-4 text-xs text-slate-500 dark:text-slate-300">
                 {languageText.securePayments}
               </div>
             </div>

@@ -42,6 +42,16 @@ const UpdateBusinessSchema = z.object({
   address: z.string().optional(),
   phone: z.string().optional(),
   gstin: z.string().optional(),
+  businessType: z.enum(['GENERAL', 'CEMENT', 'HARDWARE_SANITARY', 'KIRYANA', 'CUSTOM']).optional(),
+  customLabels: z
+    .object({
+      inventory: z.string().trim().min(1).max(40).optional(),
+      material: z.string().trim().min(1).max(40).optional(),
+      customer: z.string().trim().min(1).max(40).optional(),
+      supplier: z.string().trim().min(1).max(40).optional(),
+      businessTypeName: z.string().trim().min(1).max(60).optional(),
+    })
+    .optional(),
 })
 
 const UpdateReminderRulesSchema = z.object({
@@ -117,6 +127,8 @@ function buildSettingsAuthUser(user: {
     businessId: user.businessId ?? null,
     businessName: user.business?.name ?? null,
     businessCity: user.business?.city ?? null,
+    businessType: user.business?.businessType ?? 'GENERAL',
+    customLabels: user.business?.customLabels ?? null,
     permissions: user.permissions,
     subscriptionStatus: user.business?.subscriptionStatus ?? null,
     subscriptionEndsAt: user.business?.subscriptionEndsAt?.toISOString?.() ?? null,
@@ -477,6 +489,8 @@ export async function settingsRoutes(app: FastifyInstance) {
       business: refreshedUser.businessId ? {
         name: refreshedUser.businessName,
         city: refreshedUser.businessCity,
+        businessType: refreshedUser.businessType,
+        customLabels: refreshedUser.customLabels,
         subscriptionStatus: refreshedUser.subscriptionStatus,
         subscriptionEndsAt: refreshedUser.subscriptionEndsAt,
         subscriptionInterval: refreshedUser.subscriptionInterval,
@@ -537,6 +551,8 @@ export async function settingsRoutes(app: FastifyInstance) {
       business: refreshedUser.businessId ? {
         name: refreshedUser.businessName,
         city: refreshedUser.businessCity,
+        businessType: refreshedUser.businessType,
+        customLabels: refreshedUser.customLabels,
         subscriptionStatus: refreshedUser.subscriptionStatus,
         subscriptionEndsAt: refreshedUser.subscriptionEndsAt,
         subscriptionInterval: refreshedUser.subscriptionInterval,

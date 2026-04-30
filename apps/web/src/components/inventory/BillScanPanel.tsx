@@ -7,6 +7,7 @@ import { PageLoader } from '@/components/ui/Spinner'
 import { useCommitPurchaseBillScan, useScanPurchaseBill } from '@/hooks/useInventory'
 import { useI18n } from '@/lib/i18n'
 import { fmt } from '@/lib/utils'
+import { splitPreferredUnits } from '@/lib/business-terms'
 
 type Material = {
   id: string
@@ -109,14 +110,14 @@ async function compressBillImage(file: File) {
   return canvas.toDataURL('image/jpeg', 0.84)
 }
 
-function initialEdits(scan: BillScan, materialsById: Map<string, Material>) {
+function initialEdits(scan: BillScan, materialsById: Map<string, Material>, defaultUnit: string) {
   const edits: Record<string, LineEdit> = {}
   for (const line of scan.lines) {
     const matched = line.materialId ? materialsById.get(line.materialId) : undefined
     const topCandidate = line.candidateMatches?.[0]
     const materialId = line.materialId ?? topCandidate?.materialId ?? ''
     const material = materialId ? materialsById.get(materialId) : undefined
-    const unit = line.unit ?? matched?.unit ?? material?.unit ?? topCandidate?.unit ?? 'bags'
+    const unit = line.unit ?? matched?.unit ?? material?.unit ?? topCandidate?.unit ?? defaultUnit
     const purchasePrice = line.purchasePrice ?? material?.purchasePrice ?? 0
     edits[line.id] = {
       action: line.quantity && line.quantity > 0 ? 'APPLY' : 'SKIP',
@@ -136,11 +137,17 @@ function initialEdits(scan: BillScan, materialsById: Map<string, Material>) {
 export function BillScanPanel({
   materials,
   units,
+  preferredUnits,
+  materialLabel = 'Material',
+  inventoryLabel = 'Inventory',
   onClose,
   onImported,
 }: {
   materials: Material[]
   units?: string[]
+  preferredUnits?: string[]
+  materialLabel?: string
+  inventoryLabel?: string
   onClose: () => void
   onImported?: (message: string) => void
 }) {
@@ -155,6 +162,12 @@ export function BillScanPanel({
   const [error, setError] = useState('')
 
   const materialsById = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials])
+  const allUnits = useMemo(() => (units?.length ? units : fallbackUnits), [units])
+  const { preferred, others: otherUnits } = useMemo(
+    () => splitPreferredUnits(allUnits, preferredUnits ?? []),
+    [allUnits, preferredUnits]
+  )
+  const defaultUnit = preferred[0] ?? allUnits[0] ?? 'pieces'
   const hasLines = (scan?.lines.length ?? 0) > 0
   const invalidLineCount = useMemo(() => {
     if (!scan) return 0
@@ -187,7 +200,7 @@ export function BillScanPanel({
       const result = await scanBill.mutateAsync({ fileName: file.name, dataUrl })
       setScan(result.scan)
       setWarnings(result.warnings ?? [])
-      setEdits(initialEdits(result.scan, materialsById))
+      setEdits(initialEdits(result.scan, materialsById, defaultUnit))
     } catch (err: any) {
       setError(err.response?.data?.error ?? err.message ?? t('Bill scan failed', 'बिल स्कैन विफल हुआ'))
     }
@@ -224,7 +237,7 @@ export function BillScanPanel({
       onImported?.(
         language === 'hi'
           ? `${result.materialCount} मटेरियल में ${result.importedLineCount} बिल लाइन आयात हुईं।`
-          : `${result.importedLineCount} bill line(s) imported across ${result.materialCount} material(s).`,
+          : `${result.importedLineCount} bill line(s) imported across ${result.materialCount} ${materialLabel.toLowerCase()}(s).`,
       )
       setScan(null)
       setPreview('')
@@ -276,7 +289,7 @@ export function BillScanPanel({
           )}
           {scanBill.isPending && (
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
-              {t('Scanning bill and matching materials...', 'बिल स्कैन हो रहा है और मटेरियल मिलाए जा रहे हैं...')}
+              {t(`Scanning bill and matching ${materialLabel.toLowerCase()}s...`, 'बिल स्कैन हो रहा है और मटेरियल मिलाए जा रहे हैं...')}
             </div>
           )}
         </div>
@@ -328,7 +341,7 @@ export function BillScanPanel({
                   <thead className="bg-stone-50 text-left text-stone-500 dark:bg-slate-950 dark:text-slate-300">
                     <tr>
                       <th className="px-3 py-2 font-medium">{t('Line', 'लाइन')}</th>
-                      <th className="px-3 py-2 font-medium">{t('Inventory match', 'इन्वेंट्री मैच')}</th>
+                      <th className="px-3 py-2 font-medium">{t(`${inventoryLabel} match`, 'इन्वेंट्री मैच')}</th>
                       <th className="px-3 py-2 font-medium">{t('Qty', 'मात्रा')}</th>
                       <th className="px-3 py-2 font-medium">{t('Unit', 'यूनिट')}</th>
                       <th className="px-3 py-2 font-medium">{t('Buy price', 'खरीद मूल्य')}</th>
@@ -399,7 +412,7 @@ export function BillScanPanel({
                                 }}
                                 className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
                               >
-                                <option value="">{t('Select material', 'मटेरियल चुनें')}</option>
+                                <option value="">{t(`Select ${materialLabel.toLowerCase()}`, 'मटेरियल चुनें')}</option>
                                 {materials.map((material) => (
                                   <option key={material.id} value={material.id}>{material.name}</option>
                                 ))}
@@ -424,7 +437,9 @@ export function BillScanPanel({
                               onChange={(event) => updateLine(line.id, { unit: event.target.value })}
                               className="w-24 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
                             >
-                              {(units?.length ? units : fallbackUnits).map((unit) => <option key={unit} value={unit}>{unit}</option>)}
+                              {preferred.map((unit) => <option key={`pref-${unit}`} value={unit}>{unit}</option>)}
+                              {preferred.length > 0 && otherUnits.length > 0 ? <option disabled>--------</option> : null}
+                              {otherUnits.map((unit) => <option key={`other-${unit}`} value={unit}>{unit}</option>)}
                             </select>
                           </td>
                           <td className="px-3 py-3">
@@ -463,7 +478,7 @@ export function BillScanPanel({
                 <div className="text-xs text-red-600">
                   {language === 'hi'
                     ? `${invalidLineCount} लागू लाइन के लिए सही मटेरियल, मात्रा, यूनिट और मूल्य जरूरी है।`
-                    : `${invalidLineCount} applied line(s) need a valid material, quantity, unit, and price.`}
+                    : `${invalidLineCount} applied line(s) need a valid ${materialLabel.toLowerCase()}, quantity, unit, and price.`}
                 </div>
               )}
 

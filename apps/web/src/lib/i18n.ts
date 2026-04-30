@@ -7,7 +7,7 @@ const en: Dict = {
   'language.hindi': 'Hindi',
   'language.hinglish': 'Hinglish',
   'language.label': 'Language',
-  'brand.cementHouse': 'Cement House',
+  'brand.cementHouse': 'Business Hub',
   'common.signOut': 'Sign out',
   'nav.overview': 'Overview',
   'nav.orders': 'Orders',
@@ -63,7 +63,7 @@ const hi: Dict = {
   'language.hindi': 'हिंदी',
   'language.hinglish': 'Hinglish',
   'language.label': 'भाषा',
-  'brand.cementHouse': 'सीमेंट हाउस',
+  'brand.cementHouse': 'बिज़नेस हब',
   'common.signOut': 'साइन आउट',
   'nav.overview': 'ओवरव्यू',
   'nav.orders': 'ऑर्डर',
@@ -119,7 +119,7 @@ const hinglish: Dict = {
   'language.hindi': 'Hindi',
   'language.hinglish': 'Hinglish',
   'language.label': 'Language',
-  'brand.cementHouse': 'Cement House',
+  'brand.cementHouse': 'Business Hub',
   'common.signOut': 'Sign out',
   'nav.overview': 'Overview',
   'nav.orders': 'Orders',
@@ -172,8 +172,27 @@ const hinglish: Dict = {
 
 const DICTS: Record<AppLanguage, Dict> = { en, hi, hinglish }
 
+const MOJIBAKE_PATTERN = /(?:Ã|Â|à¤|à¥|â€|â€™|â€œ|â€\x9d|â€”)/u
+
+export function normalizeMojibake(value: string): string {
+  if (!value || !MOJIBAKE_PATTERN.test(value)) return value
+  try {
+    const bytes = Uint8Array.from(value, (char) => char.charCodeAt(0) & 0xff)
+    const decoded = new TextDecoder('utf-8').decode(bytes)
+    return decoded || value
+  } catch {
+    return value
+  }
+}
+
+export function tr(language: AppLanguage, enText: string, hiText: string, hinglishText?: string): string {
+  const selected = language === 'hi' ? hiText : language === 'hinglish' ? (hinglishText ?? enText) : enText
+  return normalizeMojibake(selected)
+}
+
 export function t(language: AppLanguage, key: string) {
-  return DICTS[language][key] ?? en[key] ?? key
+  const resolved = DICTS[language][key] ?? en[key] ?? key
+  return normalizeMojibake(resolved)
 }
 
 export function useI18n() {
@@ -181,5 +200,6 @@ export function useI18n() {
   return {
     language,
     t: (key: string) => t(language, key),
+    tr: (enText: string, hiText: string, hinglishText?: string) => tr(language, enText, hiText, hinglishText),
   }
 }

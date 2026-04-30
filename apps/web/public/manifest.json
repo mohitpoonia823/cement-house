@@ -1,7 +1,7 @@
 {
-  "name": "Cement House",
-  "short_name": "CementHouse",
-  "description": "Shree Cement House — Construction Distributor Management",
+  "name": "Business Hub",
+  "short_name": "BizHub",
+  "description": "Business Hub - Multi-business management platform",
   "start_url": "/dashboard",
   "display": "standalone",
   "background_color": "#0f172a",

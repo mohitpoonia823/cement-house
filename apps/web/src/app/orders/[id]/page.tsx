@@ -28,6 +28,7 @@ export default function OrderDetailPage() {
   const { data: order, isLoading } = useOrder(id)
   const [updating, setUpdating] = useState(false)
   const [showChallan, setShowChallan] = useState(false)
+  const [downloadingChallan, setDownloadingChallan] = useState(false)
   const [showAddItem, setShowAddItem] = useState(false)
   const [addingItem, setAddingItem] = useState(false)
   const [newItem, setNewItem] = useState({ materialId: '', quantity: 1, unitPrice: 0, purchasePrice: 0 })
@@ -55,6 +56,29 @@ export default function OrderDetailPage() {
       setShowAddItem(false)
       setNewItem({ materialId: '', quantity: 1, unitPrice: 0, purchasePrice: 0 })
     } finally { setAddingItem(false) }
+  }
+
+  async function handleDownloadChallan() {
+    if (!id || downloadingChallan) return
+    try {
+      setDownloadingChallan(true)
+      const response = await api.get(`/api/orders/${id}/challan`, { responseType: 'blob' })
+      const disposition = String(response.headers['content-disposition'] ?? '')
+      const match = disposition.match(/filename="([^"]+)"/i)
+      const fallback = `${order.orderNumber || 'challan'}.pdf`
+      const filename = match?.[1] ?? fallback
+
+      const blobUrl = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
+      const link = document.createElement('a')
+      link.href = blobUrl
+      link.setAttribute('download', filename)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(blobUrl)
+    } finally {
+      setDownloadingChallan(false)
+    }
   }
 
   if (isLoading) return <AppShell><PageLoader /></AppShell>
@@ -267,19 +291,19 @@ export default function OrderDetailPage() {
                   <div className="text-xs text-stone-400">{order.customer.address}</div>
                 )}
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[440px] text-xs border-t border-stone-100 dark:border-stone-800 pt-3">
+              <div>
+                <table className="w-full table-fixed text-xs border-t border-stone-100 dark:border-stone-800 pt-3">
                 <thead>
                   <tr>
-                    <th className="text-left py-1 font-normal text-stone-400">Material</th>
-                    <th className="text-right py-1 font-normal text-stone-400">Qty</th>
-                    <th className="text-right py-1 font-normal text-stone-400">Unit</th>
+                    <th className="w-[60%] text-left py-1 font-normal text-stone-400">Material</th>
+                    <th className="w-[22%] text-right py-1 font-normal text-stone-400">Qty</th>
+                    <th className="w-[18%] text-right py-1 font-normal text-stone-400">Unit</th>
                   </tr>
                 </thead>
                 <tbody>
                   {order.items?.map((item: any) => (
                     <tr key={item.id} className="border-t border-stone-50 dark:border-stone-800">
-                      <td className="py-1.5 font-medium text-stone-800 dark:text-stone-200">{item.material?.name}</td>
+                      <td className="py-1.5 pr-2 font-medium text-stone-800 dark:text-stone-200 break-words">{item.material?.name}</td>
                       <td className="py-1.5 text-right">{Number(item.quantity).toFixed(2)}</td>
                       <td className="py-1.5 text-right text-stone-500">{item.material?.unit}</td>
                     </tr>
@@ -287,21 +311,57 @@ export default function OrderDetailPage() {
                 </tbody>
                 </table>
               </div>
+              <div className="border-t border-stone-200 pt-3 text-xs dark:border-stone-700">
+                <div className="mb-1 font-medium uppercase tracking-wide text-stone-500">Payment</div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-stone-500">Order total</span>
+                    <span className="font-medium text-stone-800 dark:text-stone-200">{fmt(Number(order.totalAmount))}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-stone-500">Paid</span>
+                    <span className="font-medium text-green-700 dark:text-green-400">{fmt(Number(order.amountPaid))}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-stone-500">Outstanding</span>
+                    <span className={`font-medium ${due > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                      {due > 0 ? fmt(due) : 'Cleared'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-stone-500">Mode</span>
+                    <span className="text-stone-700 dark:text-stone-300">{order.paymentMode}</span>
+                  </div>
+                </div>
+              </div>
               <div className="grid grid-cols-1 gap-4 border-t border-stone-200 pt-3 text-xs dark:border-stone-700 sm:grid-cols-2">
                 <div>
                   <div className="text-stone-400 mb-6">Driver signature:</div>
                   <div className="border-b border-stone-300 dark:border-stone-600" />
                 </div>
                 <div>
-                  <div className="text-stone-400 mb-6">Customer signature:</div>
+                  <div className="text-stone-400 mb-6">Receiver signature:</div>
                   <div className="border-b border-stone-300 dark:border-stone-600" />
                 </div>
               </div>
             </div>
-            <button onClick={() => window.print()}
-              className="mt-3 w-full py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
-              Print challan
-            </button>
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="w-full py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
+              >
+                Print challan
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadChallan}
+                disabled={downloadingChallan}
+                className="w-full py-2 border border-stone-300 text-stone-800 text-sm font-medium rounded-lg hover:bg-stone-50 disabled:opacity-60 dark:border-stone-600 dark:text-stone-100 dark:hover:bg-stone-800"
+              >
+                {downloadingChallan ? 'Downloading...' : 'Download PDF'}
+              </button>
+            </div>
           </div>
         </div>
       )}
