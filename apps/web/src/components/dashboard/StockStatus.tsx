@@ -31,7 +31,7 @@ export function StockStatus() {
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs font-medium text-gray-900 dark:text-gray-100">Stock status</span>
-        <Link href="/inventory" className="text-xs text-blue-500 cursor-pointer hover:text-blue-600">Manage -></Link>
+        <Link href="/inventory" className="text-xs text-blue-500 cursor-pointer hover:text-blue-600">Manage {'->'}</Link>
       </div>
 
       {/* Material rows */}
