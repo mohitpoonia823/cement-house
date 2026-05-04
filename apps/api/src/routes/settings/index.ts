@@ -3,11 +3,18 @@ import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { createHmac } from 'node:crypto'
 import { Buffer } from 'node:buffer'
-import { settingsRepository } from '@cement-house/db'
+import { settingsRepository, subscriptionsRepository } from '@cement-house/db'
+import {
+  BUSINESS_TYPE_VALUES,
+  normalizeBusinessType,
+  normalizeCustomFeatureFlags,
+  normalizeCustomModules,
+  validateCustomBusinessSelection,
+} from '@cement-house/utils'
 import { getBizId, requireOwner } from '../../middleware/auth'
+import { ensureUsageAllowed, getSubscriptionAccessContext } from '../../services/subscription-access'
 import {
   type BusinessWithBilling,
-  computeSubscriptionAmount,
   computeBusinessAccess,
   ensurePlatformSettings,
 } from '../../services/billing'
@@ -42,7 +49,7 @@ const UpdateBusinessSchema = z.object({
   address: z.string().optional(),
   phone: z.string().optional(),
   gstin: z.string().optional(),
-  businessType: z.enum(['GENERAL', 'CEMENT', 'HARDWARE_SANITARY', 'KIRYANA', 'CUSTOM']).optional(),
+  businessType: z.enum(BUSINESS_TYPE_VALUES).optional(),
   customLabels: z
     .object({
       inventory: z.string().trim().min(1).max(40).optional(),
@@ -95,7 +102,15 @@ const UpdateStaffSchema = z.object({
 })
 
 const SubscriptionCheckoutInitiateSchema = z.object({
+  planName: z.enum(['FREE', 'BASIC', 'PRO', 'ENTERPRISE']).default('PRO'),
   interval: z.enum(['MONTHLY', 'YEARLY']),
+})
+
+const UpdateModulesConfigSchema = z.object({
+  customBusinessTypeName: z.string().trim().min(2).max(60).optional(),
+  customBusinessDescription: z.string().trim().min(2).max(200).optional(),
+  enabledModules: z.array(z.string().trim().min(1)),
+  featureFlags: z.record(z.string(), z.boolean()),
 })
 
 const SubscriptionCheckoutVerifySchema = z.object({
@@ -127,8 +142,11 @@ function buildSettingsAuthUser(user: {
     businessId: user.businessId ?? null,
     businessName: user.business?.name ?? null,
     businessCity: user.business?.city ?? null,
-    businessType: user.business?.businessType ?? 'GENERAL',
+    businessType: user.business?.businessType ?? 'GENERAL_STORE',
     customLabels: user.business?.customLabels ?? null,
+    enabledModules: user.business?.enabledModules ?? [],
+    featureFlags: user.business?.featureFlags ?? {},
+    defaultSettings: user.business?.defaultSettings ?? {},
     permissions: user.permissions,
     subscriptionStatus: user.business?.subscriptionStatus ?? null,
     subscriptionEndsAt: user.business?.subscriptionEndsAt?.toISOString?.() ?? null,
@@ -165,14 +183,6 @@ function getRazorpayConfig() {
     keyId,
     keySecret,
   }
-}
-
-function getNewSubscriptionEndDate(interval: 'MONTHLY' | 'YEARLY', fromDate?: Date | null) {
-  const now = new Date()
-  const base = fromDate && fromDate.getTime() > now.getTime() ? new Date(fromDate) : now
-  const next = new Date(base)
-  next.setDate(next.getDate() + (interval === 'YEARLY' ? 365 : 30))
-  return next
 }
 
 function isActivePaidCycle(business: { subscriptionEndsAt: Date | null; subscriptionInterval: 'MONTHLY' | 'YEARLY' | null }) {
@@ -260,11 +270,12 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (inFlight) return { success: true, data: await inFlight }
 
     const compute = (async () => {
-      const [platform, business, paymentMethod, transactions] = await Promise.all([
+      const [platform, business, paymentMethod, transactions, subscriptionCtx] = await Promise.all([
         ensurePlatformSettings(),
         settingsRepository.getSettingsBusinessById(bizId),
         settingsRepository.getDefaultPaymentMethodByBusiness(bizId),
         settingsRepository.getRecentPaymentTransactionsByBusiness(bizId, 8),
+        getSubscriptionAccessContext(bizId),
       ])
 
       if (!business) return null
@@ -308,6 +319,17 @@ export async function settingsRoutes(app: FastifyInstance) {
           reference: transaction.reference,
           failureReason: transaction.failureReason,
         })),
+        planV2: subscriptionCtx.subscription
+          ? {
+              name: subscriptionCtx.subscription.planName,
+              status: subscriptionCtx.subscription.status,
+              startDate: subscriptionCtx.subscription.startDate,
+              endDate: subscriptionCtx.subscription.endDate,
+              trialEndDate: subscriptionCtx.subscription.trialEndDate,
+              limits: subscriptionCtx.subscription.limits,
+            }
+          : null,
+        usageV2: subscriptionCtx.usage,
       }
     })().finally(() => settingsSubscriptionInFlight.delete(cacheKey))
 
@@ -316,6 +338,42 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (!data) return reply.status(404).send({ success: false, error: 'Business not found' })
     settingsSubscriptionCache.set(cacheKey, { expiresAt: Date.now() + SETTINGS_SUBSCRIPTION_CACHE_TTL_MS, value: data })
     return { success: true, data }
+  })
+
+  app.get('/plans', async (req, reply) => {
+    if (!requireOwner(req, reply)) return
+    const plans = await subscriptionsRepository.listActivePlans()
+    return { success: true, data: plans }
+  })
+
+  app.get('/subscription/usage', async (req, reply) => {
+    if (!requireOwner(req, reply)) return
+    const bizId = getBizId(req)
+    const { subscription, usage } = await getSubscriptionAccessContext(bizId)
+    return {
+      success: true,
+      data: {
+        subscription: subscription
+          ? {
+              id: subscription.id,
+              status: subscription.status,
+              startDate: subscription.startDate,
+              endDate: subscription.endDate,
+              trialEndDate: subscription.trialEndDate,
+              autoRenew: subscription.autoRenew,
+              plan: {
+                id: subscription.planId,
+                name: subscription.planName,
+                priceMonthly: subscription.priceMonthly,
+                priceYearly: subscription.priceYearly,
+                features: subscription.planFeatures,
+                limits: subscription.limits,
+              },
+            }
+          : null,
+        usage,
+      },
+    }
   })
 
   app.post('/subscription/checkout/initiate', async (req, reply) => {
@@ -346,7 +404,9 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     const paymentMethod = await settingsRepository.getDefaultPaymentMethodByBusiness(bizId)
 
-    const amount = computeSubscriptionAmount(business, platform, body.data.interval)
+    const plan = await subscriptionsRepository.getPlanByName(body.data.planName)
+    if (!plan) return reply.status(400).send({ success: false, error: 'Selected plan is not active' })
+    const amount = body.data.interval === 'YEARLY' ? Number(plan.priceYearly) : Number(plan.priceMonthly)
     const amountInPaise = Math.round(Number(amount) * 100)
     if (!Number.isFinite(amountInPaise) || amountInPaise <= 0) {
       return reply.status(400).send({ success: false, error: 'Invalid payment amount' })
@@ -366,6 +426,7 @@ export async function settingsRoutes(app: FastifyInstance) {
         notes: {
           businessId: bizId,
           interval: body.data.interval,
+          planName: body.data.planName,
         },
       }),
     })
@@ -389,7 +450,16 @@ export async function settingsRoutes(app: FastifyInstance) {
         gateway: 'RAZORPAY',
         receipt,
         razorpayOrderId: orderPayload.id,
+        planName: body.data.planName,
       },
+    })
+    await subscriptionsRepository.createPendingSubscriptionPayment({
+      businessId: bizId,
+      planId: plan.id,
+      interval: body.data.interval,
+      amount,
+      razorpayOrderId: orderPayload.id,
+      metadata: { transactionId: transaction.id, planName: body.data.planName },
     })
 
     return {
@@ -400,13 +470,14 @@ export async function settingsRoutes(app: FastifyInstance) {
         amount,
         currency: platform.currency,
         interval: body.data.interval,
+        planName: body.data.planName,
         razorpay: {
           keyId: razorpay.keyId,
           orderId: orderPayload.id,
           amount: amountInPaise,
           currency: platform.currency || 'INR',
           name: business.name,
-          description: `${body.data.interval === 'YEARLY' ? 'Yearly' : 'Monthly'} subscription`,
+          description: `${body.data.planName} ${body.data.interval === 'YEARLY' ? 'yearly' : 'monthly'} subscription`,
           prefill: {
             name: (req.user as any)?.name ?? business.name,
             contact: (req.user as any)?.phone ?? undefined,
@@ -455,55 +526,9 @@ export async function settingsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: 'Order reference mismatch' })
     }
 
-    const hasActiveCycle = isActivePaidCycle({
-      subscriptionEndsAt: transaction.businessSubscriptionEndsAt,
-      subscriptionInterval: transaction.businessSubscriptionInterval,
-    })
-    if (hasActiveCycle && transaction.businessSubscriptionInterval === 'YEARLY' && body.data.interval === 'MONTHLY') {
-      return reply.status(409).send({
-        success: false,
-        error: 'Monthly downgrade is blocked while a yearly subscription cycle is active.',
-      })
-    }
-
-    const baseDateForRenewal = hasActiveCycle ? transaction.businessSubscriptionEndsAt : null
-    const newEndDate = getNewSubscriptionEndDate(body.data.interval, baseDateForRenewal)
-    await settingsRepository.finalizeSubscriptionPayment({
-      transactionId: transaction.id,
-      businessId: bizId,
-        interval: body.data.interval,
-      razorpayOrderId: body.data.razorpayOrderId,
-      razorpayPaymentId: body.data.razorpayPaymentId,
-      newEndDate,
-    })
-
-    const refreshedUser = await settingsRepository.getSettingsSessionUserById((req.user as any).id)
-    if (!refreshedUser) return reply.status(404).send({ success: false, error: 'User not found after payment verification' })
-
-    const authUser = buildSettingsAuthUser({
-      id: refreshedUser.id,
-      name: refreshedUser.name,
-      role: refreshedUser.role,
-      businessId: refreshedUser.businessId,
-      permissions: refreshedUser.permissions,
-      business: refreshedUser.businessId ? {
-        name: refreshedUser.businessName,
-        city: refreshedUser.businessCity,
-        businessType: refreshedUser.businessType,
-        customLabels: refreshedUser.customLabels,
-        subscriptionStatus: refreshedUser.subscriptionStatus,
-        subscriptionEndsAt: refreshedUser.subscriptionEndsAt,
-        subscriptionInterval: refreshedUser.subscriptionInterval,
-        monthlySubscriptionAmount: refreshedUser.monthlySubscriptionAmount,
-        yearlySubscriptionAmount: refreshedUser.yearlySubscriptionAmount,
-        trialStartedAt: refreshedUser.trialStartedAt,
-        trialDaysOverride: refreshedUser.trialDaysOverride,
-      } : undefined,
-      accessLocked: false,
-      accessReason: '',
-    })
-    const token = app.jwt.sign(authUser, { expiresIn: '7d' })
     invalidateSettingsCaches(bizId, (req.user as any).id)
+    // Source of truth is webhook capture/failure event.
+    // This endpoint only confirms checkout signature from client callback.
 
     return {
       success: true,
@@ -513,11 +538,8 @@ export async function settingsRoutes(app: FastifyInstance) {
         currency: transaction.currency,
         interval: transaction.interval,
         paidAt: new Date().toISOString(),
-        endsAt: newEndDate.toISOString(),
-        session: {
-          token,
-          user: authUser,
-        },
+        pendingWebhook: true,
+        message: 'Payment captured at checkout. Subscription will activate after webhook confirmation.',
       },
     }
   })
@@ -595,6 +617,55 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
     invalidateSettingsCaches(bizId, (req.user as any).id)
 
+    return { success: true, data: business }
+  })
+
+  app.patch('/business/modules-config', async (req, reply) => {
+    if (!requireOwner(req, reply)) return
+    const bizId = getBizId(req)
+    const body = UpdateModulesConfigSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    const current = await settingsRepository.getSettingsBusinessById(bizId)
+    if (!current) return reply.status(404).send({ success: false, error: 'Business not found' })
+    const normalizedType = normalizeBusinessType(current.businessType)
+    if (normalizedType !== 'CUSTOM') {
+      return reply.status(400).send({ success: false, error: 'Modules can be edited only for CUSTOM business type' })
+    }
+
+    const enabledModules = normalizeCustomModules(body.data.enabledModules)
+    const featureFlags = normalizeCustomFeatureFlags(body.data.featureFlags)
+    const errors = validateCustomBusinessSelection({ enabledModules, featureFlags })
+    if (errors.length > 0) return reply.status(400).send({ success: false, error: errors[0] })
+
+    const currentSettings =
+      current.defaultSettings && typeof current.defaultSettings === 'object'
+        ? current.defaultSettings
+        : {}
+    const defaultSettings = {
+      ...(currentSettings as Record<string, unknown>),
+      customBusinessDescription: body.data.customBusinessDescription?.trim() ?? null,
+      userConfigurableModules: true,
+    }
+    const currentLabels =
+      current.customLabels && typeof current.customLabels === 'object'
+        ? current.customLabels
+        : {}
+    const customLabels = {
+      ...(currentLabels as Record<string, string>),
+      ...(body.data.customBusinessTypeName?.trim()
+        ? { businessTypeName: body.data.customBusinessTypeName.trim() }
+        : {}),
+    }
+
+    const business = await settingsRepository.updateBusinessProfile(bizId, {
+      enabledModules,
+      featureFlags,
+      defaultSettings,
+      customLabels,
+    })
+    if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
+    invalidateSettingsCaches(bizId, (req.user as any).id)
     return { success: true, data: business }
   })
 
@@ -677,6 +748,18 @@ export async function settingsRoutes(app: FastifyInstance) {
     const bizId = getBizId(req)
     const body = CreateStaffSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    try {
+      await ensureUsageAllowed(bizId, 'users')
+    } catch (error: any) {
+      if (error.message === 'PLAN_EXPIRED') {
+        return reply.status(402).send({ success: false, code: 'PLAN_EXPIRED', error: 'Plan expired. Please renew your subscription.' })
+      }
+      if (error.message === 'LIMIT_EXCEEDED') {
+        return reply.status(403).send({ success: false, code: 'LIMIT_EXCEEDED', error: 'Staff user limit reached for your plan.' })
+      }
+      throw error
+    }
 
     const existing = await settingsRepository.findUserByPhone(body.data.phone)
     if (existing) return reply.status(409).send({ success: false, error: 'A user with this phone number already exists' })

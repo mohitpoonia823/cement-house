@@ -1,14 +1,14 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-interface AuthUser {
+export interface AuthUser {
   id: string
   name: string
   role: 'SUPER_ADMIN' | 'OWNER' | 'MUNIM'
   businessId: string | null
   businessName: string | null
   businessCity: string | null
-  businessType?: 'GENERAL' | 'CEMENT' | 'HARDWARE_SANITARY' | 'KIRYANA' | 'CUSTOM' | null
+  businessType?: string | null
   customLabels?: {
     businessTypeName?: string
     inventory?: string
@@ -16,6 +16,9 @@ interface AuthUser {
     customer?: string
     supplier?: string
   } | null
+  enabledModules?: string[]
+  featureFlags?: Record<string, boolean>
+  defaultSettings?: Record<string, unknown>
   permissions?: string[]
   subscriptionStatus?: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'SUSPENDED' | null
   subscriptionEndsAt?: string | null

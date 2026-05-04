@@ -63,6 +63,82 @@ export function useBulkDeleteMaterials() {
   })
 }
 
+export function useLocations() {
+  return useQuery({
+    queryKey: ['locations'],
+    queryFn: () => api.get('/api/locations').then((r) => r.data.data),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  })
+}
+
+export function useCreateLocation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => api.post('/api/locations', data).then((r) => r.data.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['locations'] })
+      qc.invalidateQueries({ queryKey: ['stock-by-location'] })
+    },
+  })
+}
+
+export function useUpdateLocation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...data }: any) => api.patch(`/api/locations/${id}`, data).then((r) => r.data.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['locations'] })
+      qc.invalidateQueries({ queryKey: ['stock-by-location'] })
+    },
+  })
+}
+
+export function useStockByLocation(locationId?: string) {
+  return useQuery({
+    queryKey: ['stock-by-location', locationId ?? 'all'],
+    queryFn: () => api.get('/api/inventory/stock-by-location', { params: { locationId } }).then((r) => r.data.data),
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  })
+}
+
+export function useCreateStockTransfer() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => api.post('/api/stock-transfers', data).then((r) => r.data.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stock-transfers'] })
+      qc.invalidateQueries({ queryKey: ['stock-by-location'] })
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+      qc.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+export function useStockTransfers(limit = 50) {
+  return useQuery({
+    queryKey: ['stock-transfers', limit],
+    queryFn: () => api.get('/api/stock-transfers', { params: { limit } }).then((r) => r.data.data),
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  })
+}
+
+export function useUpdateMaterial() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...data }: any) => api.patch(`/api/inventory/${id}`, data).then((r) => r.data.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+      qc.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
 export function usePurchaseBillScans(limit = 100, search = '') {
   return useQuery({
     queryKey: ['inventory-bill-scans', limit, search],

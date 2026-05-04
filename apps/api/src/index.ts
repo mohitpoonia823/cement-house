@@ -14,6 +14,10 @@ import { reportRoutes } from './routes/reports'
 import { settingsRoutes } from './routes/settings'
 import { superAdminRoutes } from './routes/super-admin'
 import { supportRoutes } from './routes/support'
+import { salesReturnRoutes } from './routes/sales-returns'
+import { razorpayWebhookRoutes } from './routes/webhooks/razorpay'
+import { locationRoutes } from './routes/locations'
+import { stockTransferRoutes } from './routes/stock-transfers'
 import { authenticate } from './middleware/auth'
 
 const app = Fastify({ logger: { level: 'info' } })
@@ -27,6 +31,7 @@ await app.register(jwt, { secret: process.env.JWT_SECRET! })
 
 // ── Public ───────────────────────────────────────────────────────────────────
 app.register(authRoutes, { prefix: '/api/auth' })
+app.register(razorpayWebhookRoutes, { prefix: '/api/webhooks' })
 app.get('/health', async () => ({ status: 'ok', ts: new Date().toISOString() }))
 
 // ── Protected (scoped — authenticate hook only applies inside this plugin) ──
@@ -43,7 +48,11 @@ app.register(async function protectedRoutes(scoped) {
   scoped.register(reportRoutes,         { prefix: '/api/reports' })
   scoped.register(settingsRoutes,       { prefix: '/api/settings' })
   scoped.register(superAdminRoutes,     { prefix: '/api/super-admin' })
+  scoped.register(superAdminRoutes,     { prefix: '/api/admin' })
   scoped.register(supportRoutes,        { prefix: '/api/support' })
+  scoped.register(salesReturnRoutes,    { prefix: '/api/sales-returns' })
+  scoped.register(locationRoutes,       { prefix: '/api/locations' })
+  scoped.register(stockTransferRoutes,  { prefix: '/api/stock-transfers' })
 })
 
 const port = Number(process.env.PORT ?? 4000)

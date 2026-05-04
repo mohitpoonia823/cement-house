@@ -1,13 +1,14 @@
-'use client'
+﻿'use client'
 
 import { Card } from '@/components/ui/Card'
 import { useCustomers } from '@/hooks/useCustomers'
-import { useInventory } from '@/hooks/useInventory'
+import { useInventory, useLocations } from '@/hooks/useInventory'
 import { useCreateOrder } from '@/hooks/useOrders'
 import { fmt } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
+import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 
 type LineItem = {
   materialId: string
@@ -16,6 +17,13 @@ type LineItem = {
   quantity: number
   unitPrice: number
   purchasePrice: number
+  batchNumber?: string
+  expiryDate?: string
+  barcode?: string
+  serialOrImei?: string
+  grossWeight?: number
+  tareWeight?: number
+  netWeight?: number
 }
 
 const PAYMENT_MODES = ['CASH', 'UPI', 'CHEQUE', 'CREDIT', 'PARTIAL']
@@ -36,18 +44,22 @@ interface NewOrderFormProps {
 
 export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: NewOrderFormProps) {
   const { language } = useI18n()
+  const { hasFeature } = useTenantCapabilities()
   const router = useRouter()
   const { data: customers, isLoading: customersLoading } = useCustomers()
   const { data: materials, isLoading: materialsLoading } = useInventory()
+  const { data: locations } = useLocations()
   const createOrder = useCreateOrder()
 
   const [customerId, setCustomerId] = useState('')
   const [deliveryDate, setDeliveryDate] = useState('')
+  const [sourceLocationId, setSourceLocationId] = useState('')
   const [paymentMode, setPaymentMode] = useState('CASH')
   const [amountPaid, setAmountPaid] = useState(0)
   const [notes, setNotes] = useState('')
+  const deliveryDateRef = useRef<HTMLInputElement | null>(null)
   const [items, setItems] = useState<LineItem[]>([
-    { materialId: '', materialName: '', unit: '', quantity: 1, unitPrice: 0, purchasePrice: 0 },
+    { materialId: '', materialName: '', unit: '', quantity: 1, unitPrice: 0, purchasePrice: 0, batchNumber: '', expiryDate: '', barcode: '', serialOrImei: '', grossWeight: 0, tareWeight: 0, netWeight: 0 },
   ])
   const [error, setError] = useState('')
 
@@ -55,6 +67,13 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
   const totalAmount = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0)
   const totalDue = Math.max(0, totalAmount - amountPaid)
   const minDeliveryDate = todayDateInput()
+  const activeLocations = (locations ?? []).filter((l: any) => l.isActive)
+  const showBatch = hasFeature('batchTracking')
+  const showExpiry = hasFeature('expiryTracking')
+  const showBarcode = hasFeature('barcodeSupport')
+  const showSerial = hasFeature('serialTracking')
+  const showWeight = hasFeature('weightBasedBilling')
+  const showAdvancedLineFields = showBatch || showExpiry || showBarcode || showSerial || showWeight
 
   function updateItem(idx: number, field: keyof LineItem, value: any) {
     setItems((prev) =>
@@ -73,28 +92,58 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
               }
             : { ...item, materialId: value }
         }
-        return { ...item, [field]: field === 'quantity' || field === 'unitPrice' ? Number(value) : value }
+        return {
+          ...item,
+          [field]:
+            field === 'quantity' ||
+            field === 'unitPrice' ||
+            field === 'grossWeight' ||
+            field === 'tareWeight' ||
+            field === 'netWeight'
+              ? Number(value)
+              : value,
+        }
       })
     )
   }
 
   function addItem() {
-    setItems((prev) => [...prev, { materialId: '', materialName: '', unit: '', quantity: 1, unitPrice: 0, purchasePrice: 0 }])
+    setItems((prev) => [...prev, { materialId: '', materialName: '', unit: '', quantity: 1, unitPrice: 0, purchasePrice: 0, batchNumber: '', expiryDate: '', barcode: '', serialOrImei: '', grossWeight: 0, tareWeight: 0, netWeight: 0 }])
   }
 
   function removeItem(idx: number) {
     setItems((prev) => prev.filter((_, i) => i !== idx))
   }
 
+  function openDeliveryDatePicker() {
+    const input = deliveryDateRef.current
+    if (!input) return
+    const pickerInput = input as HTMLInputElement & { showPicker?: () => void }
+    if (typeof pickerInput.showPicker === 'function') {
+      pickerInput.showPicker()
+      return
+    }
+    input.focus()
+    input.click()
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    if (!customerId) return setError(language === 'hi' ? 'ग्राहक चुनें' : 'Select a customer')
-    if (items.some((i) => !i.materialId)) return setError(language === 'hi' ? 'हर आइटम के लिए मटेरियल चुनें' : 'Select a material for each item')
-    if (items.some((i) => i.quantity <= 0)) return setError(language === 'hi' ? 'मात्रा 0 से अधिक होनी चाहिए' : 'Quantity must be greater than 0')
-    if (deliveryDate && deliveryDate < minDeliveryDate) return setError(language === 'hi' ? 'डिलीवरी तिथि ऑर्डर तिथि से पहले नहीं हो सकती' : 'Delivery date cannot be earlier than order creation date')
+    if (!customerId) return setError(language === 'hi' ? 'à¤—à¥à¤°à¤¾à¤¹à¤• à¤šà¥à¤¨à¥‡à¤‚' : 'Select a customer')
+    if (items.some((i) => !i.materialId)) return setError(language === 'hi' ? 'à¤¹à¤° à¤†à¤‡à¤Ÿà¤® à¤•à¥‡ à¤²à¤¿à¤ à¤®à¤Ÿà¥‡à¤°à¤¿à¤¯à¤² à¤šà¥à¤¨à¥‡à¤‚' : 'Select a material for each item')
+    if (items.some((i) => i.quantity <= 0)) return setError(language === 'hi' ? 'à¤®à¤¾à¤¤à¥à¤°à¤¾ 0 à¤¸à¥‡ à¤…à¤§à¤¿à¤• à¤¹à¥‹à¤¨à¥€ à¤šà¤¾à¤¹à¤¿à¤' : 'Quantity must be greater than 0')
+    if (deliveryDate && deliveryDate < minDeliveryDate) return setError(language === 'hi' ? 'à¤¡à¤¿à¤²à¥€à¤µà¤°à¥€ à¤¤à¤¿à¤¥à¤¿ à¤‘à¤°à¥à¤¡à¤° à¤¤à¤¿à¤¥à¤¿ à¤¸à¥‡ à¤ªà¤¹à¤²à¥‡ à¤¨à¤¹à¥€à¤‚ à¤¹à¥‹ à¤¸à¤•à¤¤à¥€' : 'Delivery date cannot be earlier than order creation date')
     try {
-      await createOrder.mutateAsync({ customerId, deliveryDate: deliveryDate || undefined, paymentMode, amountPaid, notes, items })
+      await createOrder.mutateAsync({
+        customerId,
+        sourceLocationId: sourceLocationId || undefined,
+        deliveryDate: deliveryDate || undefined,
+        paymentMode,
+        amountPaid,
+        notes,
+        items,
+      })
       if (redirectOnSuccess) {
         sessionStorage.setItem('orders_success_message', 'Order created successfully')
         router.push('/orders')
@@ -102,6 +151,10 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
         onSuccess?.()
       }
     } catch (err: any) {
+      if (err?.code === 'ECONNABORTED') {
+        setError('Request timed out. Order may still be saved; please check Orders once before retrying.')
+        return
+      }
       setError(err.response?.data?.error ?? (language === 'hi' ? 'ऑर्डर बनाना विफल रहा' : 'Failed to create order'))
     }
   }
@@ -134,17 +187,17 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
   return (
     <form onSubmit={handleSubmit} className="max-w-3xl space-y-4">
       <Card>
-        <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? 'ऑर्डर विवरण' : 'Order details'}</div>
+        <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? 'à¤‘à¤°à¥à¤¡à¤° à¤µà¤¿à¤µà¤°à¤£' : 'Order details'}</div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? 'ग्राहक *' : 'Customer *'}</label>
+            <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? 'à¤—à¥à¤°à¤¾à¤¹à¤• *' : 'Customer *'}</label>
             <select
               value={customerId}
               onChange={(e) => setCustomerId(e.target.value)}
               className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               required
             >
-              <option value="">{language === 'hi' ? 'ग्राहक चुनें...' : 'Select customer...'}</option>
+              <option value="">{language === 'hi' ? 'à¤—à¥à¤°à¤¾à¤¹à¤• à¤šà¥à¤¨à¥‡à¤‚...' : 'Select customer...'}</option>
               {(customers ?? []).map((c: any) => (
                 <option key={c.id} value={c.id}>
                   {c.name} - {c.phone}
@@ -153,44 +206,74 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? 'डिलीवरी तिथि' : 'Delivery date'}</label>
-            <input
-              type="date"
-              value={deliveryDate}
-              onChange={(e) => setDeliveryDate(e.target.value)}
-              min={minDeliveryDate}
+            <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? 'Source location' : 'Source location'}</label>
+            <select
+              value={sourceLocationId}
+              onChange={(e) => setSourceLocationId(e.target.value)}
               className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-            />
+            >
+              <option value="">Default (Main Store)</option>
+              {activeLocations.map((loc: any) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name} {loc.isDefault ? '(Default)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? 'à¤¡à¤¿à¤²à¥€à¤µà¤°à¥€ à¤¤à¤¿à¤¥à¤¿' : 'Delivery date'}</label>
+            <div className="relative">
+              <input
+                ref={deliveryDateRef}
+                type="date"
+                value={deliveryDate}
+                onChange={(e) => setDeliveryDate(e.target.value)}
+                min={minDeliveryDate}
+                className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 pr-10 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+              />
+              <button
+                type="button"
+                onClick={openDeliveryDatePicker}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-stone-500 transition-colors hover:text-stone-700 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:text-slate-300 dark:hover:text-slate-100"
+                aria-label="Open date picker"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
+                  <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.8" />
+                  <path d="M8 3v4M16 3v4M3 9h18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
 
         {selectedCustomer && selectedCustomer.balance > 0 && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-            {selectedCustomer.name} {language === 'hi' ? 'का बकाया बैलेंस' : 'has outstanding balance of'} {fmt(selectedCustomer.balance)}.
-            {selectedCustomer.balance >= Number(selectedCustomer.creditLimit) && (language === 'hi' ? ' क्रेडिट सीमा पूरी हो चुकी है।' : ' Credit limit reached.')}
+            {selectedCustomer.name} {language === 'hi' ? 'à¤•à¤¾ à¤¬à¤•à¤¾à¤¯à¤¾ à¤¬à¥ˆà¤²à¥‡à¤‚à¤¸' : 'has outstanding balance of'} {fmt(selectedCustomer.balance)}.
+            {selectedCustomer.balance >= Number(selectedCustomer.creditLimit) && (language === 'hi' ? ' à¤•à¥à¤°à¥‡à¤¡à¤¿à¤Ÿ à¤¸à¥€à¤®à¤¾ à¤ªà¥‚à¤°à¥€ à¤¹à¥‹ à¤šà¥à¤•à¥€ à¤¹à¥ˆà¥¤' : ' Credit limit reached.')}
           </div>
         )}
       </Card>
 
       <Card>
-        <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? 'ऑर्डर आइटम्स' : 'Order items'}</div>
+        <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? 'à¤‘à¤°à¥à¤¡à¤° à¤†à¤‡à¤Ÿà¤®à¥à¤¸' : 'Order items'}</div>
         <div className="overflow-x-auto">
           <div className="mb-1 grid min-w-[640px] grid-cols-12 gap-2 px-1 text-[10px] text-stone-400">
-            <div className="col-span-4">{language === 'hi' ? 'मटेरियल' : 'Material'}</div>
-            <div className="col-span-2">{language === 'hi' ? 'मात्रा' : 'Qty'}</div>
-            <div className="col-span-2">{language === 'hi' ? 'रेट (रु)' : 'Rate (Rs)'}</div>
-            <div className="col-span-3">{language === 'hi' ? 'राशि' : 'Amount'}</div>
+            <div className="col-span-4">{language === 'hi' ? 'à¤®à¤Ÿà¥‡à¤°à¤¿à¤¯à¤²' : 'Material'}</div>
+            <div className="col-span-2">{language === 'hi' ? 'à¤®à¤¾à¤¤à¥à¤°à¤¾' : 'Qty'}</div>
+            <div className="col-span-2">{language === 'hi' ? 'à¤°à¥‡à¤Ÿ (à¤°à¥)' : 'Rate (Rs)'}</div>
+            <div className="col-span-3">{language === 'hi' ? 'à¤°à¤¾à¤¶à¤¿' : 'Amount'}</div>
             <div />
           </div>
           {items.map((item, idx) => (
-            <div key={idx} className="mb-2 grid min-w-[640px] grid-cols-12 items-center gap-2">
+            <div key={idx} className="mb-2 min-w-[640px] rounded-lg border border-stone-100 p-2 dark:border-slate-800">
+              <div className="grid grid-cols-12 items-center gap-2">
               <div className="col-span-4">
                 <select
                   value={item.materialId}
                   onChange={(e) => updateItem(idx, 'materialId', e.target.value)}
                   className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 >
-                  <option value="">{language === 'hi' ? 'चुनें...' : 'Select...'}</option>
+                  <option value="">{language === 'hi' ? 'à¤šà¥à¤¨à¥‡à¤‚...' : 'Select...'}</option>
                   {(materials ?? []).map((m: any) => (
                     <option key={m.id} value={m.id}>
                       {m.name} ({m.stockQty} {m.unit} in stock)
@@ -231,21 +314,104 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
                   </button>
                 )}
               </div>
+              </div>
+              {showAdvancedLineFields ? (
+                <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
+                  {showBatch ? (
+                    <input
+                      type="text"
+                      value={item.batchNumber ?? ''}
+                      onChange={(e) => updateItem(idx, 'batchNumber', e.target.value)}
+                      placeholder={language === 'hi' ? 'à¤¬à¥ˆà¤š à¤¨à¤‚à¤¬à¤°' : 'Batch number'}
+                      className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                    />
+                  ) : null}
+                  {showExpiry ? (
+                    <input
+                      type="date"
+                      value={item.expiryDate ?? ''}
+                      onChange={(e) => updateItem(idx, 'expiryDate', e.target.value)}
+                      className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                    />
+                  ) : null}
+                  {showBarcode ? (
+                    <input
+                      type="text"
+                      value={item.barcode ?? ''}
+                      onChange={(e) => updateItem(idx, 'barcode', e.target.value)}
+                      placeholder={language === 'hi' ? 'à¤¬à¤¾à¤°à¤•à¥‹à¤¡' : 'Barcode'}
+                      className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                    />
+                  ) : null}
+                  {showSerial ? (
+                    <input
+                      type="text"
+                      value={item.serialOrImei ?? ''}
+                      onChange={(e) => updateItem(idx, 'serialOrImei', e.target.value)}
+                      placeholder={language === 'hi' ? 'à¤¸à¥€à¤°à¤¿à¤¯à¤² / IMEI' : 'Serial / IMEI'}
+                      className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                    />
+                  ) : null}
+                  {showWeight ? (
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="mb-1 block whitespace-nowrap text-[10px] font-medium uppercase tracking-wide text-stone-500">
+                          Gross wt
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={item.grossWeight ?? 0}
+                          onChange={(e) => updateItem(idx, 'grossWeight', e.target.value)}
+                          className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block whitespace-nowrap text-[10px] font-medium uppercase tracking-wide text-stone-500">
+                          Tare wt
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={item.tareWeight ?? 0}
+                          onChange={(e) => updateItem(idx, 'tareWeight', e.target.value)}
+                          className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block whitespace-nowrap text-[10px] font-medium uppercase tracking-wide text-stone-500">
+                          Net wt
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={item.netWeight ?? 0}
+                          onChange={(e) => updateItem(idx, 'netWeight', e.target.value)}
+                          className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
         <button type="button" onClick={addItem} className="mt-1 text-xs text-blue-600 hover:underline">
-          {language === 'hi' ? '+ आइटम जोड़ें' : '+ Add item'}
+          {language === 'hi' ? '+ à¤†à¤‡à¤Ÿà¤® à¤œà¥‹à¤¡à¤¼à¥‡à¤‚' : '+ Add item'}
         </button>
 
         <div className="mt-4 flex items-center justify-between border-t border-stone-100 pt-3 dark:border-stone-800">
-          <div className="text-xs text-stone-500">{language === 'hi' ? 'ऑर्डर कुल' : 'Order total'}</div>
+          <div className="text-xs text-stone-500">{language === 'hi' ? 'à¤‘à¤°à¥à¤¡à¤° à¤•à¥à¤²' : 'Order total'}</div>
           <div className="text-lg font-medium text-stone-900 dark:text-stone-100">{fmt(totalAmount)}</div>
         </div>
       </Card>
 
       <Card>
-        <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? 'भुगतान' : 'Payment'}</div>
+        <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? 'à¤­à¥à¤—à¤¤à¤¾à¤¨' : 'Payment'}</div>
         <div className="mb-4 flex flex-wrap gap-2">
           {PAYMENT_MODES.map((m) => (
             <button
@@ -268,7 +434,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? 'अभी भुगतान राशि (रु)' : 'Amount paid now (Rs)'}</label>
+            <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? 'à¤…à¤­à¥€ à¤­à¥à¤—à¤¤à¤¾à¤¨ à¤°à¤¾à¤¶à¤¿ (à¤°à¥)' : 'Amount paid now (Rs)'}</label>
             <input
               type="number"
               value={amountPaid}
@@ -279,17 +445,17 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
             />
           </div>
           <div className="flex flex-col justify-end">
-            <div className="text-xs text-stone-500">{language === 'hi' ? 'शेष (उधार)' : 'Remaining (udhar)'}</div>
+            <div className="text-xs text-stone-500">{language === 'hi' ? 'à¤¶à¥‡à¤· (à¤‰à¤§à¤¾à¤°)' : 'Remaining (udhar)'}</div>
             <div className={`mt-1 text-base font-medium ${totalDue > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalDue)}</div>
           </div>
         </div>
         <div className="mt-3">
-          <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? 'नोट्स (वैकल्पिक)' : 'Notes (optional)'}</label>
+          <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? 'à¤¨à¥‹à¤Ÿà¥à¤¸ (à¤µà¥ˆà¤•à¤²à¥à¤ªà¤¿à¤•)' : 'Notes (optional)'}</label>
           <input
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder={language === 'hi' ? 'कोई विशेष निर्देश...' : 'Any special instructions...'}
+            placeholder={language === 'hi' ? 'à¤•à¥‹à¤ˆ à¤µà¤¿à¤¶à¥‡à¤· à¤¨à¤¿à¤°à¥à¤¦à¥‡à¤¶...' : 'Any special instructions...'}
             className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
           />
         </div>
@@ -303,14 +469,14 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
           disabled={createOrder.isPending}
           className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
         >
-          {createOrder.isPending ? (language === 'hi' ? 'सेव हो रहा है...' : 'Saving...') : (language === 'hi' ? 'ऑर्डर सेव करें और चालान बनाएं' : 'Save order & generate challan')}
+          {createOrder.isPending ? (language === 'hi' ? 'à¤¸à¥‡à¤µ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...' : 'Saving...') : (language === 'hi' ? 'à¤‘à¤°à¥à¤¡à¤° à¤¸à¥‡à¤µ à¤•à¤°à¥‡à¤‚ à¤”à¤° à¤šà¤¾à¤²à¤¾à¤¨ à¤¬à¤¨à¤¾à¤à¤‚' : 'Save order & generate challan')}
         </button>
         <button
           type="button"
           onClick={handleCancel}
           className="rounded-lg border border-stone-200 px-5 py-2 text-sm transition-colors hover:bg-stone-50 dark:border-stone-700 dark:hover:bg-stone-800"
         >
-          {language === 'hi' ? 'रद्द करें' : 'Cancel'}
+          {language === 'hi' ? 'à¤°à¤¦à¥à¤¦ à¤•à¤°à¥‡à¤‚' : 'Cancel'}
         </button>
       </div>
     </form>

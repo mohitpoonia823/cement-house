@@ -7,6 +7,13 @@ import Link from 'next/link'
 import { fmt } from '@/lib/utils'
 import { useI18n } from '@/lib/i18n'
 import { LanguageSelect } from '@/components/common/LanguageSelect'
+import {
+  BUSINESS_TYPES,
+  BUSINESS_TYPE_CONFIG,
+  CUSTOM_ONBOARDING_FEATURES,
+  CUSTOM_ONBOARDING_MODULES,
+  type BusinessType,
+} from '@cement-house/utils'
 
 interface RegistrationConfig {
   trialDays: number
@@ -16,44 +23,48 @@ interface RegistrationConfig {
   updatedAt?: string | null
 }
 
-type RegisterBusinessType = 'GENERAL' | 'CEMENT' | 'HARDWARE_SANITARY' | 'KIRYANA' | 'CUSTOM'
-
 type BusinessTypeChoice = {
-  key: string
+  key: BusinessType
   label: string
-  businessType: RegisterBusinessType
-  customTypeName?: string
 }
 
-const BUSINESS_TYPE_CHOICES: BusinessTypeChoice[] = [
-  { key: 'GENERAL', label: 'General store', businessType: 'GENERAL' },
-  { key: 'CEMENT', label: 'Cement', businessType: 'CEMENT' },
-  { key: 'HARDWARE_SANITARY', label: 'Hardware & sanitary', businessType: 'HARDWARE_SANITARY' },
-  { key: 'KIRYANA', label: 'Kiryana / grocery', businessType: 'KIRYANA' },
-  { key: 'PHARMACY', label: 'Pharmacy / medical store', businessType: 'CUSTOM', customTypeName: 'Pharmacy' },
-  { key: 'ELECTRONICS', label: 'Electronics', businessType: 'CUSTOM', customTypeName: 'Electronics' },
-  { key: 'MOBILE_ACCESSORIES', label: 'Mobile accessories', businessType: 'CUSTOM', customTypeName: 'Mobile Accessories' },
-  { key: 'FASHION_APPAREL', label: 'Fashion / apparel', businessType: 'CUSTOM', customTypeName: 'Fashion Apparel' },
-  { key: 'FOOTWEAR', label: 'Footwear', businessType: 'CUSTOM', customTypeName: 'Footwear' },
-  { key: 'JEWELLERY', label: 'Jewellery', businessType: 'CUSTOM', customTypeName: 'Jewellery' },
-  { key: 'BOOK_STATIONERY', label: 'Books & stationery', businessType: 'CUSTOM', customTypeName: 'Books and Stationery' },
-  { key: 'SPORTS_FITNESS', label: 'Sports & fitness', businessType: 'CUSTOM', customTypeName: 'Sports and Fitness' },
-  { key: 'HOME_KITCHEN', label: 'Home & kitchen', businessType: 'CUSTOM', customTypeName: 'Home and Kitchen' },
-  { key: 'FURNITURE', label: 'Furniture', businessType: 'CUSTOM', customTypeName: 'Furniture' },
-  { key: 'AUTOMOTIVE_PARTS', label: 'Automotive parts', businessType: 'CUSTOM', customTypeName: 'Automotive Parts' },
-  { key: 'ELECTRICALS', label: 'Electricals', businessType: 'CUSTOM', customTypeName: 'Electricals' },
-  { key: 'PAINTS', label: 'Paints', businessType: 'CUSTOM', customTypeName: 'Paints' },
-  { key: 'AGRI_INPUTS', label: 'Agri inputs', businessType: 'CUSTOM', customTypeName: 'Agri Inputs' },
-  { key: 'TOYS_GIFTS', label: 'Toys & gifts', businessType: 'CUSTOM', customTypeName: 'Toys and Gifts' },
-  { key: 'BAKERY', label: 'Bakery', businessType: 'CUSTOM', customTypeName: 'Bakery' },
-  { key: 'SWEETS_SNACKS', label: 'Sweets & snacks', businessType: 'CUSTOM', customTypeName: 'Sweets and Snacks' },
-  { key: 'RESTAURANT_CAFE', label: 'Restaurant / cafe', businessType: 'CUSTOM', customTypeName: 'Restaurant and Cafe' },
-  { key: 'LIQUOR', label: 'Liquor store', businessType: 'CUSTOM', customTypeName: 'Liquor Store' },
-  { key: 'CUSTOM_MANUAL', label: 'Custom (enter manually)', businessType: 'CUSTOM' },
+type RecommendedPreset = {
+  key: BusinessType
+  title: string
+  subtitle: string
+}
+
+const BUSINESS_TYPE_CHOICES: BusinessTypeChoice[] = BUSINESS_TYPES.map((type) => ({
+  key: type,
+  label: BUSINESS_TYPE_CONFIG[type].label,
+}))
+
+const RECOMMENDED_PRESETS: RecommendedPreset[] = [
+  { key: 'CEMENT', title: 'Cement', subtitle: 'Bulk billing + transport ready' },
+  { key: 'PHARMACY_MEDICAL', title: 'Pharmacy', subtitle: 'Batch + expiry setup' },
+  { key: 'KIRYANA_GROCERY', title: 'Grocery', subtitle: 'Fast retail + barcode friendly' },
 ]
 
 function onlyDigits(value: string, maxLength: number) {
   return value.replace(/\D/g, '').slice(0, maxLength)
+}
+
+function getCustomDependencyHints(enabledModules: string[], featureFlags: Record<string, boolean>) {
+  const hints: string[] = []
+  if (enabledModules.length === 0) hints.push('Select at least one core module.')
+  if (enabledModules.includes('orders') && !enabledModules.includes('customers')) {
+    hints.push('Billing / orders needs Customers module.')
+  }
+  if (featureFlags.transportManagement && !(enabledModules.includes('deliveries') || enabledModules.includes('logistics'))) {
+    hints.push('Transport management needs Delivery or Logistics module.')
+  }
+  if (featureFlags.restaurantPOS && !(enabledModules.includes('orders') && enabledModules.includes('inventory'))) {
+    hints.push('Restaurant POS needs Orders + Inventory modules.')
+  }
+  if (featureFlags.gstBilling && !enabledModules.includes('orders')) {
+    hints.push('GST billing needs Billing / orders module.')
+  }
+  return hints
 }
 
 export default function RegisterPage() {
@@ -62,9 +73,20 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [businessName, setBusinessName] = useState('')
-  const [businessTypeChoice, setBusinessTypeChoice] = useState<string>('GENERAL')
-  const [businessType, setBusinessType] = useState<RegisterBusinessType>('GENERAL')
+  const [businessTypeChoice, setBusinessTypeChoice] = useState<BusinessType>('GENERAL_STORE')
+  const [businessType, setBusinessType] = useState<BusinessType>('GENERAL_STORE')
+  const [manualTypeLocked, setManualTypeLocked] = useState(false)
+  const [dismissedSuggestionName, setDismissedSuggestionName] = useState('')
   const [customBusinessTypeName, setCustomBusinessTypeName] = useState('')
+  const [customBusinessDescription, setCustomBusinessDescription] = useState('')
+  const [customMode, setCustomMode] = useState<'BASIC' | 'ADVANCED'>('BASIC')
+  const [showOptionalConfig, setShowOptionalConfig] = useState(false)
+  const [customEnabledModules, setCustomEnabledModules] = useState<string[]>(
+    CUSTOM_ONBOARDING_MODULES.filter((m) => m.defaultEnabled).map((m) => m.key),
+  )
+  const [customFeatureFlags, setCustomFeatureFlags] = useState<Record<string, boolean>>(
+    Object.fromEntries(CUSTOM_ONBOARDING_FEATURES.map((f) => [f.key, f.defaultEnabled])),
+  )
   const [city, setCity] = useState('')
   const [businessPhone, setBusinessPhone] = useState('')
   const [address, setAddress] = useState('')
@@ -76,21 +98,55 @@ export default function RegisterPage() {
     language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en
   const { login } = useAuthStore()
   const router = useRouter()
+  const customDependencyHints = getCustomDependencyHints(customEnabledModules, customFeatureFlags)
 
-  function handleBusinessTypeChoice(nextChoiceKey: string) {
+  function handleBusinessTypeChoice(nextChoiceKey: BusinessType) {
+    setManualTypeLocked(true)
     setBusinessTypeChoice(nextChoiceKey)
-    const choice = BUSINESS_TYPE_CHOICES.find((item) => item.key === nextChoiceKey)
-    if (!choice) return
-    setBusinessType(choice.businessType)
-    if (choice.businessType === 'CUSTOM') {
-      if (choice.customTypeName) {
-        setCustomBusinessTypeName(choice.customTypeName)
-      } else {
-        setCustomBusinessTypeName('')
-      }
-    } else {
+    setBusinessType(nextChoiceKey)
+    if (nextChoiceKey !== 'CUSTOM') {
       setCustomBusinessTypeName('')
+      setCustomBusinessDescription('')
+      setCustomMode('BASIC')
     }
+  }
+
+  function applyRecommendedPreset(nextChoiceKey: BusinessType) {
+    handleBusinessTypeChoice(nextChoiceKey)
+  }
+
+  function suggestBusinessPresetByName(nameValue: string): { type: BusinessType; title: string } | null {
+    const text = nameValue.trim().toLowerCase()
+    if (!text) return null
+
+    const hasAny = (parts: string[]) => parts.some((p) => text.includes(p))
+    if (hasAny(['cement', 'building', 'material'])) return { type: 'CEMENT', title: 'Cement' }
+    if (hasAny(['medical', 'pharma', 'clinic', 'medicine'])) return { type: 'PHARMACY_MEDICAL', title: 'Pharmacy' }
+    if (hasAny(['kiryana', 'grocery', 'general store'])) return { type: 'KIRYANA_GROCERY', title: 'Grocery' }
+    if (hasAny(['cafe', 'restaurant', 'hotel', 'food'])) return { type: 'RESTAURANT_CAFE', title: 'Restaurant / Cafe' }
+    return null
+  }
+
+  function applySuggestedPreset(nextChoiceKey: BusinessType) {
+    setManualTypeLocked(true)
+    setBusinessTypeChoice(nextChoiceKey)
+    setBusinessType(nextChoiceKey)
+    setDismissedSuggestionName('')
+    if (nextChoiceKey !== 'CUSTOM') {
+      setCustomBusinessTypeName('')
+      setCustomBusinessDescription('')
+      setCustomMode('BASIC')
+    }
+  }
+
+  function toggleCustomModule(moduleKey: string) {
+    setCustomEnabledModules((prev) =>
+      prev.includes(moduleKey) ? prev.filter((key) => key !== moduleKey) : [...prev, moduleKey],
+    )
+  }
+
+  function toggleCustomFeature(featureKey: string) {
+    setCustomFeatureFlags((prev) => ({ ...prev, [featureKey]: !prev[featureKey] }))
   }
 
   useEffect(() => {
@@ -103,6 +159,14 @@ export default function RegisterPage() {
       .catch(() => undefined)
   }, [])
 
+  const suggestedPreset = suggestBusinessPresetByName(businessName)
+  const canShowSuggestion =
+    Boolean(suggestedPreset) &&
+    !manualTypeLocked &&
+    businessName.trim().length >= 4 &&
+    dismissedSuggestionName !== businessName.trim().toLowerCase() &&
+    businessTypeChoice !== suggestedPreset?.type
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
@@ -114,6 +178,60 @@ export default function RegisterPage() {
       return setError(tr('Business phone must be exactly 10 digits', 'बिज़नेस फोन ठीक 10 अंकों का होना चाहिए', 'Business phone exactly 10 digits ka hona chahiye'))
     if (businessType === 'CUSTOM' && customBusinessTypeName.trim().length < 2)
       return setError(tr('Custom business type name is required', 'कस्टम बिज़नेस टाइप नाम आवश्यक है', 'Custom business type name required hai'))
+    if (businessType === 'CUSTOM' && customEnabledModules.length === 0)
+      return setError(tr('Select at least one module', 'कम से कम एक मॉड्यूल चुनें', 'Kam se kam ek module select karo'))
+    if (
+      businessType === 'CUSTOM' &&
+      customEnabledModules.includes('orders') &&
+      !customEnabledModules.includes('customers')
+    ) {
+      return setError(
+        tr(
+          'Customers module is required when billing/orders is enabled',
+          'बिलिंग/ऑर्डर मॉड्यूल के साथ कस्टमर मॉड्यूल आवश्यक है',
+          'Billing/orders ke saath customers module required hai',
+        ),
+      )
+    }
+    if (
+      businessType === 'CUSTOM' &&
+      customFeatureFlags.transportManagement &&
+      !(customEnabledModules.includes('deliveries') || customEnabledModules.includes('logistics'))
+    ) {
+      return setError(
+        tr(
+          'Enable delivery/transport module for transport management',
+          'ट्रांसपोर्ट मैनेजमेंट के लिए डिलीवरी/ट्रांसपोर्ट मॉड्यूल सक्षम करें',
+          'Transport management ke liye delivery/transport module enable karo',
+        ),
+      )
+    }
+    if (
+      businessType === 'CUSTOM' &&
+      customFeatureFlags.restaurantPOS &&
+      !(customEnabledModules.includes('orders') && customEnabledModules.includes('inventory'))
+    ) {
+      return setError(
+        tr(
+          'Restaurant POS requires orders and inventory modules',
+          'रेस्टोरेंट POS के लिए ऑर्डर और इन्वेंटरी मॉड्यूल जरूरी हैं',
+          'Restaurant POS ke liye orders aur inventory modules zaroori hain',
+        ),
+      )
+    }
+    if (
+      businessType === 'CUSTOM' &&
+      customFeatureFlags.gstBilling &&
+      !customEnabledModules.includes('orders')
+    ) {
+      return setError(
+        tr(
+          'GST billing requires billing/orders module',
+          'GST बिलिंग के लिए बिलिंग/ऑर्डर मॉड्यूल जरूरी है',
+          'GST billing ke liye billing/orders module zaroori hai',
+        ),
+      )
+    }
 
     setLoading(true)
     try {
@@ -126,6 +244,12 @@ export default function RegisterPage() {
         businessName,
         businessType,
         customBusinessTypeName: businessType === 'CUSTOM' ? customBusinessTypeName.trim() : undefined,
+        customBusinessDescription:
+          businessType === 'CUSTOM' && customBusinessDescription.trim()
+            ? customBusinessDescription.trim()
+            : undefined,
+        enabledModules: businessType === 'CUSTOM' ? customEnabledModules : undefined,
+        featureFlags: businessType === 'CUSTOM' ? customFeatureFlags : undefined,
         city,
         businessPhone: onlyDigits(businessPhone || phone, 10),
         address,
@@ -178,8 +302,8 @@ export default function RegisterPage() {
               )}
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <PlanTile title={tr('Monthly', 'मंथली', 'Monthly')} price={fmt(config?.monthlyPrice ?? 200)} sub={tr('Good for ongoing local trading operations', 'लगातार स्थानीय ट्रेडिंग ऑपरेशंस के लिए बेहतर', 'Ongoing local trading operations ke liye sahi')} />
-              <PlanTile title={tr('Yearly', 'ईयरली', 'Yearly')} price={fmt(config?.yearlyPrice ?? 2100)} sub={tr('Best value for full-season teams', 'पूरे सीजन के लिए सबसे बेहतर वैल्यू', 'Full-season teams ke liye best value')} />
+              <PlanTile title={tr('Monthly', 'मंथली', 'Monthly')} price={fmt(config?.monthlyPrice ?? 0)} sub={tr('Good for ongoing local trading operations', 'लगातार स्थानीय ट्रेडिंग ऑपरेशंस के लिए बेहतर', 'Ongoing local trading operations ke liye sahi')} />
+              <PlanTile title={tr('Yearly', 'ईयरली', 'Yearly')} price={fmt(config?.yearlyPrice ?? 0)} sub={tr('Best value for full-season teams', 'पूरे सीजन के लिए सबसे बेहतर वैल्यू', 'Full-season teams ke liye best value')} />
             </div>
             <div className="mt-4 text-xs text-slate-500 dark:text-slate-400">
               {tr('Paid renewal and subscription checkout are handled directly via Razorpay.', 'पेड रिन्यूअल और सब्सक्रिप्शन चेकआउट सीधे Razorpay से होता है।', 'Paid renewal aur subscription checkout direct Razorpay se hota hai.')}
@@ -191,39 +315,201 @@ export default function RegisterPage() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{tr('Business details', 'बिज़नेस डिटेल्स', 'Business details')}</div>
+              <div className="mt-3">
+                <div className="mb-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+                  {tr('Recommended setup', 'रिकमेंडेड सेटअप', 'Recommended setup')}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {RECOMMENDED_PRESETS.map((preset) => {
+                    const active = businessTypeChoice === preset.key
+                    return (
+                      <button
+                        key={preset.key}
+                        type="button"
+                        onClick={() => applyRecommendedPreset(preset.key)}
+                        className={`rounded-2xl border px-3 py-2 text-left transition ${
+                          active
+                            ? 'border-sky-500 bg-sky-50 text-slate-900 dark:border-sky-400 dark:bg-sky-500/10 dark:text-sky-100'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'
+                        }`}
+                      >
+                        <div className="text-sm font-semibold">{preset.title}</div>
+                        <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{preset.subtitle}</div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <Field label={tr('Business name *', 'बिज़नेस नाम *', 'Business name *')}>
                   <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} required placeholder={tr('e.g. Sharma Trading Store', 'जैसे: शर्मा ट्रेडिंग स्टोर', 'e.g. Sharma Trading Store')} className={inputCls} />
                 </Field>
+                {canShowSuggestion && suggestedPreset ? (
+                  <div className="md:col-span-2 rounded-2xl border border-sky-300/60 bg-sky-50/90 px-4 py-3 text-sm text-sky-900 dark:border-sky-400/30 dark:bg-sky-950/25 dark:text-sky-100">
+                    <div className="font-medium">
+                      {tr(
+                        `We detected this might be a ${suggestedPreset.title} business. Apply preset?`,
+                        `लगता है यह ${suggestedPreset.title} बिज़नेस हो सकता है। प्रीसेट लागू करें?`,
+                        `Lagta hai yeh ${suggestedPreset.title} business ho sakta hai. Preset apply karein?`,
+                      )}
+                    </div>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => applySuggestedPreset(suggestedPreset.type)}
+                        className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white dark:bg-sky-500 dark:text-slate-950"
+                      >
+                        {tr(`Apply ${suggestedPreset.title} Setup`, `${suggestedPreset.title} सेटअप लागू करें`, `Apply ${suggestedPreset.title} setup`)}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDismissedSuggestionName(businessName.trim().toLowerCase())}
+                        className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                      >
+                        {tr('Ignore', 'नज़रअंदाज़ करें', 'Ignore')}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <Field label={tr('City *', 'शहर *', 'City *')}>
                   <input value={city} onChange={(e) => setCity(e.target.value)} required placeholder={tr('e.g. Hisar', 'जैसे: हिसार', 'e.g. Hisar')} className={inputCls} />
                 </Field>
                 <Field label={tr('Business type *', 'बिज़नेस टाइप *', 'Business type *')}>
-                  <select value={businessTypeChoice} onChange={(e) => handleBusinessTypeChoice(e.target.value)} className={inputCls}>
+                  <select value={businessTypeChoice} onChange={(e) => handleBusinessTypeChoice(e.target.value as BusinessType)} className={inputCls}>
                     {BUSINESS_TYPE_CHOICES.map((choice) => (
                       <option key={choice.key} value={choice.key}>{choice.label}</option>
                     ))}
                   </select>
                 </Field>
                 {businessType === 'CUSTOM' ? (
-                  <Field label={tr('Custom type name *', 'कस्टम टाइप नाम *', 'Custom type name *')}>
-                    <input
-                      value={customBusinessTypeName}
-                      onChange={(e) => setCustomBusinessTypeName(e.target.value)}
-                      placeholder={tr('e.g. Pharmacy', 'जैसे: फार्मेसी', 'e.g. Pharmacy')}
-                      className={inputCls}
-                      required
-                    />
-                  </Field>
+                  <>
+                    <Field label={tr('Custom type name *', 'कस्टम टाइप नाम *', 'Custom type name *')}>
+                      <input
+                        value={customBusinessTypeName}
+                        onChange={(e) => setCustomBusinessTypeName(e.target.value)}
+                        placeholder={tr('e.g. Pharmacy', 'जैसे: फार्मेसी', 'e.g. Pharmacy')}
+                        className={inputCls}
+                        required
+                      />
+                    </Field>
+                  </>
                 ) : null}
-                <Field label={tr('Business phone', 'बिज़नेस फोन', 'Business phone')}>
-                  <input value={businessPhone} onChange={(e) => setBusinessPhone(onlyDigits(e.target.value, 10))} placeholder={tr('Optional if same as owner', 'यदि ओनर जैसा हो तो वैकल्पिक', 'Owner ke jaisa ho to optional')} maxLength={10} className={inputCls} />
-                </Field>
-                <Field label={tr('Address', 'पता', 'Address')}>
-                  <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder={tr('Optional business address', 'वैकल्पिक बिज़नेस पता', 'Optional business address')} className={inputCls} />
-                </Field>
+              </div>
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowOptionalConfig((prev) => !prev)}
+                  className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                >
+                  {showOptionalConfig
+                    ? tr('Hide optional details', 'वैकल्पिक डिटेल्स छुपाएं', 'Optional details hide karo')
+                    : tr('Add optional details', 'वैकल्पिक डिटेल्स जोड़ें', 'Optional details add karo')}
+                </button>
+                {showOptionalConfig ? (
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    {businessType === 'CUSTOM' ? (
+                      <Field label={tr('Custom description', 'कस्टम विवरण', 'Custom description')}>
+                        <input
+                          value={customBusinessDescription}
+                          onChange={(e) => setCustomBusinessDescription(e.target.value)}
+                          placeholder={tr('What kind of shop or service?', 'यह किस तरह का बिज़नेस है?', 'Yeh kis type ka business hai?')}
+                          className={inputCls}
+                        />
+                      </Field>
+                    ) : null}
+                    <Field label={tr('Business phone', 'बिज़नेस फोन', 'Business phone')}>
+                      <input value={businessPhone} onChange={(e) => setBusinessPhone(onlyDigits(e.target.value, 10))} placeholder={tr('Optional if same as owner', 'यदि ओनर जैसा हो तो वैकल्पिक', 'Owner ke jaisa ho to optional')} maxLength={10} className={inputCls} />
+                    </Field>
+                    <Field label={tr('Address', 'पता', 'Address')}>
+                      <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder={tr('Optional business address', 'वैकल्पिक बिज़नेस पता', 'Optional business address')} className={inputCls} />
+                    </Field>
+                  </div>
+                ) : null}
               </div>
             </div>
+
+            {businessType === 'CUSTOM' ? (
+              <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-900/40">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+                    {tr('Custom setup mode', 'कस्टम सेटअप मोड', 'Custom setup mode')}
+                  </div>
+                  <div className="inline-flex rounded-full border border-slate-300 p-1 dark:border-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => setCustomMode('BASIC')}
+                      className={`rounded-full px-3 py-1 text-[11px] font-semibold ${customMode === 'BASIC' ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950' : 'text-slate-600 dark:text-slate-300'}`}
+                    >
+                      {tr('Basic', 'बेसिक', 'Basic')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCustomMode('ADVANCED')}
+                      className={`rounded-full px-3 py-1 text-[11px] font-semibold ${customMode === 'ADVANCED' ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950' : 'text-slate-600 dark:text-slate-300'}`}
+                    >
+                      {tr('Advanced', 'एडवांस्ड', 'Advanced')}
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                  {customMode === 'BASIC'
+                    ? tr('Basic mode keeps setup fast with recommended defaults. You can edit detailed features later in Settings.', 'बेसिक मोड तेज सेटअप देता है। डिटेल्ड फीचर्स बाद में सेटिंग्स से बदल सकते हैं।', 'Basic mode fast setup deta hai. Detailed features baad me settings me edit kar sakte ho.')
+                    : tr('Advanced mode lets you fine-tune feature flags now.', 'एडवांस्ड मोड में आप फीचर फ्लैग अभी सेट कर सकते हैं।', 'Advanced mode me aap feature flags abhi set kar sakte ho.')}
+                </div>
+                <div className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+                  {tr('Custom modules & features', 'कस्टम मॉड्यूल और फीचर्स', 'Custom modules aur features')}
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div>
+                    <div className="mb-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+                      {tr('Select modules', 'मॉड्यूल चुनें', 'Modules select karo')}
+                    </div>
+                    <div className="grid gap-2">
+                      {CUSTOM_ONBOARDING_MODULES.map((module) => (
+                        <label key={module.key} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                          <input
+                            type="checkbox"
+                            checked={customEnabledModules.includes(module.key)}
+                            onChange={() => toggleCustomModule(module.key)}
+                          />
+                          <span>{module.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  {customMode === 'ADVANCED' ? (
+                    <div>
+                    <div className="mb-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+                      {tr('Select feature flags', 'फीचर फ्लैग चुनें', 'Feature flags select karo')}
+                    </div>
+                    <div className="grid gap-2">
+                      {CUSTOM_ONBOARDING_FEATURES.map((feature) => (
+                        <label key={feature.key} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(customFeatureFlags[feature.key])}
+                            onChange={() => toggleCustomFeature(feature.key)}
+                          />
+                          <span>{feature.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    </div>
+                  ) : null}
+                </div>
+                {customDependencyHints.length > 0 ? (
+                  <div className="mt-3 rounded-xl border border-amber-300/60 bg-amber-50/90 p-3 text-xs text-amber-800 dark:border-amber-400/30 dark:bg-amber-950/25 dark:text-amber-200">
+                    {customDependencyHints.map((hint) => (
+                      <div key={hint}>• {hint}</div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-xl border border-emerald-300/60 bg-emerald-50/90 p-3 text-xs text-emerald-800 dark:border-emerald-400/30 dark:bg-emerald-950/25 dark:text-emerald-200">
+                    • Setup looks good.
+                  </div>
+                )}
+              </div>
+            ) : null}
 
             <div className="border-t border-slate-200/70 pt-5 dark:border-slate-800">
               <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{tr('Owner account', 'ओनर अकाउंट', 'Owner account')}</div>

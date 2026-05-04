@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { ordersRepository } from '@cement-house/db'
-import { generateOrderNumber, generateChallanNumber, marginPct } from '@cement-house/utils'
+import { ordersRepository, type Prisma } from '@cement-house/db'
+import { generateChallanNumber, marginPct } from '@cement-house/utils'
 import { getBizId } from '../../middleware/auth'
 import { createAuditLog } from '../../services/audit'
+import { calculateInvoice, validateInvoiceInput } from '../../services/billing-engine'
+import { ensureUsageAllowed } from '../../services/subscription-access'
 
 const ORDERS_LIST_CACHE_TTL_MS = 10_000
 const ORDER_DETAIL_CACHE_TTL_MS = 10_000
@@ -39,23 +41,49 @@ const ListOrdersQuerySchema = z.object({
 
 const CreateOrderSchema = z.object({
   customerId: z.string().uuid(),
+  sourceLocationId: z.string().uuid().optional(),
   deliveryDate: z.string().min(1).optional(),
+  gstEnabled: z.boolean().optional(),
+  isInterState: z.boolean().optional(),
+  invoiceDiscount: z.number().min(0).optional(),
+  roundOff: z.number().optional(),
+  transportCharges: z.number().min(0).optional(),
+  loadingCharges: z.number().min(0).optional(),
+  allowAdvancePayment: z.boolean().optional(),
+  allowNegativeStock: z.boolean().optional(),
   paymentMode: z.enum(['CASH', 'UPI', 'CHEQUE', 'CREDIT', 'PARTIAL']),
   amountPaid: z.number().min(0),
   notes: z.string().optional(),
   items: z.array(z.object({
     materialId: z.string().uuid(),
     quantity: z.number().positive(),
-    unitPrice: z.number().positive(),
-    purchasePrice: z.number().positive(),
+    unitPrice: z.number().min(0),
+    purchasePrice: z.number().min(0),
+    discount: z.number().min(0).optional(),
+    hsnCode: z.string().trim().max(30).optional(),
+    gstRate: z.number().min(0).max(100).optional(),
+    barcode: z.string().optional(),
+    batchNumber: z.string().optional(),
+    expiryDate: z.string().optional(),
+    serialNumber: z.string().optional(),
+    imeiNumber: z.string().optional(),
+    grossWeight: z.number().min(0).optional(),
+    tareWeight: z.number().min(0).optional(),
+    netWeight: z.number().min(0).optional(),
   })).min(1),
 })
 
 const AddItemSchema = z.object({
   materialId: z.string().uuid(),
   quantity: z.number().positive(),
-  unitPrice: z.number().positive(),
-  purchasePrice: z.number().positive(),
+  unitPrice: z.number().min(0),
+  purchasePrice: z.number().min(0),
+  hsnCode: z.string().trim().max(30).optional(),
+  discount: z.number().min(0).optional(),
+  gstRate: z.number().min(0).max(100).optional(),
+  netWeight: z.number().min(0).optional(),
+  grossWeight: z.number().min(0).optional(),
+  tareWeight: z.number().min(0).optional(),
 })
 
 const UpdateStatusSchema = z.object({
@@ -162,12 +190,41 @@ export async function orderRoutes(app: FastifyInstance) {
   })
 
   app.post('/', async (req, reply) => {
-    const user = req.user as { id: string }
+    const user = req.user as { id: string; featureFlags?: Record<string, boolean> | null; defaultSettings?: Record<string, unknown> | null }
     const bizId = getBizId(req)
     const body = CreateOrderSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const { customerId, paymentMode, amountPaid, notes, items, deliveryDate } = body.data
+    try {
+      await ensureUsageAllowed(bizId, 'ordersPerMonth')
+      await ensureUsageAllowed(bizId, 'invoicesPerMonth')
+    } catch (error: any) {
+      if (error.message === 'PLAN_EXPIRED') {
+        return reply.status(402).send({ success: false, code: 'PLAN_EXPIRED', error: 'Plan expired. Please renew your subscription.' })
+      }
+      if (error.message === 'LIMIT_EXCEEDED') {
+        return reply.status(403).send({ success: false, code: 'LIMIT_EXCEEDED', error: 'Monthly order/invoice limit reached for your plan.' })
+      }
+      throw error
+    }
+
+    const {
+      customerId,
+      sourceLocationId,
+      paymentMode,
+      amountPaid,
+      notes,
+      items,
+      deliveryDate,
+      gstEnabled,
+      isInterState,
+      invoiceDiscount,
+      roundOff,
+      transportCharges,
+      loadingCharges,
+      allowAdvancePayment,
+      allowNegativeStock,
+    } = body.data
     if (deliveryDate) {
       const parsedDeliveryDate = new Date(`${deliveryDate}T00:00:00`)
       if (Number.isNaN(parsedDeliveryDate.getTime())) {
@@ -178,23 +235,112 @@ export async function orderRoutes(app: FastifyInstance) {
       }
     }
 
-    const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
-    const avgMargin = items.reduce((sum, item) => sum + marginPct(item.unitPrice, item.purchasePrice), 0) / items.length
-
-    const orderNumber = generateOrderNumber()
-    const order = await ordersRepository.createOrder({
-      orderNumber,
-      customerId,
-      createdById: user.id,
-      paymentMode,
-      amountPaid,
-      totalAmount,
-      marginPct: avgMargin,
-      notes,
-      businessId: bizId,
-      deliveryDate,
+    const billingValidationError = validateInvoiceInput({
       items,
+      paymentMode,
+      paidAmount: amountPaid,
+      invoiceDiscount,
+      roundOff,
+      transportCharges,
+      loadingCharges,
+      gstEnabled,
+      isInterState,
+      allowAdvancePayment,
+      featureFlags: user.featureFlags ?? {},
     })
+    if (billingValidationError) {
+      return reply.status(400).send({ success: false, error: billingValidationError })
+    }
+
+    const computed = calculateInvoice({
+      items,
+      paymentMode,
+      paidAmount: amountPaid,
+      invoiceDiscount,
+      roundOff,
+      transportCharges,
+      loadingCharges,
+      gstEnabled,
+      isInterState,
+      allowAdvancePayment,
+      featureFlags: user.featureFlags ?? {},
+    })
+
+    const totalAmount = computed.grandTotal
+    const avgMargin = items.reduce((sum, item) => sum + marginPct(item.unitPrice, item.purchasePrice), 0) / items.length
+    const nowYear = new Date().getFullYear()
+    const seq = await ordersRepository.getNextInvoiceSequence(bizId, nowYear)
+    const orderNumber = `INV-${nowYear}-${String(seq).padStart(6, '0')}`
+    let order
+    try {
+      order = await ordersRepository.createOrder({
+        orderNumber,
+        invoiceNumber: orderNumber,
+        customerId,
+        createdById: user.id,
+        paymentMode,
+        amountPaid: computed.paidAmount,
+        paidAmount: computed.paidAmount,
+        dueAmount: computed.dueAmount,
+        subtotal: computed.subtotal,
+        itemDiscountTotal: computed.itemDiscountTotal,
+        invoiceDiscount: computed.invoiceDiscount,
+        taxableAmount: computed.taxableTotal,
+        gstTotal: computed.gstTotal,
+        cgstTotal: computed.cgstTotal,
+        sgstTotal: computed.sgstTotal,
+        igstTotal: computed.igstTotal,
+        transportCharges: computed.transportCharges,
+        loadingCharges: computed.loadingCharges,
+        roundOff: computed.roundOff,
+        grandTotal: computed.grandTotal,
+        billingSnapshot: JSON.parse(
+          JSON.stringify({
+            lines: computed.lines,
+            gstEnabled: gstEnabled ?? Boolean(user.featureFlags?.gstBilling),
+            isInterState: isInterState ?? false,
+          })
+        ) as Prisma.JsonValue,
+        totalAmount,
+        marginPct: avgMargin,
+        notes,
+        businessId: bizId,
+        sourceLocationId,
+        deliveryDate,
+        allowNegativeStock: allowNegativeStock === true || user.defaultSettings?.allowNegativeStock === true,
+        items: computed.lines.map((line, i) => ({
+          materialId: line.materialId,
+          quantity: items[i].quantity,
+          unitPrice: items[i].unitPrice,
+          purchasePrice: items[i].purchasePrice,
+          lineTotal: line.lineTotal,
+          hsnCode: items[i].hsnCode,
+          gstRate: line.gstRate,
+          taxableAmount: line.taxableAmount,
+          gstAmount: line.gstAmount,
+          cgstAmount: line.cgstAmount,
+          sgstAmount: line.sgstAmount,
+          igstAmount: line.igstAmount,
+          discountAmount: line.itemDiscount,
+          deductionQty: line.deductionQty,
+        })),
+      })
+    } catch (error: any) {
+      const message = String(error?.message ?? '')
+      if (message.includes('Transaction API error: Transaction not found')) {
+        const recovered = await ordersRepository.getOrderByNumber(orderNumber, bizId)
+        if (recovered) {
+          invalidateOrderCachesForBusiness(bizId)
+          return reply.send({ success: true, data: recovered, recovered: true })
+        }
+        return reply.status(503).send({
+          success: false,
+          code: 'ORDER_TX_RETRY',
+          error: 'Order creation timed out internally. Please retry once.',
+        })
+      }
+      return reply.status(400).send({ success: false, error: message || 'Failed to create order' })
+    }
 
     if (!order) return reply.status(500).send({ success: false, error: 'Failed to create order' })
     invalidateOrderCachesForBusiness(bizId)
@@ -205,13 +351,42 @@ export async function orderRoutes(app: FastifyInstance) {
     const params = OrderIdParamsSchema.safeParse(req.params)
     if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
 
-    const user = req.user as { id: string }
+    const user = req.user as { id: string; featureFlags?: Record<string, boolean> | null; defaultSettings?: Record<string, unknown> | null }
     const bizId = getBizId(req)
     const body = AddItemSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
     const order = await ordersRepository.getOrderDetail(params.data.id, bizId)
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
+
+    const lineValidationError = validateInvoiceInput({
+      items: [{
+        ...body.data,
+        grossWeight: body.data.grossWeight,
+        tareWeight: body.data.tareWeight,
+        netWeight: body.data.netWeight,
+      }],
+      paymentMode: order.paymentMode,
+      paidAmount: 0,
+      featureFlags: user.featureFlags ?? {},
+      allowAdvancePayment: true,
+    })
+    if (lineValidationError) {
+      return reply.status(400).send({ success: false, error: lineValidationError })
+    }
+
+    const lineComputed = calculateInvoice({
+      items: [{
+        ...body.data,
+        grossWeight: body.data.grossWeight,
+        tareWeight: body.data.tareWeight,
+        netWeight: body.data.netWeight,
+      }],
+      paymentMode: order.paymentMode,
+      paidAmount: 0,
+      featureFlags: user.featureFlags ?? {},
+      allowAdvancePayment: true,
+    }).lines[0]
 
     await ordersRepository.appendItemToOrder({
       orderId: params.data.id,
@@ -220,6 +395,17 @@ export async function orderRoutes(app: FastifyInstance) {
       quantity: body.data.quantity,
       unitPrice: body.data.unitPrice,
       purchasePrice: body.data.purchasePrice,
+      lineTotal: lineComputed?.lineTotal ?? body.data.quantity * body.data.unitPrice,
+      hsnCode: body.data.hsnCode,
+      gstRate: body.data.gstRate ?? lineComputed?.gstRate ?? 0,
+      taxableAmount: lineComputed?.taxableAmount ?? body.data.quantity * body.data.unitPrice,
+      gstAmount: lineComputed?.gstAmount ?? 0,
+      cgstAmount: lineComputed?.cgstAmount ?? 0,
+      sgstAmount: lineComputed?.sgstAmount ?? 0,
+      igstAmount: lineComputed?.igstAmount ?? 0,
+      discountAmount: lineComputed?.itemDiscount ?? (body.data.discount ?? 0),
+      deductionQty: lineComputed?.deductionQty ?? body.data.quantity,
+      allowNegativeStock: user.defaultSettings?.allowNegativeStock === true,
       userId: user.id,
       orderNumber: order.orderNumber,
       paymentMode: order.paymentMode,
@@ -244,7 +430,8 @@ export async function orderRoutes(app: FastifyInstance) {
 
       if ((order.deliveries ?? []).length === 0) {
         const challanNumber = generateChallanNumber()
-        await ordersRepository.createDispatchDelivery(params.data.id, challanNumber)
+        // Tenant guard: repository validates order ownership via businessId from auth context.
+        await ordersRepository.createDispatchDelivery(params.data.id, bizId, challanNumber)
         invalidateOrderCachesForBusiness(bizId)
         return { success: true, data: { ...order, status: body.data.status } }
       }
@@ -256,7 +443,8 @@ export async function orderRoutes(app: FastifyInstance) {
         .filter((delivery: any) => delivery.status !== 'DELIVERED' && delivery.status !== 'FAILED')
         .map((delivery: any) => delivery.id)
 
-      await ordersRepository.markDeliveredAndCloseDeliveries(params.data.id, pendingDeliveryIds)
+      // Tenant guard: repository validates all delivery mutations under the same business.
+      await ordersRepository.markDeliveredAndCloseDeliveries(params.data.id, bizId, pendingDeliveryIds)
       invalidateOrderCachesForBusiness(bizId)
       return { success: true }
     }

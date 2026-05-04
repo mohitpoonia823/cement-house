@@ -1,0 +1,7 @@
+ALTER TABLE businesses
+  ADD COLUMN IF NOT EXISTS "enabledModules" JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS "featureFlags" JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS "defaultSettings" JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE businesses
+  ALTER COLUMN "businessType" SET DEFAULT 'GENERAL_STORE';

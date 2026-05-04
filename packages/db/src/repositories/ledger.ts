@@ -150,6 +150,8 @@ export async function recordPaymentAndApply(input: RecordPaymentInput) {
       await tx.$executeRaw(Prisma.sql`
         UPDATE orders
         SET "amountPaid" = "amountPaid" + ${input.amount},
+            "paidAmount" = COALESCE("paidAmount", "amountPaid") + ${input.amount},
+            "dueAmount" = GREATEST(0, COALESCE("grandTotal", "totalAmount") - (COALESCE("paidAmount", "amountPaid") + ${input.amount})),
             "updatedAt" = NOW()
         WHERE id = ${input.orderId}
           AND "businessId" = ${input.businessId}
@@ -178,8 +180,11 @@ export async function recordPaymentAndApply(input: RecordPaymentInput) {
       await tx.$executeRaw(Prisma.sql`
         UPDATE orders
         SET "amountPaid" = "amountPaid" + ${applied},
+            "paidAmount" = COALESCE("paidAmount", "amountPaid") + ${applied},
+            "dueAmount" = GREATEST(0, COALESCE("grandTotal", "totalAmount") - (COALESCE("paidAmount", "amountPaid") + ${applied})),
             "updatedAt" = NOW()
         WHERE id = ${order.id}
+          AND "businessId" = ${input.businessId}
       `)
       remaining -= applied
     }

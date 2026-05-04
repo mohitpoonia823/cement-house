@@ -62,6 +62,7 @@ export async function deliveryRoutes(app: FastifyInstance) {
 
     const challanNumber = generateChallanNumber()
     const delivery = await deliveryRepository.createDeliveryAndDispatch({
+      businessId: bizId,
       orderId: body.data.orderId,
       challanNumber,
       driverName: body.data.driverName,
@@ -74,15 +75,17 @@ export async function deliveryRoutes(app: FastifyInstance) {
   })
 
   app.patch('/:id/dispatch', async (req, reply) => {
+    const bizId = getBizId(req)
     const params = DeliveryIdParamsSchema.safeParse(req.params)
     if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
 
-    const delivery = await deliveryRepository.updateDeliveryStatus(params.data.id, 'IN_TRANSIT')
+    const delivery = await deliveryRepository.updateDeliveryStatus(params.data.id, bizId, 'IN_TRANSIT')
     if (!delivery) return reply.status(404).send({ success: false, error: 'Delivery not found' })
     return { success: true, data: delivery }
   })
 
   app.patch('/:id/confirm', async (req, reply) => {
+    const bizId = getBizId(req)
     const params = DeliveryIdParamsSchema.safeParse(req.params)
     if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
 
@@ -91,6 +94,7 @@ export async function deliveryRoutes(app: FastifyInstance) {
 
     const updated = await deliveryRepository.confirmDelivery({
       id: params.data.id,
+      businessId: bizId,
       confirmationType: body.data.confirmationType,
       confirmationRef: body.data.confirmationRef,
     })
@@ -100,10 +104,11 @@ export async function deliveryRoutes(app: FastifyInstance) {
   })
 
   app.patch('/:id/fail', async (req, reply) => {
+    const bizId = getBizId(req)
     const params = DeliveryIdParamsSchema.safeParse(req.params)
     if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
 
-    const updated = await deliveryRepository.failDelivery(params.data.id)
+    const updated = await deliveryRepository.failDelivery(params.data.id, bizId)
     if (!updated) return reply.status(404).send({ success: false, error: 'Delivery not found' })
     return { success: true, data: updated }
   })

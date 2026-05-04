@@ -59,6 +59,15 @@ export type BillingConfig = {
   trialRequiresCard: boolean
 }
 
+export type AdminPlanPricing = {
+  id: string
+  name: 'FREE' | 'BASIC' | 'PRO' | 'ENTERPRISE'
+  priceMonthly: number
+  priceYearly: number
+  description: string | null
+  isActive: boolean
+}
+
 export type AnalyticsRange = '1M' | '3M' | '6M' | '1Y' | 'CUSTOM'
 
 export type SuperAdminOverviewAnalytics = {
@@ -161,6 +170,130 @@ export function useSuperAdminUsers(params: {
     queryFn: () => api.get(`/api/super-admin/users?${query}`).then((res) => res.data.data as PaginatedResponse<UserListItem>),
     placeholderData: (prev) => prev,
     staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  })
+}
+
+export function useSuperAdminPlanPricing() {
+  return useQuery({
+    queryKey: ['super-admin', 'plan-pricing'],
+    queryFn: () => api.get('/api/super-admin/plan-pricing').then((res) => res.data.data as AdminPlanPricing[]),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  })
+}
+
+export type AdminDashboardOverview = {
+  totalBusinesses: number
+  activeSubscriptions: number
+  trialSubscriptions: number
+  expiredSubscriptions: number
+  totalRevenue: number
+  failedPaymentsCount: number
+  totalUsers: number
+}
+
+export type AdminPlanDistributionRow = {
+  planName: string
+  numberOfBusinesses: number
+}
+
+export type AdminRevenueAnalytics = {
+  revenueByDay: Array<{ day: string; revenue: number }>
+  revenueByMonth: Array<{ month: string; revenue: number }>
+  revenueByPlan: Array<{ planName: string; revenue: number }>
+}
+
+export type AdminPaymentRow = {
+  paymentId: string
+  businessId: string
+  planName: string
+  amount: number
+  status: 'SUCCESS' | 'FAILED' | 'PENDING'
+  createdAt: string
+}
+
+export type AdminWebhookRow = {
+  eventId: string
+  eventType: string
+  status: 'PROCESSED' | 'PENDING'
+  processedAt: string | null
+  error: string | null
+  createdAt: string
+}
+
+export type AdminBusinessRow = {
+  businessId: string
+  name: string
+  plan: 'STARTER' | 'PRO' | 'ENTERPRISE'
+  subscriptionStatus: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'SUSPENDED'
+  subscriptionEndsAt: string | null
+  createdAt: string
+}
+
+export function useAdminDashboardOverview() {
+  return useQuery({
+    queryKey: ['super-admin', 'dashboard-overview'],
+    queryFn: () => api.get('/api/super-admin/dashboard/overview').then((res) => res.data.data as AdminDashboardOverview),
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  })
+}
+
+export function useAdminPlanDistribution() {
+  return useQuery({
+    queryKey: ['super-admin', 'dashboard-plan-distribution'],
+    queryFn: () => api.get('/api/super-admin/dashboard/plan-distribution').then((res) => res.data.data as AdminPlanDistributionRow[]),
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  })
+}
+
+export function useAdminRevenueAnalytics() {
+  return useQuery({
+    queryKey: ['super-admin', 'dashboard-revenue'],
+    queryFn: () => api.get('/api/super-admin/dashboard/revenue').then((res) => res.data.data as AdminRevenueAnalytics),
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  })
+}
+
+export function useAdminPayments(params: {
+  status?: '' | 'SUCCESS' | 'FAILED' | 'PENDING'
+  startDate?: string
+  endDate?: string
+}) {
+  const query = buildQuery(params)
+  return useQuery({
+    queryKey: ['super-admin', 'payments', query],
+    queryFn: () => api.get(`/api/super-admin/payments?${query}`).then((res) => res.data.data as AdminPaymentRow[]),
+    placeholderData: (prev) => prev,
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  })
+}
+
+export function useAdminWebhooks() {
+  return useQuery({
+    queryKey: ['super-admin', 'webhooks'],
+    queryFn: () => api.get('/api/super-admin/webhooks').then((res) => res.data.data as AdminWebhookRow[]),
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  })
+}
+
+export function useAdminBusinesses() {
+  return useQuery({
+    queryKey: ['super-admin', 'dashboard-businesses'],
+    queryFn: () => api.get('/api/super-admin/dashboard/businesses').then((res) => res.data.data as AdminBusinessRow[]),
+    staleTime: 20_000,
     refetchOnWindowFocus: false,
     retry: 1,
   })

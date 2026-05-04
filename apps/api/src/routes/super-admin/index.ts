@@ -11,6 +11,9 @@ const superAdminOverviewCache = new Map<string, { expiresAt: number; value: any 
 const superAdminOverviewInFlight = new Map<string, Promise<any>>()
 const superAdminAnalyticsCache = new Map<string, { expiresAt: number; value: any }>()
 const superAdminAnalyticsInFlight = new Map<string, Promise<any>>()
+const DASHBOARD_CACHE_TTL_MS = 15_000
+const dashboardCache = new Map<string, { expiresAt: number; value: any }>()
+const dashboardInFlight = new Map<string, Promise<any>>()
 
 const UpdateBusinessSchema = z.object({
   isActive: z.boolean().optional(),
@@ -74,6 +77,34 @@ const UpdateUserByAdminSchema = z.object({
   password: z.string().min(6).max(128).optional(),
 })
 
+const PlanNameSchema = z.enum(['FREE', 'BASIC', 'PRO', 'ENTERPRISE'])
+
+const UpdatePlanPricingSchema = z.object({
+  name: PlanNameSchema,
+  priceMonthly: z.number().min(0),
+  priceYearly: z.number().min(0),
+  description: z.string().trim().max(200).nullable().optional(),
+  isActive: z.boolean().optional(),
+})
+
+const AdminPaymentsQuerySchema = z.object({
+  status: z.enum(['SUCCESS', 'FAILED', 'PENDING']).optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+})
+
+const SuspendBusinessSchema = z.object({
+  reason: z.string().trim().max(300).optional(),
+})
+
+const ChangePlanSchema = z.object({
+  plan: z.enum(['STARTER', 'PRO', 'ENTERPRISE']),
+})
+
+const ExtendSubscriptionSchema = z.object({
+  days: z.coerce.number().int().min(1).max(3650),
+})
+
 function startOfDay(date: Date) {
   const next = new Date(date)
   next.setHours(0, 0, 0, 0)
@@ -129,6 +160,130 @@ function authPayloadForUser(user: {
 }
 
 export async function superAdminRoutes(app: FastifyInstance) {
+  app.get('/dashboard/overview', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const cacheKey = 'dashboard-overview'
+    const cached = dashboardCache.get(cacheKey)
+    const now = Date.now()
+    if (cached && cached.expiresAt > now) return { success: true, data: cached.value }
+    const inFlight = dashboardInFlight.get(cacheKey)
+    if (inFlight) return { success: true, data: await inFlight }
+
+    const compute = superAdminRepository
+      .getAdminDashboardOverview()
+      .finally(() => dashboardInFlight.delete(cacheKey))
+    dashboardInFlight.set(cacheKey, compute)
+    const data = await compute
+    dashboardCache.set(cacheKey, { expiresAt: Date.now() + DASHBOARD_CACHE_TTL_MS, value: data })
+    return { success: true, data }
+  })
+
+  app.get('/dashboard/plan-distribution', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const cacheKey = 'dashboard-plan-distribution'
+    const cached = dashboardCache.get(cacheKey)
+    const now = Date.now()
+    if (cached && cached.expiresAt > now) return { success: true, data: cached.value }
+    const inFlight = dashboardInFlight.get(cacheKey)
+    if (inFlight) return { success: true, data: await inFlight }
+    const compute = superAdminRepository
+      .getAdminPlanDistribution()
+      .finally(() => dashboardInFlight.delete(cacheKey))
+    dashboardInFlight.set(cacheKey, compute)
+    const data = await compute
+    dashboardCache.set(cacheKey, { expiresAt: Date.now() + DASHBOARD_CACHE_TTL_MS, value: data })
+    return { success: true, data }
+  })
+
+  app.get('/dashboard/revenue', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const cacheKey = 'dashboard-revenue'
+    const cached = dashboardCache.get(cacheKey)
+    const now = Date.now()
+    if (cached && cached.expiresAt > now) return { success: true, data: cached.value }
+    const inFlight = dashboardInFlight.get(cacheKey)
+    if (inFlight) return { success: true, data: await inFlight }
+    const compute = superAdminRepository
+      .getAdminRevenueAnalytics()
+      .finally(() => dashboardInFlight.delete(cacheKey))
+    dashboardInFlight.set(cacheKey, compute)
+    const data = await compute
+    dashboardCache.set(cacheKey, { expiresAt: Date.now() + DASHBOARD_CACHE_TTL_MS, value: data })
+    return { success: true, data }
+  })
+
+  app.get('/payments', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const query = AdminPaymentsQuerySchema.safeParse(req.query)
+    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    const startDate = query.data.startDate ? new Date(query.data.startDate) : undefined
+    const endDate = query.data.endDate ? new Date(query.data.endDate) : undefined
+    if (startDate && Number.isNaN(startDate.getTime())) {
+      return reply.status(400).send({ success: false, error: 'Invalid startDate' })
+    }
+    if (endDate && Number.isNaN(endDate.getTime())) {
+      return reply.status(400).send({ success: false, error: 'Invalid endDate' })
+    }
+
+    const data = await superAdminRepository.listAdminPayments({
+      status: query.data.status,
+      startDate,
+      endDate,
+    })
+    return { success: true, data }
+  })
+
+  app.get('/webhooks', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const data = await superAdminRepository.listAdminWebhookLogs()
+    return { success: true, data }
+  })
+
+  app.get('/dashboard/businesses', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const data = await superAdminRepository.listAdminBusinessesForDashboard()
+    return { success: true, data }
+  })
+
+  app.post('/businesses/:id/suspend', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const { id } = req.params as { id: string }
+    const body = SuspendBusinessSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    const business = await superAdminRepository.suspendBusinessByAdmin({
+      businessId: id,
+      reason: body.data.reason,
+    })
+    if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
+    return { success: true, data: business }
+  })
+
+  app.post('/businesses/:id/change-plan', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const { id } = req.params as { id: string }
+    const body = ChangePlanSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    const business = await superAdminRepository.changeBusinessPlanByAdmin({
+      businessId: id,
+      plan: body.data.plan,
+    })
+    if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
+    return { success: true, data: business }
+  })
+
+  app.post('/businesses/:id/extend-subscription', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const { id } = req.params as { id: string }
+    const body = ExtendSubscriptionSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    const business = await superAdminRepository.extendBusinessSubscriptionByAdmin({
+      businessId: id,
+      days: body.data.days,
+    })
+    if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
+    return { success: true, data: business }
+  })
+
   app.get('/profile', async (req, reply) => {
     if (!requireSuperAdmin(req, reply)) return
 
@@ -240,6 +395,27 @@ export async function superAdminRoutes(app: FastifyInstance) {
       currency: body.data.currency.toUpperCase(),
       trialRequiresCard: body.data.trialRequiresCard,
     })
+
+    // Keep pricing single-source in sync for the whole platform.
+    // We mirror admin-entered paid pricing to all paid plans so
+    // registration/settings/checkout surfaces stay consistent.
+    await Promise.all([
+      superAdminRepository.updateAdminPlanPricing({
+        name: 'BASIC',
+        priceMonthly: body.data.monthlyPrice,
+        priceYearly: body.data.yearlyPrice,
+      }),
+      superAdminRepository.updateAdminPlanPricing({
+        name: 'PRO',
+        priceMonthly: body.data.monthlyPrice,
+        priceYearly: body.data.yearlyPrice,
+      }),
+      superAdminRepository.updateAdminPlanPricing({
+        name: 'ENTERPRISE',
+        priceMonthly: body.data.monthlyPrice,
+        priceYearly: body.data.yearlyPrice,
+      }),
+    ])
     invalidatePlatformSettingsCache()
 
     return {
@@ -252,6 +428,25 @@ export async function superAdminRoutes(app: FastifyInstance) {
         trialRequiresCard: settings.trialRequiresCard,
       },
     }
+  })
+
+  app.get('/plan-pricing', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const plans = await superAdminRepository.listAdminPlanPricing()
+    return { success: true, data: plans }
+  })
+
+  app.put('/plan-pricing/:name', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const params = z.object({ name: PlanNameSchema }).safeParse(req.params)
+    if (!params.success) return reply.status(400).send({ success: false, error: 'Invalid plan name' })
+    const body = UpdatePlanPricingSchema.safeParse({ ...(req.body as Record<string, unknown>), name: params.data.name })
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    const updated = await superAdminRepository.updateAdminPlanPricing(body.data)
+    if (!updated) return reply.status(404).send({ success: false, error: 'Plan not found' })
+    invalidatePlatformSettingsCache()
+    return { success: true, data: updated }
   })
 
   app.get('/overview', async (req, reply) => {

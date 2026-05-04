@@ -110,6 +110,31 @@ enum PaymentStatus {
   FAILED
 }
 
+enum SalesReturnStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderReturnStatus {
+  NONE
+  PARTIAL
+  FULL
+}
+
+enum LocationType {
+  STORE
+  GODOWN
+  WAREHOUSE
+  YARD
+}
+
+enum StockTransferStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
+}
+
 // ─────────────────────────────────────────
 // BUSINESS — each cement house / tenant
 // ─────────────────────────────────────────
@@ -121,8 +146,11 @@ model Business {
   address     String?
   phone       String?
   gstin       String?
-  businessType String  @default("GENERAL")
+  businessType String  @default("GENERAL_STORE")
   customLabels Json?
+  enabledModules Json? @default("[]")
+  featureFlags Json? @default("{}")
+  defaultSettings Json? @default("{}")
   isActive    Boolean  @default(true)
   remindersEnabled Boolean @default(true)
   reminderSoftDays Int     @default(7)
@@ -145,11 +173,15 @@ model Business {
   customers   Customer[]
   materials   Material[]
   orders      Order[]
+  salesReturns SalesReturn[]
   ledgerEntries LedgerEntry[]
   stockMovements StockMovement[]
   auditLogs   AuditLog[]
   paymentMethods PaymentMethod[]
   paymentTransactions PaymentTransaction[]
+  locations   Location[]
+  materialStocks MaterialStock[]
+  stockTransfers StockTransfer[]
 
   @@index([isActive, subscriptionStatus])
   @@map("businesses")
@@ -177,9 +209,11 @@ model User {
 
   // Relations
   ordersCreated    Order[]         @relation("OrderCreatedBy")
+  salesReturnsCreated SalesReturn[]
   ledgerEntries    LedgerEntry[]   @relation("LedgerRecordedBy")
   stockMovements   StockMovement[] @relation("StockRecordedBy")
   auditLogs        AuditLog[]      @relation("AuditActor")
+  stockTransfersCreated StockTransfer[]
 
   @@index([businessId, role, isActive])
   @@index([lastSeenAt])
@@ -212,6 +246,7 @@ model Customer {
 
   // Relations
   orders         Order[]
+  salesReturns   SalesReturn[]
   ledgerEntries  LedgerEntry[]
   reminders      Reminder[]
 
@@ -228,12 +263,31 @@ model Customer {
 model Material {
   id              String   @id @default(uuid())
   name            String   // e.g. "OPC Cement", "Bajri / Sand"
+  category        String?
   unit            String   // "bags", "MT", "feet"
   stockQty        Decimal  @default(0) @db.Decimal(12, 3)
   minThreshold    Decimal  @default(0) @db.Decimal(12, 3)
   maxThreshold    Decimal? @db.Decimal(12, 3)
   purchasePrice   Decimal  @db.Decimal(10, 2)  // cost per unit
   salePrice       Decimal  @db.Decimal(10, 2)  // default sale price per unit
+  barcode         String?
+  batchNumber     String?
+  expiryDate      DateTime?
+  manufactureDate DateTime?
+  manufacturer    String?
+  rackLocation    String?
+  size            String?
+  color           String?
+  material        String?
+  weight          Decimal? @db.Decimal(12, 3)
+  purity          Decimal? @db.Decimal(8, 3)
+  makingCharges   Decimal? @db.Decimal(10, 2)
+  serialNumber    String?
+  imeiNumber      String?
+  grossWeight     Decimal? @db.Decimal(12, 3)
+  tareWeight      Decimal? @db.Decimal(12, 3)
+  netWeight       Decimal? @db.Decimal(12, 3)
+  metadata        Json?
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -244,8 +298,11 @@ model Material {
 
   // Relations
   orderItems      OrderItem[]
+  salesReturnItems SalesReturnItem[]
   stockMovements  StockMovement[]
   deliveryItems   DeliveryItem[]
+  locationStocks  MaterialStock[]
+  transferItems   StockTransferItem[]
 
   @@index([businessId, isActive, name])
   @@index([businessId, isActive, stockQty])
@@ -259,6 +316,7 @@ model Material {
 model Order {
   id            String      @id @default(uuid())
   orderNumber   String      @unique  // ORD-2026-0841
+  invoiceNumber String?
   customer      Customer    @relation(fields: [customerId], references: [id])
   customerId    String
   createdBy     User        @relation("OrderCreatedBy", fields: [createdById], references: [id])
@@ -267,6 +325,23 @@ model Order {
   deliveryDate  DateTime?
   status        OrderStatus @default(CONFIRMED)
   paymentMode   PaymentMode
+  subtotal          Decimal?    @db.Decimal(12, 2)
+  itemDiscountTotal Decimal?    @db.Decimal(12, 2)
+  invoiceDiscount   Decimal?    @db.Decimal(12, 2)
+  taxableAmount     Decimal?    @db.Decimal(12, 2)
+  gstTotal          Decimal?    @db.Decimal(12, 2)
+  cgstTotal         Decimal?    @db.Decimal(12, 2)
+  sgstTotal         Decimal?    @db.Decimal(12, 2)
+  igstTotal         Decimal?    @db.Decimal(12, 2)
+  transportCharges  Decimal?    @db.Decimal(12, 2)
+  loadingCharges    Decimal?    @db.Decimal(12, 2)
+  roundOff          Decimal?    @db.Decimal(10, 2)
+  grandTotal        Decimal?    @db.Decimal(12, 2)
+  paidAmount        Decimal?    @db.Decimal(12, 2)
+  dueAmount         Decimal?    @db.Decimal(12, 2)
+  billingSnapshot   Json?
+  returnedAmount    Decimal?    @db.Decimal(12, 2)
+  returnStatus      OrderReturnStatus @default(NONE)
   amountPaid    Decimal     @default(0) @db.Decimal(12, 2)
   totalAmount   Decimal     @db.Decimal(12, 2)
   marginPct     Decimal?    @db.Decimal(5, 2)  // calculated margin %
@@ -282,14 +357,92 @@ model Order {
   // Relations
   items          OrderItem[]
   deliveries     Delivery[]
+  salesReturns   SalesReturn[]
   ledgerEntries  LedgerEntry[]
   stockMovements StockMovement[]
+  sourceLocation Location? @relation("OrderSourceLocation", fields: [sourceLocationId], references: [id])
+  sourceLocationId String?
 
   @@index([businessId, isDeleted, createdAt])
   @@index([businessId, status, isDeleted, createdAt])
   @@index([businessId, customerId, isDeleted, createdAt])
   @@index([customerId, createdAt])
+  @@index([businessId, sourceLocationId, createdAt])
   @@map("orders")
+}
+
+model Location {
+  id          String       @id @default(uuid())
+  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId  String
+  name        String
+  type        LocationType @default(STORE)
+  address     String?
+  isDefault   Boolean      @default(false)
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  orderSources       Order[]          @relation("OrderSourceLocation")
+  materialStocks     MaterialStock[]
+  fromTransfers      StockTransfer[]  @relation("StockTransferFrom")
+  toTransfers        StockTransfer[]  @relation("StockTransferTo")
+
+  @@index([businessId, isActive, name])
+  @@index([businessId, isDefault])
+  @@map("locations")
+}
+
+model MaterialStock {
+  id         String    @id @default(uuid())
+  business   Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId String
+  material   Material  @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  materialId String
+  location   Location  @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  locationId String
+  quantity   Decimal   @default(0) @db.Decimal(12, 3)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([businessId, materialId, locationId])
+  @@index([businessId, locationId, materialId])
+  @@index([businessId, materialId])
+  @@map("material_stock")
+}
+
+model StockTransfer {
+  id             String              @id @default(uuid())
+  business       Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId     String
+  fromLocation   Location            @relation("StockTransferFrom", fields: [fromLocationId], references: [id])
+  fromLocationId String
+  toLocation     Location            @relation("StockTransferTo", fields: [toLocationId], references: [id])
+  toLocationId   String
+  status         StockTransferStatus @default(COMPLETED)
+  createdBy      User                @relation(fields: [createdById], references: [id])
+  createdById    String
+  notes          String?
+  createdAt      DateTime            @default(now())
+  items          StockTransferItem[]
+
+  @@index([businessId, createdAt])
+  @@index([businessId, fromLocationId, createdAt])
+  @@index([businessId, toLocationId, createdAt])
+  @@map("stock_transfers")
+}
+
+model StockTransferItem {
+  id         String        @id @default(uuid())
+  transfer   StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  transferId String
+  material   Material      @relation(fields: [materialId], references: [id])
+  materialId String
+  quantity   Decimal       @db.Decimal(12, 3)
+
+  @@index([transferId])
+  @@index([materialId])
+  @@map("stock_transfer_items")
 }
 
 // ─────────────────────────────────────────
@@ -303,13 +456,73 @@ model OrderItem {
   material       Material @relation(fields: [materialId], references: [id])
   materialId     String
   quantity       Decimal  @db.Decimal(12, 3)
+  hsnCode        String?
+  gstRate        Decimal? @db.Decimal(5, 2)
+  taxableAmount  Decimal? @db.Decimal(12, 2)
+  gstAmount      Decimal? @db.Decimal(12, 2)
+  cgstAmount     Decimal? @db.Decimal(12, 2)
+  sgstAmount     Decimal? @db.Decimal(12, 2)
+  igstAmount     Decimal? @db.Decimal(12, 2)
+  discountAmount Decimal? @db.Decimal(12, 2)
   unitPrice      Decimal  @db.Decimal(10, 2)  // actual sale price charged
   purchasePrice  Decimal  @db.Decimal(10, 2)  // cost at time of order (snapshot)
   lineTotal      Decimal  @db.Decimal(12, 2)  // quantity × unitPrice
+  returnItems    SalesReturnItem[]
 
   @@index([orderId])
   @@index([materialId])
   @@map("order_items")
+}
+
+model SalesReturn {
+  id                     String            @id @default(uuid())
+  business               Business          @relation(fields: [businessId], references: [id])
+  businessId             String
+  order                  Order             @relation(fields: [orderId], references: [id])
+  orderId                String
+  customer               Customer          @relation(fields: [customerId], references: [id])
+  customerId             String
+  returnNumber           String
+  returnDate             DateTime          @default(now())
+  reason                 String?
+  totalReturnAmount      Decimal           @db.Decimal(12, 2)
+  gstReversalAmount      Decimal           @db.Decimal(12, 2)
+  ledgerAdjustmentAmount Decimal           @db.Decimal(12, 2)
+  status                 SalesReturnStatus @default(COMPLETED)
+  createdBy              User              @relation(fields: [createdById], references: [id])
+  createdById            String
+  createdAt              DateTime          @default(now())
+  items                  SalesReturnItem[]
+
+  @@index([businessId, returnDate, createdAt])
+  @@index([businessId, orderId, createdAt])
+  @@index([businessId, customerId, createdAt])
+  @@unique([businessId, returnNumber])
+  @@map("sales_returns")
+}
+
+model SalesReturnItem {
+  id               String      @id @default(uuid())
+  return           SalesReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  returnId         String
+  orderItem        OrderItem   @relation(fields: [orderItemId], references: [id])
+  orderItemId      String
+  material         Material    @relation(fields: [materialId], references: [id])
+  materialId       String
+  quantityReturned Decimal     @db.Decimal(12, 3)
+  unitPrice        Decimal     @db.Decimal(10, 2)
+  discountAmount   Decimal     @db.Decimal(12, 2)
+  taxableAmount    Decimal     @db.Decimal(12, 2)
+  gstAmount        Decimal     @db.Decimal(12, 2)
+  totalAmount      Decimal     @db.Decimal(12, 2)
+  cgstAmount       Decimal?    @db.Decimal(12, 2)
+  sgstAmount       Decimal?    @db.Decimal(12, 2)
+  igstAmount       Decimal?    @db.Decimal(12, 2)
+
+  @@index([returnId])
+  @@index([orderItemId])
+  @@index([materialId])
+  @@map("sales_return_items")
 }
 
 // ─────────────────────────────────────────

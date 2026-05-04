@@ -169,6 +169,7 @@ export async function addTicketMessage(input: {
   ticketId: string
   senderUserId: string
   senderRole: SupportSenderRole
+  businessId?: string | null
   message: string
 }) {
   await ensureSupportTables()
@@ -176,6 +177,18 @@ export async function addTicketMessage(input: {
   const now = new Date()
 
   await prisma.$transaction(async (tx) => {
+    if (input.senderRole === 'BUSINESS') {
+      const ownedRows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id
+        FROM support_tickets
+        WHERE id = ${input.ticketId} AND business_id = ${input.businessId ?? null}
+        LIMIT 1
+      `)
+      if (ownedRows.length === 0) {
+        throw new Error('Ticket not found for this business')
+      }
+    }
+
     await tx.$executeRaw`
       INSERT INTO support_ticket_messages (
         id,
@@ -195,16 +208,30 @@ export async function addTicketMessage(input: {
     `
 
     const readColumn = input.senderRole === 'ADMIN' ? Prisma.sql`admin_last_read_at` : Prisma.sql`business_last_read_at`
-    await tx.$executeRaw(Prisma.sql`
-      UPDATE support_tickets
-      SET
-        status = 'OPEN',
-        last_message_preview = ${input.message.slice(0, 220)},
-        last_message_at = ${now},
-        updated_at = ${now},
-        ${readColumn} = ${now}
-      WHERE id = ${input.ticketId}
-    `)
+    if (input.senderRole === 'BUSINESS') {
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE support_tickets
+        SET
+          status = 'OPEN',
+          last_message_preview = ${input.message.slice(0, 220)},
+          last_message_at = ${now},
+          updated_at = ${now},
+          ${readColumn} = ${now}
+        WHERE id = ${input.ticketId}
+          AND business_id = ${input.businessId ?? null}
+      `)
+    } else {
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE support_tickets
+        SET
+          status = 'OPEN',
+          last_message_preview = ${input.message.slice(0, 220)},
+          last_message_at = ${now},
+          updated_at = ${now},
+          ${readColumn} = ${now}
+        WHERE id = ${input.ticketId}
+      `)
+    }
   })
 
   return { messageId, createdAt: now }
@@ -310,36 +337,77 @@ export async function getAdminTicketById(ticketId: string) {
   return rows.length > 0 ? rows[0] : null
 }
 
-export async function markTicketRead(ticketId: string, readerRole: SupportSenderRole) {
+export async function markTicketRead(
+  ticketId: string,
+  readerRole: SupportSenderRole,
+  businessId?: string | null,
+) {
   await ensureSupportTables()
   const readColumn = readerRole === 'ADMIN' ? Prisma.sql`admin_last_read_at` : Prisma.sql`business_last_read_at`
-  await prisma.$executeRaw(Prisma.sql`
-    UPDATE support_tickets
-    SET ${readColumn} = NOW()
-    WHERE id = ${ticketId}
-  `)
+  if (readerRole === 'BUSINESS') {
+    const ownedRows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM support_tickets
+      WHERE id = ${ticketId} AND business_id = ${businessId ?? null}
+      LIMIT 1
+    `)
+    if (ownedRows.length === 0) throw new Error('Ticket not found for this business')
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE support_tickets
+      SET ${readColumn} = NOW()
+      WHERE id = ${ticketId}
+        AND business_id = ${businessId ?? null}
+    `)
+  } else {
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE support_tickets
+      SET ${readColumn} = NOW()
+      WHERE id = ${ticketId}
+    `)
+  }
 }
 
-export async function getTicketMessages(ticketId: string) {
+export async function getTicketMessages(ticketId: string, businessId?: string | null) {
   await ensureSupportTables()
-  const rows = await prisma.$queryRaw<SupportTicketMessageRow[]>`
-    SELECT
-      stm.id,
-      stm.ticket_id AS "ticketId",
-      stm.sender_user_id AS "senderUserId",
-      u.name AS "senderName",
-      stm.sender_role::text AS "senderRole",
-      stm.message,
-      stm.created_at AS "createdAt"
-    FROM support_ticket_messages stm
-    INNER JOIN users u ON u.id = stm.sender_user_id
-    WHERE stm.ticket_id = ${ticketId}
-    ORDER BY stm.created_at ASC
-  `
+  const rows = businessId
+    ? await prisma.$queryRaw<SupportTicketMessageRow[]>(Prisma.sql`
+      SELECT
+        stm.id,
+        stm.ticket_id AS "ticketId",
+        stm.sender_user_id AS "senderUserId",
+        u.name AS "senderName",
+        stm.sender_role::text AS "senderRole",
+        stm.message,
+        stm.created_at AS "createdAt"
+      FROM support_ticket_messages stm
+      INNER JOIN users u ON u.id = stm.sender_user_id
+      INNER JOIN support_tickets st ON st.id = stm.ticket_id
+      WHERE stm.ticket_id = ${ticketId}
+        AND st.business_id = ${businessId}
+      ORDER BY stm.created_at ASC
+    `)
+    : await prisma.$queryRaw<SupportTicketMessageRow[]>(Prisma.sql`
+      SELECT
+        stm.id,
+        stm.ticket_id AS "ticketId",
+        stm.sender_user_id AS "senderUserId",
+        u.name AS "senderName",
+        stm.sender_role::text AS "senderRole",
+        stm.message,
+        stm.created_at AS "createdAt"
+      FROM support_ticket_messages stm
+      INNER JOIN users u ON u.id = stm.sender_user_id
+      WHERE stm.ticket_id = ${ticketId}
+      ORDER BY stm.created_at ASC
+    `)
   return rows
 }
 
-async function refreshTicketLastMessage(tx: Prisma.TransactionClient, ticketId: string) {
+async function refreshTicketLastMessage(
+  tx: Prisma.TransactionClient,
+  ticketId: string,
+  businessId?: string | null,
+) {
   const latestRows = await tx.$queryRaw<Array<{ message: string; createdAt: Date }>>`
     SELECT message, created_at AS "createdAt"
     FROM support_ticket_messages
@@ -350,35 +418,70 @@ async function refreshTicketLastMessage(tx: Prisma.TransactionClient, ticketId: 
   const latest = latestRows[0]
 
   if (latest) {
-    await tx.$executeRaw`
-      UPDATE support_tickets
-      SET
-        last_message_preview = ${latest.message.slice(0, 220)},
-        last_message_at = ${latest.createdAt},
-        updated_at = NOW()
-      WHERE id = ${ticketId}
-    `
+    if (businessId) {
+      await tx.$executeRaw`
+        UPDATE support_tickets
+        SET
+          last_message_preview = ${latest.message.slice(0, 220)},
+          last_message_at = ${latest.createdAt},
+          updated_at = NOW()
+        WHERE id = ${ticketId}
+          AND business_id = ${businessId}
+      `
+    } else {
+      await tx.$executeRaw`
+        UPDATE support_tickets
+        SET
+          last_message_preview = ${latest.message.slice(0, 220)},
+          last_message_at = ${latest.createdAt},
+          updated_at = NOW()
+        WHERE id = ${ticketId}
+      `
+    }
     return
   }
 
-  await tx.$executeRaw`
-    UPDATE support_tickets
-    SET
-      last_message_preview = NULL,
-      last_message_at = NOW(),
-      updated_at = NOW()
-    WHERE id = ${ticketId}
-  `
+  if (businessId) {
+    await tx.$executeRaw`
+      UPDATE support_tickets
+      SET
+        last_message_preview = NULL,
+        last_message_at = NOW(),
+        updated_at = NOW()
+      WHERE id = ${ticketId}
+        AND business_id = ${businessId}
+    `
+  } else {
+    await tx.$executeRaw`
+      UPDATE support_tickets
+      SET
+        last_message_preview = NULL,
+        last_message_at = NOW(),
+        updated_at = NOW()
+      WHERE id = ${ticketId}
+    `
+  }
 }
 
 export async function updateTicketMessage(input: {
   ticketId: string
   messageId: string
   senderUserId: string
+  businessId?: string | null
   message: string
 }) {
   await ensureSupportTables()
   const rows = await prisma.$transaction(async (tx) => {
+    if (input.businessId) {
+      const ownedRows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id
+        FROM support_tickets
+        WHERE id = ${input.ticketId} AND business_id = ${input.businessId}
+        LIMIT 1
+      `)
+      if (ownedRows.length === 0) throw new Error('Ticket not found for this business')
+    }
+
     const updatedRows = await tx.$queryRaw<Array<{ id: string }>>`
       UPDATE support_ticket_messages
       SET message = ${input.message}
@@ -388,7 +491,7 @@ export async function updateTicketMessage(input: {
       RETURNING id
     `
     if (updatedRows.length === 0) return []
-    await refreshTicketLastMessage(tx, input.ticketId)
+    await refreshTicketLastMessage(tx, input.ticketId, input.businessId)
     return updatedRows
   })
   return rows.length > 0
@@ -398,9 +501,20 @@ export async function deleteTicketMessage(input: {
   ticketId: string
   messageId: string
   senderUserId: string
+  businessId?: string | null
 }) {
   await ensureSupportTables()
   const rows = await prisma.$transaction(async (tx) => {
+    if (input.businessId) {
+      const ownedRows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id
+        FROM support_tickets
+        WHERE id = ${input.ticketId} AND business_id = ${input.businessId}
+        LIMIT 1
+      `)
+      if (ownedRows.length === 0) throw new Error('Ticket not found for this business')
+    }
+
     const deletedRows = await tx.$queryRaw<Array<{ id: string }>>`
       DELETE FROM support_ticket_messages
       WHERE id = ${input.messageId}
@@ -409,7 +523,7 @@ export async function deleteTicketMessage(input: {
       RETURNING id
     `
     if (deletedRows.length === 0) return []
-    await refreshTicketLastMessage(tx, input.ticketId)
+    await refreshTicketLastMessage(tx, input.ticketId, input.businessId)
     return deletedRows
   })
   return rows.length > 0

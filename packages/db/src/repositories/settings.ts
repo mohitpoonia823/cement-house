@@ -42,6 +42,9 @@ export interface SettingsBusinessRow {
   gstin: string | null
   businessType: string
   customLabels: Record<string, string> | null
+  enabledModules: string[] | null
+  featureFlags: Record<string, boolean> | null
+  defaultSettings: Record<string, unknown> | null
   isActive: boolean
   remindersEnabled: boolean
   reminderSoftDays: number
@@ -103,6 +106,9 @@ export interface SettingsSessionUserRow {
   businessCity: string | null
   businessType: string | null
   customLabels: Record<string, string> | null
+  enabledModules: string[] | null
+  featureFlags: Record<string, boolean> | null
+  defaultSettings: Record<string, unknown> | null
   subscriptionStatus: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'SUSPENDED' | null
   subscriptionEndsAt: Date | null
   subscriptionInterval: 'MONTHLY' | 'YEARLY' | null
@@ -136,6 +142,9 @@ interface UpdateBusinessInput {
   gstin?: string
   businessType?: string
   customLabels?: Record<string, string>
+  enabledModules?: string[]
+  featureFlags?: Record<string, boolean>
+  defaultSettings?: Record<string, unknown>
 }
 
 interface UpdateReminderRulesInput {
@@ -205,6 +214,9 @@ function settingsBusinessSelectSql() {
       gstin,
       "businessType" AS "businessType",
       "customLabels" AS "customLabels",
+      "enabledModules" AS "enabledModules",
+      "featureFlags" AS "featureFlags",
+      "defaultSettings" AS "defaultSettings",
       "isActive" AS "isActive",
       "remindersEnabled" AS "remindersEnabled",
       "reminderSoftDays" AS "reminderSoftDays",
@@ -303,6 +315,9 @@ export async function getSettingsSessionUserById(userId: string) {
       b.city AS "businessCity",
       b."businessType" AS "businessType",
       b."customLabels" AS "customLabels",
+      b."enabledModules" AS "enabledModules",
+      b."featureFlags" AS "featureFlags",
+      b."defaultSettings" AS "defaultSettings",
       b."subscriptionStatus"::text AS "subscriptionStatus",
       b."subscriptionEndsAt" AS "subscriptionEndsAt",
       b."subscriptionInterval"::text AS "subscriptionInterval",
@@ -453,6 +468,7 @@ export async function finalizeSubscriptionPayment(input: FinalizeSubscriptionInp
         })}::jsonb,
         "updatedAt" = NOW()
       WHERE id = ${input.transactionId}
+        AND "businessId" = ${input.businessId}
     `)
 
     await tx.$executeRaw(Prisma.sql`
@@ -515,6 +531,9 @@ export async function updateBusinessProfile(businessId: string, input: UpdateBus
   if (input.gstin !== undefined) updates.push(Prisma.sql`gstin = ${input.gstin}`)
   if (input.businessType !== undefined) updates.push(Prisma.sql`"businessType" = ${input.businessType}`)
   if (input.customLabels !== undefined) updates.push(Prisma.sql`"customLabels" = ${JSON.stringify(input.customLabels)}::jsonb`)
+  if (input.enabledModules !== undefined) updates.push(Prisma.sql`"enabledModules" = ${JSON.stringify(input.enabledModules)}::jsonb`)
+  if (input.featureFlags !== undefined) updates.push(Prisma.sql`"featureFlags" = ${JSON.stringify(input.featureFlags)}::jsonb`)
+  if (input.defaultSettings !== undefined) updates.push(Prisma.sql`"defaultSettings" = ${JSON.stringify(input.defaultSettings)}::jsonb`)
   if (updates.length === 0) return getSettingsBusinessById(businessId)
   updates.push(Prisma.sql`"updatedAt" = NOW()`)
 
@@ -531,6 +550,9 @@ export async function updateBusinessProfile(businessId: string, input: UpdateBus
       gstin,
       "businessType" AS "businessType",
       "customLabels" AS "customLabels",
+      "enabledModules" AS "enabledModules",
+      "featureFlags" AS "featureFlags",
+      "defaultSettings" AS "defaultSettings",
       "isActive" AS "isActive",
       "remindersEnabled" AS "remindersEnabled",
       "reminderSoftDays" AS "reminderSoftDays",
@@ -574,6 +596,9 @@ export async function updateBusinessReminders(businessId: string, input: UpdateR
       gstin,
       "businessType" AS "businessType",
       "customLabels" AS "customLabels",
+      "enabledModules" AS "enabledModules",
+      "featureFlags" AS "featureFlags",
+      "defaultSettings" AS "defaultSettings",
       "isActive" AS "isActive",
       "remindersEnabled" AS "remindersEnabled",
       "reminderSoftDays" AS "reminderSoftDays",

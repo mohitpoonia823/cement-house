@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import { Providers } from './providers'
 import { PWARegister } from '@/components/PWARegister'
+import { PWAStatus } from '@/components/PWAStatus'
 
 export const metadata: Metadata = {
   title: 'Business Hub - Management Platform',
@@ -42,10 +43,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
         <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
-        <link rel="apple-touch-icon" href="/icons/icon.svg" />
+        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
       </head>
       <body>
         <Providers>{children}</Providers>
+        <PWAStatus />
         <PWARegister />
       </body>
     </html>

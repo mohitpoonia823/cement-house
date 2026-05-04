@@ -7,8 +7,34 @@ import { api } from '@/lib/api'
 import { fmt, fmtDate } from '@/lib/utils'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCreateStaff, useDeleteStaff, useStaff, useUpdateStaff } from '@/hooks/useStaff'
+import { useLocations } from '@/hooks/useInventory'
 import { useAuthStore } from '@/store/auth'
 import { useI18n } from '@/lib/i18n'
+import Link from 'next/link'
+import {
+  CUSTOM_ONBOARDING_FEATURES,
+  CUSTOM_ONBOARDING_MODULES,
+  listBusinessTypeOptions,
+  normalizeBusinessType,
+} from '@cement-house/utils'
+
+function getCustomDependencyHints(enabledModules: string[], featureFlags: Record<string, boolean>) {
+  const hints: string[] = []
+  if (enabledModules.length === 0) hints.push('Select at least one core module.')
+  if (enabledModules.includes('orders') && !enabledModules.includes('customers')) {
+    hints.push('Billing / orders needs Customers module.')
+  }
+  if (featureFlags.transportManagement && !(enabledModules.includes('deliveries') || enabledModules.includes('logistics'))) {
+    hints.push('Transport management needs Delivery or Logistics module.')
+  }
+  if (featureFlags.restaurantPOS && !(enabledModules.includes('orders') && enabledModules.includes('inventory'))) {
+    hints.push('Restaurant POS needs Orders + Inventory modules.')
+  }
+  if (featureFlags.gstBilling && !enabledModules.includes('orders')) {
+    hints.push('GST billing needs Billing / orders module.')
+  }
+  return hints
+}
 
 function useSettings() {
   return useQuery({
@@ -29,6 +55,16 @@ const PERMISSION_OPTIONS = [
 ]
 
 type BillingInterval = 'MONTHLY' | 'YEARLY'
+type PlanName = 'FREE' | 'BASIC' | 'PRO' | 'ENTERPRISE'
+type ActivePlan = {
+  id: string
+  name: PlanName
+  priceMonthly: number
+  priceYearly: number
+  description: string | null
+  isActive: boolean
+  features: Record<string, unknown>
+}
 type AlertTone = 'success' | 'warning' | 'danger' | 'info'
 type ToastItem = { id: number; tone: AlertTone; message: string }
 
@@ -75,6 +111,23 @@ export default function SettingsPage() {
   const { user, login, token } = useAuthStore()
   const qc = useQueryClient()
   const { data, isLoading } = useSettings()
+  const { data: locations, isLoading: locationsLoading } = useLocations()
+  const { data: plansData } = useQuery<ActivePlan[]>({
+    queryKey: ['subscription-plans'],
+    queryFn: () => api.get('/api/settings/plans').then((r) => r.data.data),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+    enabled: user?.role === 'OWNER',
+  })
+  const { data: subscriptionUsage } = useQuery({
+    queryKey: ['subscription-usage'],
+    queryFn: () => api.get('/api/settings/subscription/usage').then((r) => r.data.data),
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+    enabled: user?.role === 'OWNER',
+  })
   const accessLocked = Boolean(data?.subscription?.accessLocked)
 
   const { data: staffList, isLoading: sLoading } = useStaff({ enabled: user?.role === 'OWNER' && !accessLocked })
@@ -89,11 +142,15 @@ export default function SettingsPage() {
   const [bizAddr, setBizAddr] = useState('')
   const [bizPhone, setBizPhone] = useState('')
   const [bizGstin, setBizGstin] = useState('')
-  const [bizType, setBizType] = useState<'GENERAL' | 'CEMENT' | 'HARDWARE_SANITARY' | 'KIRYANA' | 'CUSTOM'>('GENERAL')
+  const [bizType, setBizType] = useState<string>('GENERAL_STORE')
   const [bizTypeName, setBizTypeName] = useState('')
+  const [customBizDesc, setCustomBizDesc] = useState('')
   const [labelInventory, setLabelInventory] = useState('')
   const [labelMaterial, setLabelMaterial] = useState('')
   const [labelCustomer, setLabelCustomer] = useState('')
+  const [modulesEdit, setModulesEdit] = useState(false)
+  const [modulesSelection, setModulesSelection] = useState<string[]>([])
+  const [featureSelection, setFeatureSelection] = useState<Record<string, boolean>>({})
 
   const [profEdit, setProfEdit] = useState(false)
   const [profName, setProfName] = useState('')
@@ -120,11 +177,22 @@ export default function SettingsPage() {
 
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [selectedInterval, setSelectedInterval] = useState<BillingInterval>('MONTHLY')
+  const [selectedPlanName, setSelectedPlanName] = useState<PlanName>('PRO')
   const [isConfirmingPayment, setIsConfirmingPayment] = useState(false)
   const [logoutReason, setLogoutReason] = useState('')
   const [toasts, setToasts] = useState<ToastItem[]>([])
+  const customDependencyHints = useMemo(
+    () => getCustomDependencyHints(modulesSelection, featureSelection),
+    [modulesSelection, featureSelection],
+  )
 
-  const selectedPlanAmount = selectedInterval === 'YEARLY' ? fmt(data?.subscription?.yearlyPrice ?? 0) : fmt(data?.subscription?.monthlyPrice ?? 0)
+  const selectedPlan = useMemo(
+    () => (plansData ?? []).find((plan) => plan.name === selectedPlanName) ?? null,
+    [plansData, selectedPlanName]
+  )
+  const selectedPlanAmount = selectedInterval === 'YEARLY'
+    ? fmt(Number(selectedPlan?.priceYearly ?? 0))
+    : fmt(Number(selectedPlan?.priceMonthly ?? 0))
   const canCancelSubscription =
     Boolean(data?.subscription?.interval) &&
     Boolean(data?.subscription?.endsAt) &&
@@ -138,17 +206,15 @@ export default function SettingsPage() {
     return !accessLocked && stillInCurrentCycle && data?.subscription?.interval === interval
   }
 
-  const hasActiveCycleWindow = Boolean(data?.subscription?.endsAt) && new Date(data?.subscription?.endsAt).getTime() > Date.now()
-  const hasActiveYearlyCycle = data?.subscription?.interval === 'YEARLY' && hasActiveCycleWindow
-  const hasActiveMonthlyCycle = data?.subscription?.interval === 'MONTHLY' && hasActiveCycleWindow
-  const canPurchaseMonthly = !hasActiveYearlyCycle
-
-  const monthlyPlanSub = hasActiveYearlyCycle ? 'Available after yearly cycle ends' : '30-day access window'
-  const monthlyPlanStatusLabel = isCurrentPlanActive('MONTHLY') ? 'Current plan' : hasActiveYearlyCycle ? 'Unavailable' : undefined
-  const monthlyPlanCta = isCurrentPlanActive('MONTHLY') ? 'Subscribed' : hasActiveYearlyCycle ? 'Unavailable' : 'Activate Monthly'
-
-  const yearlyPlanStatusLabel = isCurrentPlanActive('YEARLY') ? 'Current plan' : hasActiveMonthlyCycle ? 'Upgrade available' : 'Best value'
-  const yearlyPlanCta = isCurrentPlanActive('YEARLY') ? 'Subscribed' : hasActiveMonthlyCycle ? 'Upgrade to Yearly' : 'Activate Yearly'
+  const currentPlanName = (subscriptionUsage?.subscription?.plan?.name ?? null) as PlanName | null
+  const paidPlanForCheckout = useMemo(
+    () =>
+      (plansData ?? []).find((plan) => plan.name === 'BASIC')
+      ?? (plansData ?? []).find((plan) => plan.name === 'PRO')
+      ?? (plansData ?? []).find((plan) => plan.name === 'ENTERPRISE')
+      ?? null,
+    [plansData],
+  )
 
   const trialBannerMessage = useMemo(() => {
     if (!data?.subscription?.inTrial || data?.subscription?.interval) return ''
@@ -193,11 +259,22 @@ export default function SettingsPage() {
     setBizAddr(data.business?.address ?? '')
     setBizPhone(data.business?.phone ?? '')
     setBizGstin(data.business?.gstin ?? '')
-    setBizType(data.business?.businessType ?? 'GENERAL')
+    setBizType(normalizeBusinessType(data.business?.businessType))
     setBizTypeName(data.business?.customLabels?.businessTypeName ?? '')
+    setCustomBizDesc((data.business?.defaultSettings?.customBusinessDescription as string | undefined) ?? '')
     setLabelInventory(data.business?.customLabels?.inventory ?? '')
     setLabelMaterial(data.business?.customLabels?.material ?? '')
     setLabelCustomer(data.business?.customLabels?.customer ?? '')
+    setModulesSelection(
+      Array.isArray(data.business?.enabledModules)
+        ? data.business.enabledModules.filter((entry: unknown): entry is string => typeof entry === 'string')
+        : [],
+    )
+    setFeatureSelection(
+      data.business?.featureFlags && typeof data.business.featureFlags === 'object'
+        ? (data.business.featureFlags as Record<string, boolean>)
+        : {},
+    )
     setProfName(data.user?.name ?? '')
     setProfPhone(data.user?.phone ?? '')
     setProfEmail(data.user?.email ?? '')
@@ -228,7 +305,7 @@ export default function SettingsPage() {
           ...user,
           businessName: biz.name,
           businessCity: biz.city,
-          businessType: biz.businessType ?? user.businessType ?? 'GENERAL',
+          businessType: biz.businessType ?? user.businessType ?? 'GENERAL_STORE',
           customLabels: biz.customLabels ?? user.customLabels ?? null,
         })
       }
@@ -269,6 +346,27 @@ export default function SettingsPage() {
     onError: (error) => setAlert({ tone: 'danger', message: getAlertMessage(error, 'Failed to update reminder rules.') }),
   })
 
+  const updateModulesConfig = useMutation({
+    mutationFn: (payload: any) => api.patch('/api/settings/business/modules-config', payload).then((r) => r.data.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      setModulesEdit(false)
+      setAlert({ tone: 'success', message: 'Modules and features updated successfully.' })
+    },
+    onError: (error) =>
+      setAlert({ tone: 'danger', message: getAlertMessage(error, 'Failed to update modules and features.') }),
+  })
+
+  function toggleModule(moduleKey: string) {
+    setModulesSelection((prev) =>
+      prev.includes(moduleKey) ? prev.filter((entry) => entry !== moduleKey) : [...prev, moduleKey],
+    )
+  }
+
+  function toggleFeature(featureKey: string) {
+    setFeatureSelection((prev) => ({ ...prev, [featureKey]: !prev[featureKey] }))
+  }
+
 
   const cancelSubscription = useMutation({
     mutationFn: () => api.post('/api/settings/subscription/cancel', {}).then((r) => r.data.data),
@@ -287,14 +385,13 @@ export default function SettingsPage() {
     },
   })
 
-  function openCheckout(interval: BillingInterval) {
-    if (interval === 'MONTHLY' && hasActiveYearlyCycle) {
-      const endsAt = data?.subscription?.endsAt ? fmtDate(data.subscription.endsAt) : 'your current yearly end date'
-      const message = `Monthly downgrade is unavailable while yearly plan is active. You can switch after ${endsAt}.`
-      setAlert({ tone: 'warning', message })
-      pushToast('warning', message)
+  function openCheckout(planName: PlanName, interval: BillingInterval) {
+    if (planName === 'FREE') {
+      setAlert({ tone: 'info', message: 'FREE plan is managed without online payment. Contact support or use downgrade flow.' })
       return
     }
+    if (currentPlanName === planName && isCurrentPlanActive(interval)) return
+    setSelectedPlanName(planName)
     setSelectedInterval(interval)
     setCheckoutOpen(true)
   }
@@ -309,6 +406,7 @@ export default function SettingsPage() {
 
       const initiate = await api
         .post('/api/settings/subscription/checkout/initiate', {
+          planName: selectedPlanName,
           interval: selectedInterval,
         })
         .then((r) => r.data.data)
@@ -366,10 +464,12 @@ export default function SettingsPage() {
       setCheckoutOpen(false)
       const intervalLabel = verifiedResult.interval === 'YEARLY' ? 'yearly' : 'monthly'
       setAlert({
-        tone: 'success',
-        message: `Payment confirmed successfully. Your ${intervalLabel} subscription is active until ${fmtDate(verifiedResult.endsAt)} and the workspace is now unlocked.`,
+        tone: verifiedResult?.pendingWebhook ? 'info' : 'success',
+        message: verifiedResult?.pendingWebhook
+          ? `Payment received for ${intervalLabel} subscription. Waiting for webhook confirmation to activate plan.`
+          : `Payment confirmed successfully. Your ${intervalLabel} subscription is active until ${fmtDate(verifiedResult.endsAt)} and the workspace is now unlocked.`,
       })
-      pushToast('success', `Payment successful. ${intervalLabel === 'yearly' ? 'Yearly' : 'Monthly'} subscription is now active.`)
+      pushToast('success', verifiedResult?.pendingWebhook ? 'Payment captured. Activation in progress.' : `Payment successful. ${intervalLabel === 'yearly' ? 'Yearly' : 'Monthly'} subscription is now active.`)
     } catch (error) {
       const message = getAlertMessage(error, 'Payment failed. Please try again.')
       setAlert({ tone: 'danger', message })
@@ -495,32 +595,69 @@ export default function SettingsPage() {
               }
             />
             <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/60">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Choose a plan</div>
-              <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
-                <PlanOption
-                  title="Monthly"
-                  amount={fmt(data?.subscription?.monthlyPrice ?? 0)}
-                  sub={monthlyPlanSub}
-                  statusLabel={monthlyPlanStatusLabel}
-                  onClick={() => openCheckout('MONTHLY')}
-                  busy={isConfirmingPayment && selectedInterval === 'MONTHLY'}
-                  subscribed={isCurrentPlanActive('MONTHLY')}
-                  disabled={!canPurchaseMonthly}
-                  ctaLabel={monthlyPlanCta}
-                />
-                <PlanOption
-                  title="Yearly"
-                  amount={fmt(data?.subscription?.yearlyPrice ?? 0)}
-                  sub="365-day access window"
-                  statusLabel={yearlyPlanStatusLabel}
-                  onClick={() => openCheckout('YEARLY')}
-                  busy={isConfirmingPayment && selectedInterval === 'YEARLY'}
-                  subscribed={isCurrentPlanActive('YEARLY')}
-                  ctaLabel={yearlyPlanCta}
-                />
-              </div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Choose billing cycle</div>
+              {paidPlanForCheckout ? (
+                <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+                  <PlanOption
+                    title="Monthly"
+                    amount={fmt(Number(paidPlanForCheckout.priceMonthly))}
+                    sub={paidPlanForCheckout.description ?? '30-day access window'}
+                    statusLabel={isCurrentPlanActive('MONTHLY') ? 'Current plan' : undefined}
+                    onClick={() => openCheckout(paidPlanForCheckout.name, 'MONTHLY')}
+                    busy={isConfirmingPayment && selectedInterval === 'MONTHLY' && selectedPlanName === paidPlanForCheckout.name}
+                    subscribed={isCurrentPlanActive('MONTHLY')}
+                    disabled={isCurrentPlanActive('MONTHLY')}
+                    ctaLabel={isCurrentPlanActive('MONTHLY') ? 'Current plan' : 'Activate monthly'}
+                  />
+                  <PlanOption
+                    title="Yearly"
+                    amount={fmt(Number(paidPlanForCheckout.priceYearly))}
+                    sub="365-day access window"
+                    statusLabel={isCurrentPlanActive('YEARLY') ? 'Current plan' : 'Best value'}
+                    onClick={() => openCheckout(paidPlanForCheckout.name, 'YEARLY')}
+                    busy={isConfirmingPayment && selectedInterval === 'YEARLY' && selectedPlanName === paidPlanForCheckout.name}
+                    subscribed={isCurrentPlanActive('YEARLY')}
+                    disabled={isCurrentPlanActive('YEARLY')}
+                    ctaLabel={isCurrentPlanActive('YEARLY') ? 'Current plan' : 'Activate yearly'}
+                  />
+                </div>
+              ) : (
+                <div className="mt-3 text-sm text-rose-600 dark:text-rose-300">
+                  Paid plan is not configured yet. Ask admin to set Monthly/Yearly pricing.
+                </div>
+              )}
             </div>
           </div>
+          {subscriptionUsage?.subscription?.plan ? (
+            <div className="mt-3 grid gap-2 sm:grid-cols-3 xl:grid-cols-6">
+              <InfoTile label="Plan" value={subscriptionUsage.subscription.plan.name} hint={subscriptionUsage.subscription.status} />
+              <InfoTile
+                label="Users"
+                value={`${subscriptionUsage.usage.users}`}
+                hint={`Limit ${subscriptionUsage.subscription.plan.limits?.maxUsers ?? 'Unlimited'}`}
+              />
+              <InfoTile
+                label="Products"
+                value={`${subscriptionUsage.usage.products}`}
+                hint={`Limit ${subscriptionUsage.subscription.plan.limits?.maxProducts ?? 'Unlimited'}`}
+              />
+              <InfoTile
+                label="Customers"
+                value={`${subscriptionUsage.usage.customers}`}
+                hint={`Limit ${subscriptionUsage.subscription.plan.limits?.maxCustomers ?? 'Unlimited'}`}
+              />
+              <InfoTile
+                label="Orders (month)"
+                value={`${subscriptionUsage.usage.ordersThisMonth}`}
+                hint={`Limit ${subscriptionUsage.subscription.plan.limits?.maxOrdersPerMonth ?? 'Unlimited'}`}
+              />
+              <InfoTile
+                label="Invoices (month)"
+                value={`${subscriptionUsage.usage.invoicesThisMonth}`}
+                hint={`Limit ${subscriptionUsage.subscription.plan.limits?.maxInvoicesPerMonth ?? 'Unlimited'}`}
+              />
+            </div>
+          ) : null}
 
         </Card>
 
@@ -571,12 +708,10 @@ export default function SettingsPage() {
                     </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <Field label="Business type">
-                        <select value={bizType} onChange={(e) => setBizType(e.target.value as any)} className={inputCls}>
-                          <option value="GENERAL">General store</option>
-                          <option value="CEMENT">Cement shop</option>
-                          <option value="HARDWARE_SANITARY">Hardware / Sanitary</option>
-                          <option value="KIRYANA">Kiryana / Grocery</option>
-                          <option value="CUSTOM">Custom</option>
+                        <select value={bizType} onChange={(e) => setBizType(e.target.value)} className={inputCls}>
+                          {listBusinessTypeOptions().map((option) => (
+                            <option key={option.type} value={option.type}>{option.label}</option>
+                          ))}
                         </select>
                       </Field>
                       {bizType === 'CUSTOM' ? (
@@ -611,7 +746,7 @@ export default function SettingsPage() {
                       ['Address', data?.business?.address],
                       ['Phone', data?.business?.phone],
                       ['GSTIN', data?.business?.gstin],
-                      ['Business type', data?.business?.businessType === 'CUSTOM' ? (data?.business?.customLabels?.businessTypeName ?? 'Custom') : (data?.business?.businessType ?? 'GENERAL')],
+                      ['Business type', data?.business?.businessType === 'CUSTOM' ? (data?.business?.customLabels?.businessTypeName ?? 'Custom') : (data?.business?.businessType ?? 'GENERAL_STORE')],
                       ['Inventory label', data?.business?.customLabels?.inventory ?? 'Inventory'],
                       ['Material label', data?.business?.customLabels?.material ?? 'Material'],
                       ['Customer label', data?.business?.customLabels?.customer ?? 'Customer'],
@@ -659,7 +794,161 @@ export default function SettingsPage() {
               </Card>
             </div>
 
+            {bizType === 'CUSTOM' && user?.role === 'OWNER' ? (
+              <Card className={settingsCardCls}>
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    {t('Modules & features', 'मॉड्यूल और फीचर्स')}
+                  </div>
+                  {!modulesEdit ? (
+                    <button onClick={() => setModulesEdit(true)} className={editBtnCls}>
+                      {t('Edit', 'संपादित करें')}
+                    </button>
+                  ) : null}
+                </div>
+
+                {modulesEdit ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      if (modulesSelection.length === 0) {
+                        setAlert({ tone: 'danger', message: 'Select at least one core module.' })
+                        return
+                      }
+                      if (modulesSelection.includes('orders') && !modulesSelection.includes('customers')) {
+                        setAlert({
+                          tone: 'danger',
+                          message: 'Customers module is required when billing/orders is enabled.',
+                        })
+                        return
+                      }
+                      if (
+                        featureSelection.transportManagement &&
+                        !(modulesSelection.includes('deliveries') || modulesSelection.includes('logistics'))
+                      ) {
+                        setAlert({
+                          tone: 'danger',
+                          message: 'Enable delivery/transport module for transport management.',
+                        })
+                        return
+                      }
+                      if (
+                        featureSelection.restaurantPOS &&
+                        !(modulesSelection.includes('orders') && modulesSelection.includes('inventory'))
+                      ) {
+                        setAlert({
+                          tone: 'danger',
+                          message: 'Restaurant POS requires orders and inventory modules.',
+                        })
+                        return
+                      }
+                      if (featureSelection.gstBilling && !modulesSelection.includes('orders')) {
+                        setAlert({ tone: 'danger', message: 'GST billing requires billing/orders module.' })
+                        return
+                      }
+
+                      updateModulesConfig.mutate({
+                        customBusinessTypeName: bizTypeName || undefined,
+                        customBusinessDescription: customBizDesc || undefined,
+                        enabledModules: modulesSelection,
+                        featureFlags: featureSelection,
+                      })
+                    }}
+                    className="space-y-3"
+                  >
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <Field label="Custom business type"><input value={bizTypeName} onChange={(e) => setBizTypeName(e.target.value)} className={inputCls} /></Field>
+                      <Field label="Description"><input value={customBizDesc} onChange={(e) => setCustomBizDesc(e.target.value)} className={inputCls} /></Field>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-2xl border border-slate-200/70 p-3 dark:border-slate-800">
+                        <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Modules</div>
+                        <div className="grid gap-2">
+                          {CUSTOM_ONBOARDING_MODULES.map((module) => (
+                            <label key={module.key} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                              <input
+                                type="checkbox"
+                                checked={modulesSelection.includes(module.key)}
+                                onChange={() => toggleModule(module.key)}
+                              />
+                              <span>{module.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200/70 p-3 dark:border-slate-800">
+                        <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Features</div>
+                        <div className="grid gap-2">
+                          {CUSTOM_ONBOARDING_FEATURES.map((feature) => (
+                            <label key={feature.key} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(featureSelection[feature.key])}
+                                onChange={() => toggleFeature(feature.key)}
+                              />
+                              <span>{feature.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    {customDependencyHints.length > 0 ? (
+                      <div className="rounded-xl border border-amber-300/60 bg-amber-50/90 p-3 text-xs text-amber-800 dark:border-amber-400/30 dark:bg-amber-950/25 dark:text-amber-200">
+                        {customDependencyHints.map((hint) => (
+                          <div key={hint}>• {hint}</div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-emerald-300/60 bg-emerald-50/90 p-3 text-xs text-emerald-800 dark:border-emerald-400/30 dark:bg-emerald-950/25 dark:text-emerald-200">
+                        • Setup looks good.
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <button type="submit" disabled={updateModulesConfig.isPending} className={saveBtnCls}>
+                        {updateModulesConfig.isPending ? t('Saving...', 'सेव हो रहा है...') : t('Save modules', 'मॉड्यूल सेव करें')}
+                      </button>
+                      <button type="button" onClick={() => setModulesEdit(false)} className={cancelBtnCls}>
+                        {t('Cancel', 'रद्द करें')}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
+                    <div>
+                      <span className="font-medium text-slate-900 dark:text-white">Modules:</span>{' '}
+                      {modulesSelection.length > 0 ? modulesSelection.join(', ') : '-'}
+                    </div>
+                    <div>
+                      <span className="font-medium text-slate-900 dark:text-white">Enabled features:</span>{' '}
+                      {Object.entries(featureSelection)
+                        .filter(([, enabled]) => enabled)
+                        .map(([key]) => key)
+                        .join(', ') || '-'}
+                    </div>
+                  </div>
+                )}
+              </Card>
+            ) : null}
+
             <div className="grid items-start gap-4 xl:grid-cols-2">
+              <Card className={settingsCardCls}>
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Locations', 'लोकेशन्स')}</div>
+                  <Link href="/settings/locations" className={editBtnCls}>{t('Manage', 'मैनेज करें')}</Link>
+                </div>
+                {locationsLoading ? (
+                  <div className="text-sm text-slate-500 dark:text-slate-400">{t('Loading...', 'लोड हो रहा है...')}</div>
+                ) : (
+                  <DetailsList
+                    items={[
+                      [t('Total locations', 'कुल लोकेशन्स'), String((locations ?? []).length)],
+                      [t('Active locations', 'सक्रिय लोकेशन्स'), String((locations ?? []).filter((loc: any) => loc.isActive).length)],
+                      [t('Default location', 'डिफ़ॉल्ट लोकेशन'), (locations ?? []).find((loc: any) => loc.isDefault)?.name ?? t('Not set', 'सेट नहीं')],
+                    ]}
+                  />
+                )}
+              </Card>
+
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
                   <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Security', 'सिक्योरिटी')}</div>
@@ -857,6 +1146,9 @@ export default function SettingsPage() {
                 </div>
                 <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
                   {t('Confirm to open Razorpay secure checkout and complete payment with your preferred method.', 'Razorpay secure checkout खोलने और अपनी पसंद से भुगतान पूरा करने के लिए पुष्टि करें।')}
+                </div>
+                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  {selectedPlanName} · {selectedInterval}
                 </div>
               </div>
               <button type="button" onClick={() => setCheckoutOpen(false)} className={cancelBtnCls}>

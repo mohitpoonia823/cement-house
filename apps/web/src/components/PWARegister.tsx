@@ -33,11 +33,20 @@ export function PWARegister() {
   const [isPrompting, setIsPrompting] = useState(false)
 
   useEffect(() => {
+    const isProd = process.env.NODE_ENV === 'production'
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker
-        .register('/sw.js')
-        .then((reg) => console.log('SW registered:', reg.scope))
-        .catch((err) => console.log('SW registration failed:', err))
+      if (!isProd) {
+        navigator.serviceWorker.getRegistrations().then((regs) => {
+          regs.forEach((reg) => {
+            reg.unregister().catch(() => {})
+          })
+        })
+      } else {
+        navigator.serviceWorker
+          .register('/sw.js')
+          .then((reg) => console.log('SW registered:', reg.scope))
+          .catch((err) => console.log('SW registration failed:', err))
+      }
     }
 
     const dismissed = typeof window !== 'undefined' && window.localStorage.getItem(INSTALL_BANNER_DISMISSED_KEY) === '1'
