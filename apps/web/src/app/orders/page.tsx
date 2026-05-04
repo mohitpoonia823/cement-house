@@ -13,6 +13,7 @@ import Link from 'next/link'
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 
 const STATUSES = ['ALL', 'CONFIRMED', 'DISPATCHED', 'DELIVERED', 'CANCELLED'] as const
 const NewOrderForm = dynamic(
@@ -33,6 +34,8 @@ export default function OrdersPage() {
 
 function OrdersContent() {
   const { user } = useAuthStore()
+  const { hasModule } = useTenantCapabilities()
+  const canUseOrders = hasModule('orders')
   const { language } = useI18n()
   const t = (en: string, hi: string, hinglish?: string) => (language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en)
   const terms = businessTerms(user?.businessType as any, user?.customLabels as any)
@@ -54,6 +57,7 @@ function OrdersContent() {
     createOrder: t('Create order', 'ऑर्डर बनाएं', 'Order banao'),
     view: t('View', 'देखें'),
     del: t('Delete', 'हटाएँ'),
+    ret: t('Return', 'रिटर्न'),
     close: t('Close', 'बंद करें', 'Band karo'),
     modalTitle: t('New order', 'नया ऑर्डर', 'Naya order'),
     visibleOrders: t('Visible orders', 'दिख रहे ऑर्डर'),
@@ -173,6 +177,15 @@ function OrdersContent() {
 
   return (
     <AppShell>
+      {!canUseOrders ? (
+        <Card className="mb-4">
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            {language === 'hi' ? 'à¤¯à¤¹ à¤®à¥‰à¤¡à¥à¤¯à¥‚à¤² à¤†à¤ªà¤•à¥‡ à¤ªà¥à¤²à¤¾à¤¨ à¤®à¥‡à¤‚ à¤¸à¤•à¥à¤·à¤® à¤¨à¤¹à¥€à¤‚ à¤¹à¥ˆà¥¤' : 'This module is not enabled for your workspace.'}
+          </div>
+        </Card>
+      ) : null}
+      {canUseOrders ? (
+      <>
       <SectionHeader
         eyebrow={tr.eyebrow}
         title={tr.title}
@@ -344,6 +357,11 @@ function OrdersContent() {
                           <Link href={`/orders/${o.id}`} className="text-blue-500 hover:underline">
                             {tr.view}
                           </Link>
+                          {o.status === 'DELIVERED' ? (
+                            <Link href={`/orders/${o.id}/return`} className="text-amber-500 hover:underline">
+                              {tr.ret}
+                            </Link>
+                          ) : null}
                           <button onClick={() => handleDelete(o.id, o.orderNumber)} className="text-red-400 transition-colors hover:text-red-600">
                             {tr.del}
                           </button>
@@ -384,6 +402,8 @@ function OrdersContent() {
           </div>
         </div>
       )}
+      </>
+      ) : null}
     </AppShell>
   )
 }

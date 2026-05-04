@@ -1,7 +1,22 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { supportRepository } from '@cement-house/db'
-import { getBizId, requireSuperAdmin } from '../../middleware/auth'
+import { requireSuperAdmin } from '../../middleware/auth'
+import { getBusinessIdOrThrow } from '../../middleware/tenant'
+
+const SUPPORT_UNREAD_CACHE_TTL_MS = 10_000
+const supportUnreadCountCache = new Map<string, { expiresAt: number; count: number }>()
+const supportUnreadCountInFlight = new Map<string, Promise<number>>()
+
+function invalidateSupportUnreadCache(userId?: string) {
+  if (userId) {
+    supportUnreadCountCache.delete(userId)
+    supportUnreadCountInFlight.delete(userId)
+    return
+  }
+  supportUnreadCountCache.clear()
+  supportUnreadCountInFlight.clear()
+}
 
 const CreateTicketSchema = z.object({
   subject: z.string().trim().min(2).max(120).optional(),
@@ -38,7 +53,7 @@ export async function supportRoutes(app: FastifyInstance) {
       const tickets = await supportRepository.getAdminTickets(250)
       return { success: true, data: tickets }
     }
-    const businessId = getBizId(req)
+    const businessId = getBusinessIdOrThrow(req)
     const tickets = await supportRepository.getBusinessTickets(businessId)
     return { success: true, data: tickets }
   })
@@ -48,7 +63,7 @@ export async function supportRoutes(app: FastifyInstance) {
     const body = CreateTicketSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const businessId = getBizId(req)
+    const businessId = getBusinessIdOrThrow(req)
     const userId = (req.user as any).id as string
     const subject = body.data.subject?.trim() || defaultSubjectFromMessage(body.data.message)
 
@@ -67,6 +82,7 @@ export async function supportRoutes(app: FastifyInstance) {
       title: 'New support ticket',
       body: `${subject} - new message from workspace`,
     })
+    invalidateSupportUnreadCache()
 
     return { success: true, data: { ticketId: created.ticketId } }
   })
@@ -78,11 +94,19 @@ export async function supportRoutes(app: FastifyInstance) {
 
     const ticket = isSuperAdmin(req)
       ? await supportRepository.getAdminTicketById(ticketId)
-      : await supportRepository.getBusinessTicketById(ticketId, getBizId(req))
+      : await supportRepository.getBusinessTicketById(ticketId, getBusinessIdOrThrow(req))
     if (!ticket) return reply.status(404).send({ success: false, error: 'Ticket not found' })
 
-    await supportRepository.markTicketRead(ticketId, isSuperAdmin(req) ? 'ADMIN' : 'BUSINESS')
-    const messages = await supportRepository.getTicketMessages(ticketId)
+    await supportRepository.markTicketRead(
+      ticketId,
+      isSuperAdmin(req) ? 'ADMIN' : 'BUSINESS',
+      isSuperAdmin(req) ? null : getBusinessIdOrThrow(req),
+    )
+    // Tenant guard: message reads are scoped by ticket + businessId for non-admin users.
+    const messages = await supportRepository.getTicketMessages(
+      ticketId,
+      isSuperAdmin(req) ? null : getBusinessIdOrThrow(req),
+    )
     return { success: true, data: { ticket, messages } }
   })
 
@@ -97,13 +121,14 @@ export async function supportRoutes(app: FastifyInstance) {
 
     const ticket = senderIsAdmin
       ? await supportRepository.getAdminTicketById(ticketId)
-      : await supportRepository.getBusinessTicketById(ticketId, getBizId(req))
+      : await supportRepository.getBusinessTicketById(ticketId, getBusinessIdOrThrow(req))
     if (!ticket) return reply.status(404).send({ success: false, error: 'Ticket not found' })
 
     const created = await supportRepository.addTicketMessage({
       ticketId,
       senderUserId,
       senderRole: senderIsAdmin ? 'ADMIN' : 'BUSINESS',
+      businessId: senderIsAdmin ? null : getBusinessIdOrThrow(req),
       message: body.data.message,
     })
 
@@ -116,6 +141,7 @@ export async function supportRoutes(app: FastifyInstance) {
         title: 'Admin replied to your ticket',
         body: body.data.message.slice(0, 220),
       })
+      invalidateSupportUnreadCache()
     } else {
       const adminIds = await supportRepository.getSuperAdminIds()
       await supportRepository.createNotifications({
@@ -125,6 +151,7 @@ export async function supportRoutes(app: FastifyInstance) {
         title: 'New ticket message',
         body: `${ticket.businessName}: ${body.data.message.slice(0, 220)}`,
       })
+      invalidateSupportUnreadCache()
     }
 
     return { success: true, data: { messageId: created.messageId, createdAt: created.createdAt.toISOString() } }
@@ -140,13 +167,14 @@ export async function supportRoutes(app: FastifyInstance) {
 
     const ticket = isSuperAdmin(req)
       ? await supportRepository.getAdminTicketById(ticketId)
-      : await supportRepository.getBusinessTicketById(ticketId, getBizId(req))
+      : await supportRepository.getBusinessTicketById(ticketId, getBusinessIdOrThrow(req))
     if (!ticket) return reply.status(404).send({ success: false, error: 'Ticket not found' })
 
     const updated = await supportRepository.updateTicketMessage({
       ticketId,
       messageId: params.data.messageId,
       senderUserId,
+      businessId: isSuperAdmin(req) ? null : getBusinessIdOrThrow(req),
       message: body.data.message,
     })
     if (!updated) {
@@ -163,13 +191,14 @@ export async function supportRoutes(app: FastifyInstance) {
 
     const ticket = isSuperAdmin(req)
       ? await supportRepository.getAdminTicketById(ticketId)
-      : await supportRepository.getBusinessTicketById(ticketId, getBizId(req))
+      : await supportRepository.getBusinessTicketById(ticketId, getBusinessIdOrThrow(req))
     if (!ticket) return reply.status(404).send({ success: false, error: 'Ticket not found' })
 
     const deleted = await supportRepository.deleteTicketMessage({
       ticketId,
       messageId: params.data.messageId,
       senderUserId,
+      businessId: isSuperAdmin(req) ? null : getBusinessIdOrThrow(req),
     })
     if (!deleted) {
       return reply.status(403).send({ success: false, error: 'Only sender can delete this message' })
@@ -201,13 +230,34 @@ export async function supportRoutes(app: FastifyInstance) {
 
   app.get('/notifications/unread-count', async (req) => {
     const userId = (req.user as any).id as string
-    const count = await supportRepository.getUnreadNotificationsCount(userId)
+    const now = Date.now()
+    const cached = supportUnreadCountCache.get(userId)
+    if (cached && cached.expiresAt > now) {
+      return { success: true, data: { count: cached.count } }
+    }
+
+    const inFlight = supportUnreadCountInFlight.get(userId)
+    if (inFlight) {
+      const count = await inFlight
+      return { success: true, data: { count } }
+    }
+
+    const compute = supportRepository
+      .getUnreadNotificationsCount(userId)
+      .then((count) => {
+        supportUnreadCountCache.set(userId, { expiresAt: Date.now() + SUPPORT_UNREAD_CACHE_TTL_MS, count })
+        return count
+      })
+      .finally(() => supportUnreadCountInFlight.delete(userId))
+    supportUnreadCountInFlight.set(userId, compute)
+    const count = await compute
     return { success: true, data: { count } }
   })
 
   app.post('/notifications/read-all', async (req) => {
     const userId = (req.user as any).id as string
     await supportRepository.markAllNotificationsRead(userId)
+    invalidateSupportUnreadCache(userId)
     return { success: true }
   })
 
@@ -216,6 +266,7 @@ export async function supportRoutes(app: FastifyInstance) {
     if (!params.success) return reply.status(400).send({ success: false, error: 'Invalid notification id' })
     const userId = (req.user as any).id as string
     await supportRepository.markNotificationRead(params.data.id, userId)
+    invalidateSupportUnreadCache(userId)
     return { success: true }
   })
 }

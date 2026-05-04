@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { groupLabels, navItems } from './navigation'
 import { useI18n } from '@/lib/i18n'
 import { businessTerms } from '@/lib/business-terms'
+import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 
 function MenuIcon({ href, className = '' }: { href: string; className?: string }) {
   const common = { className, viewBox: '0 0 24 24', fill: 'none' as const, 'aria-hidden': true }
@@ -82,6 +83,7 @@ function MenuIcon({ href, className = '' }: { href: string; className?: string }
 export function Sidebar() {
   const pathname = usePathname()
   const { user, logout } = useAuthStore()
+  const { hasModule, hasFeature } = useTenantCapabilities()
   const { t } = useI18n()
   const isOwner = user?.role === 'OWNER'
   const terms = businessTerms(user?.businessType as any, user?.customLabels as any)
@@ -91,6 +93,8 @@ export function Sidebar() {
   const visible = navItems.filter((item) => {
     if (item.group === 'workspace' && item.href !== '/tickets') return isOwner
     if (item.group === 'insights') return isOwner
+    if (item.moduleKey && !hasModule(item.moduleKey)) return false
+    if (item.featureKey && !hasFeature(item.featureKey)) return false
     if (isOwner) return true
     if (item.permissionId) return user?.permissions?.includes(item.permissionId)
     return true

@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../client'
+import { requireTenantId, tenantWhereSql } from '../tenant'
 
 export interface DeliveryItemWithMaterialRow {
   id: string
@@ -117,7 +118,8 @@ function baseDeliverySelect() {
 }
 
 export async function listDeliveries(businessId: string, status?: string, date?: string) {
-  const filters: Prisma.Sql[] = [Prisma.sql`o."businessId" = ${businessId}`, Prisma.sql`o."isDeleted" = false`]
+  const tenantId = requireTenantId(businessId)
+  const filters: Prisma.Sql[] = [tenantWhereSql('o', tenantId), Prisma.sql`o."isDeleted" = false`]
   if (status) filters.push(Prisma.sql`d.status = ${status}::"DeliveryStatus"`)
   if (date) {
     const start = new Date(date)
@@ -135,9 +137,10 @@ export async function listDeliveries(businessId: string, status?: string, date?:
 }
 
 export async function getDeliveryById(id: string, businessId: string) {
+  const tenantId = requireTenantId(businessId)
   const rows = await prisma.$queryRaw<DeliveryWithOrderRow[]>(Prisma.sql`
     ${baseDeliverySelect()}
-    WHERE d.id = ${id} AND o."businessId" = ${businessId} AND o."isDeleted" = false
+    WHERE d.id = ${id} AND ${tenantWhereSql('o', tenantId)} AND o."isDeleted" = false
     GROUP BY d.id, o.id, c.id
     LIMIT 1
   `)
@@ -145,25 +148,28 @@ export async function getDeliveryById(id: string, businessId: string) {
 }
 
 export async function getOrderForDelivery(orderId: string, businessId: string) {
+  const tenantId = requireTenantId(businessId)
   const rows = await prisma.$queryRaw<DeliveryOrderLiteRow[]>`
     SELECT
       id,
       status::text AS status,
       "orderNumber" AS "orderNumber"
     FROM orders
-    WHERE id = ${orderId} AND "businessId" = ${businessId} AND "isDeleted" = false
+    WHERE id = ${orderId} AND "businessId" = ${tenantId} AND "isDeleted" = false
     LIMIT 1
   `
   return rows.length > 0 ? rows[0] : null
 }
 
 export async function createDeliveryAndDispatch(input: {
+  businessId: string
   orderId: string
   challanNumber: string
   driverName?: string
   vehicleNumber?: string
   items: Array<{ materialId: string; orderedQty: number; deliveredQty: number }>
 }) {
+  const tenantId = requireTenantId(input.businessId)
   const deliveryRows = await prisma.$transaction(async (tx) => {
     const inserted = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       INSERT INTO deliveries (
@@ -208,7 +214,7 @@ export async function createDeliveryAndDispatch(input: {
     await tx.$executeRaw(Prisma.sql`
       UPDATE orders
       SET status = 'DISPATCHED'::"OrderStatus", "updatedAt" = NOW()
-      WHERE id = ${input.orderId}
+      WHERE id = ${input.orderId} AND "businessId" = ${tenantId}
     `)
 
     return inserted
@@ -220,6 +226,8 @@ export async function createDeliveryAndDispatch(input: {
   const rows = await prisma.$queryRaw<DeliveryWithOrderRow[]>(Prisma.sql`
     ${baseDeliverySelect()}
     WHERE d.id = ${deliveryId}
+      AND o."businessId" = ${tenantId}
+      AND o."isDeleted" = false
     GROUP BY d.id, o.id, c.id
     LIMIT 1
   `)
@@ -227,32 +235,43 @@ export async function createDeliveryAndDispatch(input: {
   return rows.length > 0 ? rows[0] : null
 }
 
-export async function updateDeliveryStatus(id: string, status: 'IN_TRANSIT' | 'FAILED') {
+export async function updateDeliveryStatus(id: string, businessId: string, status: 'IN_TRANSIT' | 'FAILED') {
+  const tenantId = requireTenantId(businessId)
   const rows = await prisma.$queryRaw<Array<{ id: string; orderId: string; status: string }>>(Prisma.sql`
-    UPDATE deliveries
+    UPDATE deliveries d
     SET status = ${status}::"DeliveryStatus", "updatedAt" = NOW()
-    WHERE id = ${id}
-    RETURNING id, "orderId" AS "orderId", status::text AS status
+    FROM orders o
+    WHERE d.id = ${id}
+      AND o.id = d."orderId"
+      AND o."businessId" = ${tenantId}
+      AND o."isDeleted" = false
+    RETURNING d.id, d."orderId" AS "orderId", d.status::text AS status
   `)
   return rows.length > 0 ? rows[0] : null
 }
 
 export async function confirmDelivery(input: {
   id: string
+  businessId: string
   confirmationType: 'OTP' | 'PHOTO' | 'MANUAL'
   confirmationRef?: string
 }) {
+  const tenantId = requireTenantId(input.businessId)
   const rows = await prisma.$transaction(async (tx) => {
     const updated = await tx.$queryRaw<Array<{ id: string; orderId: string }>>(Prisma.sql`
-      UPDATE deliveries
+      UPDATE deliveries d
       SET
         status = 'DELIVERED'::"DeliveryStatus",
         "confirmationType" = ${input.confirmationType}::"ConfirmationType",
         "confirmationRef" = ${input.confirmationRef ?? null},
         "deliveredAt" = NOW(),
         "updatedAt" = NOW()
-      WHERE id = ${input.id}
-      RETURNING id, "orderId" AS "orderId"
+      FROM orders o
+      WHERE d.id = ${input.id}
+        AND o.id = d."orderId"
+        AND o."businessId" = ${tenantId}
+        AND o."isDeleted" = false
+      RETURNING d.id, d."orderId" AS "orderId"
     `)
 
     const first = updated[0]
@@ -261,7 +280,7 @@ export async function confirmDelivery(input: {
     await tx.$executeRaw(Prisma.sql`
       UPDATE orders
       SET status = 'DELIVERED'::"OrderStatus", "updatedAt" = NOW()
-      WHERE id = ${first.orderId}
+      WHERE id = ${first.orderId} AND "businessId" = ${tenantId}
     `)
 
     return updated
@@ -270,13 +289,18 @@ export async function confirmDelivery(input: {
   return rows.length > 0 ? rows[0] : null
 }
 
-export async function failDelivery(id: string) {
+export async function failDelivery(id: string, businessId: string) {
+  const tenantId = requireTenantId(businessId)
   const rows = await prisma.$transaction(async (tx) => {
     const updated = await tx.$queryRaw<Array<{ id: string; orderId: string }>>(Prisma.sql`
-      UPDATE deliveries
+      UPDATE deliveries d
       SET status = 'FAILED'::"DeliveryStatus", "updatedAt" = NOW()
-      WHERE id = ${id}
-      RETURNING id, "orderId" AS "orderId"
+      FROM orders o
+      WHERE d.id = ${id}
+        AND o.id = d."orderId"
+        AND o."businessId" = ${tenantId}
+        AND o."isDeleted" = false
+      RETURNING d.id, d."orderId" AS "orderId"
     `)
     const first = updated[0]
     if (!first) return []
@@ -284,7 +308,7 @@ export async function failDelivery(id: string) {
     await tx.$executeRaw(Prisma.sql`
       UPDATE orders
       SET status = 'CONFIRMED'::"OrderStatus", "updatedAt" = NOW()
-      WHERE id = ${first.orderId}
+      WHERE id = ${first.orderId} AND "businessId" = ${tenantId}
     `)
 
     return updated
@@ -294,11 +318,12 @@ export async function failDelivery(id: string) {
 }
 
 export async function listTodayDeliveries(businessId: string, start: Date, end: Date) {
+  const tenantId = requireTenantId(businessId)
   return prisma.$queryRaw<DeliveryWithOrderRow[]>(Prisma.sql`
     ${baseDeliverySelect()}
     WHERE d."createdAt" >= ${start}
       AND d."createdAt" <= ${end}
-      AND o."businessId" = ${businessId}
+      AND o."businessId" = ${tenantId}
       AND o."isDeleted" = false
     GROUP BY d.id, o.id, c.id
     ORDER BY d."createdAt" ASC

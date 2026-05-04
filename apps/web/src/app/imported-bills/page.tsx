@@ -9,6 +9,7 @@ import { usePurchaseBillScans } from '@/hooks/useInventory'
 import { api } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 import { fmt } from '@/lib/utils'
+import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 
 function statusBadge(status: string) {
   if (status === 'COMMITTED') return 'success'
@@ -32,6 +33,8 @@ function labelStatus(status: string, language: string) {
 
 export default function ImportedBillsPage() {
   const { language } = useI18n()
+  const { hasModule } = useTenantCapabilities()
+  const canUseInventory = hasModule('inventory')
   const t = (en: string, hi: string, hinglish?: string) => (language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en)
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
@@ -104,6 +107,15 @@ export default function ImportedBillsPage() {
 
   return (
     <AppShell>
+      {!canUseInventory ? (
+        <Card className="mb-4">
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            {language === 'hi' ? 'à¤¯à¤¹ à¤®à¥‰à¤¡à¥à¤¯à¥‚à¤² à¤†à¤ªà¤•à¥‡ à¤ªà¥à¤²à¤¾à¤¨ à¤®à¥‡à¤‚ à¤¸à¤•à¥à¤·à¤® à¤¨à¤¹à¥€à¤‚ à¤¹à¥ˆà¥¤' : 'This module is not enabled for your workspace.'}
+          </div>
+        </Card>
+      ) : null}
+      {canUseInventory ? (
+      <>
       <SectionHeader
         eyebrow={t('Inventory imports', 'इन्वेंट्री आयात')}
         title={t('Imported bills', 'आयातित बिल')}
@@ -235,6 +247,8 @@ export default function ImportedBillsPage() {
           </div>
         )}
       </Card>
+      </>
+      ) : null}
     </AppShell>
   )
 }

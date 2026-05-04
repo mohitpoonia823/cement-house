@@ -25,7 +25,7 @@ export function useOrder(id: string) {
 export function useCreateOrder() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: any) => api.post('/api/orders', data).then(r => r.data.data),
+    mutationFn: (data: any) => api.post('/api/orders', data, { timeout: 60_000 }).then(r => r.data.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['orders'] })
       qc.invalidateQueries({ queryKey: ['dashboard'] })
@@ -59,6 +59,20 @@ export function useBulkDeleteOrders() {
       qc.invalidateQueries({ queryKey: ['inventory'] })
       qc.invalidateQueries({ queryKey: ['ledger'] })
       qc.invalidateQueries({ queryKey: ['customers'] })
+    },
+  })
+}
+
+export function useCreateSalesReturn() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => api.post('/api/sales-returns', data).then(r => r.data.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['orders'] })
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+      qc.invalidateQueries({ queryKey: ['ledger'] })
+      qc.invalidateQueries({ queryKey: ['customers'] })
+      qc.invalidateQueries({ queryKey: ['reports'] })
     },
   })
 }

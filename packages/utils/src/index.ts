@@ -47,3 +47,25 @@ export const WA_TEMPLATES = {
   deliveryConfirmation: (name: string, challanNo: string, businessName = 'Cement House') =>
     `Namaskar *${name}* ji,\n\nAapka maal (*${challanNo}*) pahunch gaya hai.\nPlease OTP confirm karen.\n\n— ${businessName}`,
 }
+
+export {
+  BUSINESS_TYPES,
+  BUSINESS_TYPE_VALUES,
+  BUSINESS_TYPE_CONFIG,
+  MODULE_KEYS,
+  FEATURE_KEYS,
+  CUSTOM_ONBOARDING_MODULES,
+  CUSTOM_ONBOARDING_FEATURES,
+  normalizeBusinessType,
+  getBusinessTypeConfig,
+  getEnabledModulesForBusinessType,
+  getFeatureFlagsForBusinessType,
+  hasModule,
+  hasFeature,
+  listBusinessTypeOptions,
+  normalizeCustomModules,
+  normalizeCustomFeatureFlags,
+  validateCustomBusinessSelection,
+} from './business-config'
+export type { BusinessType, ModuleKey, FeatureKey, BusinessTypeConfig } from './business-config'
+

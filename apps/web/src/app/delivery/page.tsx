@@ -7,9 +7,12 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { useTodayDeliveries, useConfirmDelivery } from '@/hooks/useDelivery'
 import { useState } from 'react'
 import { useI18n } from '@/lib/i18n'
+import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 
 export default function DeliveryPage() {
   const { language } = useI18n()
+  const { hasModule, hasFeature } = useTenantCapabilities()
+  const canUseDelivery = hasModule('delivery') && hasFeature('transportManagement')
   const { data, isLoading } = useTodayDeliveries()
   const confirmDelivery = useConfirmDelivery()
   const [confirming, setConfirming] = useState<string | null>(null)
@@ -25,6 +28,16 @@ export default function DeliveryPage() {
 
   return (
     <AppShell>
+      {!canUseDelivery ? (
+        <Card>
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            {language === 'hi' ? 'यह मॉड्यूल आपके प्लान में सक्षम नहीं है।' : 'This module is not enabled for your workspace.'}
+          </div>
+        </Card>
+      ) : null}
+
+      {canUseDelivery ? (
+        <>
       <SectionHeader
         eyebrow={language === 'hi' ? 'फुलफिलमेंट एनालिटिक्स' : 'Fulfilment analytics'}
         title={language === 'hi' ? 'डिलीवरी बोर्ड' : 'Delivery board'}
@@ -121,6 +134,8 @@ export default function DeliveryPage() {
           </div>
         )}
       </Card>
+        </>
+      ) : null}
     </AppShell>
   )
 }

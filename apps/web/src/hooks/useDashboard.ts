@@ -16,8 +16,12 @@ export function useDashboard(params: DashboardQueryInput = {}) {
     queryFn:  () => api.get('/api/reports/dashboard', { params }).then(r => r.data.data),
     placeholderData: (previousData) => previousData,
     staleTime: 30_000,
-    refetchInterval: 60_000,  // auto-refresh every 60s
+    refetchInterval: 60_000,
     refetchOnWindowFocus: false,
-    retry: 1,
+    retry: (failureCount, error: any) => {
+      const status = Number(error?.response?.status ?? 0)
+      if (status === 401 || status === 402 || status === 403) return false
+      return failureCount < 1
+    },
   })
 }

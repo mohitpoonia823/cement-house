@@ -1,4 +1,4 @@
-import { prisma } from '@cement-house/db'
+import { prisma, subscriptionsRepository } from '@cement-house/db'
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import { ensurePlatformSettings, syncBusinessStatusIfNeeded } from '../services/billing'
 const LAST_SEEN_WRITE_COOLDOWN_MS = 5 * 60 * 1000
@@ -48,10 +48,19 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
 
     const isSuperAdmin = user?.role === 'SUPER_ADMIN'
     const tenantMismatch = !isSuperAdmin && user?.businessId !== (jwtUser.businessId ?? null)
+    const missingTenantContext = !isSuperAdmin && !user?.businessId
     const inactiveBusiness = !isSuperAdmin && !user?.business?.isActive && user?.business?.subscriptionStatus !== 'SUSPENDED'
 
-    if (!user || !user.isActive || tenantMismatch || inactiveBusiness) {
+    if (!user || !user.isActive || tenantMismatch || missingTenantContext || inactiveBusiness) {
       return reply.status(401).send({ success: false, error: 'Your session is no longer valid. Please sign in again.' })
+    }
+
+    if (!isSuperAdmin && user.businessId) {
+      const settings = await ensurePlatformSettings()
+      await subscriptionsRepository.ensureDefaultSubscriptionForBusiness({
+        businessId: user.businessId,
+        trialDays: settings.trialDays,
+      })
     }
 
     let accessLocked = false
@@ -97,11 +106,26 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
       }).catch(() => undefined)
     }
 
+    const rawFeatureFlags =
+      user.business?.featureFlags && typeof user.business.featureFlags === 'object' && !Array.isArray(user.business.featureFlags)
+        ? { ...(user.business.featureFlags as Record<string, unknown>) }
+        : {}
+    if (!isSuperAdmin && user.businessId) {
+      const activeSub = await subscriptionsRepository.getCurrentSubscriptionByBusiness(user.businessId)
+      const planFeatures = (activeSub?.planFeatures ?? {}) as Record<string, unknown>
+      for (const [key, value] of Object.entries(planFeatures)) {
+        if (typeof value === 'boolean' && value === false && rawFeatureFlags[key] === true) {
+          rawFeatureFlags[key] = false
+        }
+      }
+    }
+
     req.user = {
       ...jwtUser,
       name: user.name,
       role: user.role,
       businessId: user.businessId ?? null,
+      tenantId: user.businessId ?? null,
       businessName: user.business?.name ?? null,
       businessCity: user.business?.city ?? null,
       permissions: user.permissions,
@@ -110,9 +134,11 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
       subscriptionInterval: user.business?.subscriptionInterval ?? null,
       monthlySubscriptionAmount: Number(user.business?.monthlySubscriptionAmount ?? 0),
       yearlySubscriptionAmount: Number(user.business?.yearlySubscriptionAmount ?? 0),
+      enabledModules: Array.isArray(user.business?.enabledModules) ? user.business?.enabledModules : [],
+      featureFlags: rawFeatureFlags,
       accessLocked,
       accessReason,
-    } as any
+} as any
   } catch (error) {
     if (isDatabaseConnectivityError(error)) {
       return reply.status(503).send({
@@ -151,4 +177,8 @@ export function getBizId(req: FastifyRequest): string {
     throw new Error('Business-scoped route requested without a business context')
   }
   return businessId
+}
+
+export function getTenantId(req: FastifyRequest): string {
+  return getBizId(req)
 }

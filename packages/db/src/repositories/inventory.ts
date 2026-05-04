@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../client'
 import { randomUUID } from 'node:crypto'
+import { adjustMaterialLocationStock, getDefaultLocation } from './multi-location'
 
 export type PurchaseBillScanStatus = 'DRAFT' | 'COMMITTED' | 'CANCELLED'
 export type PurchaseBillLineStatus = 'MATCHED' | 'NEEDS_REVIEW' | 'APPLIED' | 'SKIPPED'
@@ -13,12 +14,31 @@ let ensurePurchaseBillTablesPromise: Promise<void> | null = null
 export interface MaterialRow {
   id: string
   name: string
+  category: string | null
   unit: string
   stockQty: number
   minThreshold: number
   maxThreshold: number | null
   purchasePrice: number
   salePrice: number
+  barcode: string | null
+  batchNumber: string | null
+  expiryDate: Date | null
+  manufactureDate: Date | null
+  manufacturer: string | null
+  rackLocation: string | null
+  size: string | null
+  color: string | null
+  material: string | null
+  weight: number | null
+  purity: number | null
+  makingCharges: number | null
+  serialNumber: string | null
+  imeiNumber: string | null
+  grossWeight: number | null
+  tareWeight: number | null
+  netWeight: number | null
+  metadata: Prisma.JsonValue | null
   isActive: boolean
   createdAt: Date
   updatedAt: Date
@@ -180,12 +200,35 @@ export interface CommitPurchaseBillScanResult {
 interface CreateMaterialInput {
   businessId: string
   name: string
+  category?: string | null
   unit: string
   stockQty: number
   minThreshold: number
   maxThreshold?: number
   purchasePrice: number
   salePrice: number
+  barcode?: string | null
+  batchNumber?: string | null
+  expiryDate?: string | Date | null
+  manufactureDate?: string | Date | null
+  manufacturer?: string | null
+  rackLocation?: string | null
+  size?: string | null
+  color?: string | null
+  material?: string | null
+  weight?: number | null
+  purity?: number | null
+  makingCharges?: number | null
+  serialNumber?: string | null
+  imeiNumber?: string | null
+  grossWeight?: number | null
+  tareWeight?: number | null
+  netWeight?: number | null
+  metadata?: Prisma.InputJsonValue | null
+}
+
+interface UpdateMaterialInput extends CreateMaterialInput {
+  materialId: string
 }
 
 async function ensurePurchaseBillTables() {
@@ -450,12 +493,31 @@ function materialSelectSql() {
     SELECT
       id,
       name,
+      category,
       unit,
       "stockQty"::double precision AS "stockQty",
       "minThreshold"::double precision AS "minThreshold",
       "maxThreshold"::double precision AS "maxThreshold",
       "purchasePrice"::double precision AS "purchasePrice",
       "salePrice"::double precision AS "salePrice",
+      barcode,
+      "batchNumber" AS "batchNumber",
+      "expiryDate" AS "expiryDate",
+      "manufactureDate" AS "manufactureDate",
+      manufacturer,
+      "rackLocation" AS "rackLocation",
+      size,
+      color,
+      material,
+      weight::double precision AS weight,
+      purity::double precision AS purity,
+      "makingCharges"::double precision AS "makingCharges",
+      "serialNumber" AS "serialNumber",
+      "imeiNumber" AS "imeiNumber",
+      "grossWeight"::double precision AS "grossWeight",
+      "tareWeight"::double precision AS "tareWeight",
+      "netWeight"::double precision AS "netWeight",
+      metadata,
       "isActive" AS "isActive",
       "createdAt" AS "createdAt",
       "updatedAt" AS "updatedAt",
@@ -863,14 +925,29 @@ export async function stockInMaterial(input: {
 }) {
   const current = await getMaterialById(input.materialId, input.businessId)
   if (!current) return null
-
-  const stockAfter = current.stockQty + input.quantity
+  const defaultLocationId = await getDefaultLocation(input.businessId)
+  if (!defaultLocationId) throw new Error('Default location is not configured for this business')
+  let stockAfter = current.stockQty + input.quantity
 
   await prisma.$transaction(async (tx) => {
+    const locationStockAfter = await adjustMaterialLocationStock(tx, {
+      businessId: input.businessId,
+      materialId: input.materialId,
+      locationId: defaultLocationId,
+      deltaQty: input.quantity,
+      allowNegativeStock: true,
+    })
+    const totalRows = await tx.$queryRaw<Array<{ stockQty: number }>>(Prisma.sql`
+      SELECT "stockQty"::double precision AS "stockQty"
+      FROM materials
+      WHERE id = ${input.materialId} AND "businessId" = ${input.businessId}
+      LIMIT 1
+    `)
+    stockAfter = totalRows[0]?.stockQty ?? locationStockAfter
+
     await tx.$executeRaw(Prisma.sql`
       UPDATE materials
       SET
-        "stockQty" = ${stockAfter},
         "purchasePrice" = ${input.purchasePrice},
         "updatedAt" = NOW()
       WHERE id = ${input.materialId} AND "businessId" = ${input.businessId}
@@ -917,15 +994,18 @@ export async function adjustMaterialStock(input: {
   if (!current) return null
 
   const diff = Math.abs(input.newQty - current.stockQty)
+  const delta = input.newQty - current.stockQty
+  const defaultLocationId = await getDefaultLocation(input.businessId)
+  if (!defaultLocationId) throw new Error('Default location is not configured for this business')
 
   await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw(Prisma.sql`
-      UPDATE materials
-      SET
-        "stockQty" = ${input.newQty},
-        "updatedAt" = NOW()
-      WHERE id = ${input.materialId} AND "businessId" = ${input.businessId}
-    `)
+    await adjustMaterialLocationStock(tx, {
+      businessId: input.businessId,
+      materialId: input.materialId,
+      locationId: defaultLocationId,
+      deltaQty: delta,
+      allowNegativeStock: delta < 0 ? true : undefined,
+    })
 
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO stock_movements (
@@ -984,16 +1064,38 @@ export async function listMaterialMovements(materialId: string, businessId: stri
 
 export async function createMaterial(input: CreateMaterialInput) {
   const materialId = randomUUID()
-  const rows = await prisma.$queryRaw<MaterialRow[]>(Prisma.sql`
+  const expiryDate = input.expiryDate ? new Date(input.expiryDate) : null
+  const manufactureDate = input.manufactureDate ? new Date(input.manufactureDate) : null
+  const rows = await prisma.$transaction(async (tx) => {
+    const inserted = await tx.$queryRaw<MaterialRow[]>(Prisma.sql`
     INSERT INTO materials (
       id,
       name,
+      category,
       unit,
       "stockQty",
       "minThreshold",
       "maxThreshold",
       "purchasePrice",
       "salePrice",
+      barcode,
+      "batchNumber",
+      "expiryDate",
+      "manufactureDate",
+      manufacturer,
+      "rackLocation",
+      size,
+      color,
+      material,
+      weight,
+      purity,
+      "makingCharges",
+      "serialNumber",
+      "imeiNumber",
+      "grossWeight",
+      "tareWeight",
+      "netWeight",
+      metadata,
       "isActive",
       "createdAt",
       "updatedAt",
@@ -1001,12 +1103,31 @@ export async function createMaterial(input: CreateMaterialInput) {
     ) VALUES (
       ${materialId},
       ${input.name},
+      ${input.category ?? null},
       ${input.unit},
       ${input.stockQty},
       ${input.minThreshold},
       ${input.maxThreshold ?? null},
       ${input.purchasePrice},
       ${input.salePrice},
+      ${input.barcode ?? null},
+      ${input.batchNumber ?? null},
+      ${expiryDate},
+      ${manufactureDate},
+      ${input.manufacturer ?? null},
+      ${input.rackLocation ?? null},
+      ${input.size ?? null},
+      ${input.color ?? null},
+      ${input.material ?? null},
+      ${input.weight ?? null},
+      ${input.purity ?? null},
+      ${input.makingCharges ?? null},
+      ${input.serialNumber ?? null},
+      ${input.imeiNumber ?? null},
+      ${input.grossWeight ?? null},
+      ${input.tareWeight ?? null},
+      ${input.netWeight ?? null},
+      ${input.metadata ?? null},
       true,
       NOW(),
       NOW(),
@@ -1015,18 +1136,122 @@ export async function createMaterial(input: CreateMaterialInput) {
     RETURNING
       id,
       name,
+      category,
       unit,
       "stockQty"::double precision AS "stockQty",
       "minThreshold"::double precision AS "minThreshold",
       "maxThreshold"::double precision AS "maxThreshold",
       "purchasePrice"::double precision AS "purchasePrice",
       "salePrice"::double precision AS "salePrice",
+      barcode,
+      "batchNumber" AS "batchNumber",
+      "expiryDate" AS "expiryDate",
+      "manufactureDate" AS "manufactureDate",
+      manufacturer,
+      "rackLocation" AS "rackLocation",
+      size,
+      color,
+      material,
+      weight::double precision AS weight,
+      purity::double precision AS purity,
+      "makingCharges"::double precision AS "makingCharges",
+      "serialNumber" AS "serialNumber",
+      "imeiNumber" AS "imeiNumber",
+      "grossWeight"::double precision AS "grossWeight",
+      "tareWeight"::double precision AS "tareWeight",
+      "netWeight"::double precision AS "netWeight",
+      metadata,
       "isActive" AS "isActive",
       "createdAt" AS "createdAt",
       "updatedAt" AS "updatedAt",
       "businessId" AS "businessId"
   `)
-  return rows[0]
+    const created = inserted[0]
+    if (!created) return null
+    const defaultLocationId = await getDefaultLocation(input.businessId)
+    if (defaultLocationId) {
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO material_stock (id, "businessId", "materialId", "locationId", quantity, "createdAt", "updatedAt")
+        VALUES (${randomUUID()}, ${input.businessId}, ${materialId}, ${defaultLocationId}, ${input.stockQty}, NOW(), NOW())
+        ON CONFLICT ("businessId", "materialId", "locationId")
+        DO UPDATE SET quantity = EXCLUDED.quantity, "updatedAt" = NOW()
+      `)
+    }
+    return created
+  })
+  return rows
+}
+
+export async function updateMaterial(input: UpdateMaterialInput) {
+  const expiryDate = input.expiryDate ? new Date(input.expiryDate) : null
+  const manufactureDate = input.manufactureDate ? new Date(input.manufactureDate) : null
+  const rows = await prisma.$queryRaw<MaterialRow[]>(Prisma.sql`
+    UPDATE materials
+    SET
+      name = ${input.name},
+      category = ${input.category ?? null},
+      unit = ${input.unit},
+      "stockQty" = ${input.stockQty},
+      "minThreshold" = ${input.minThreshold},
+      "maxThreshold" = ${input.maxThreshold ?? null},
+      "purchasePrice" = ${input.purchasePrice},
+      "salePrice" = ${input.salePrice},
+      barcode = ${input.barcode ?? null},
+      "batchNumber" = ${input.batchNumber ?? null},
+      "expiryDate" = ${expiryDate},
+      "manufactureDate" = ${manufactureDate},
+      manufacturer = ${input.manufacturer ?? null},
+      "rackLocation" = ${input.rackLocation ?? null},
+      size = ${input.size ?? null},
+      color = ${input.color ?? null},
+      material = ${input.material ?? null},
+      weight = ${input.weight ?? null},
+      purity = ${input.purity ?? null},
+      "makingCharges" = ${input.makingCharges ?? null},
+      "serialNumber" = ${input.serialNumber ?? null},
+      "imeiNumber" = ${input.imeiNumber ?? null},
+      "grossWeight" = ${input.grossWeight ?? null},
+      "tareWeight" = ${input.tareWeight ?? null},
+      "netWeight" = ${input.netWeight ?? null},
+      metadata = ${input.metadata ?? null},
+      "updatedAt" = NOW()
+    WHERE id = ${input.materialId}
+      AND "businessId" = ${input.businessId}
+      AND "isActive" = true
+    RETURNING
+      id,
+      name,
+      category,
+      unit,
+      "stockQty"::double precision AS "stockQty",
+      "minThreshold"::double precision AS "minThreshold",
+      "maxThreshold"::double precision AS "maxThreshold",
+      "purchasePrice"::double precision AS "purchasePrice",
+      "salePrice"::double precision AS "salePrice",
+      barcode,
+      "batchNumber" AS "batchNumber",
+      "expiryDate" AS "expiryDate",
+      "manufactureDate" AS "manufactureDate",
+      manufacturer,
+      "rackLocation" AS "rackLocation",
+      size,
+      color,
+      material,
+      weight::double precision AS weight,
+      purity::double precision AS purity,
+      "makingCharges"::double precision AS "makingCharges",
+      "serialNumber" AS "serialNumber",
+      "imeiNumber" AS "imeiNumber",
+      "grossWeight"::double precision AS "grossWeight",
+      "tareWeight"::double precision AS "tareWeight",
+      "netWeight"::double precision AS "netWeight",
+      metadata,
+      "isActive" AS "isActive",
+      "createdAt" AS "createdAt",
+      "updatedAt" AS "updatedAt",
+      "businessId" AS "businessId"
+  `)
+  return rows[0] ?? null
 }
 
 export async function commitPurchaseBillScan(input: {

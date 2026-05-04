@@ -2,7 +2,15 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { Prisma, prisma } from '@cement-house/db'
+import { Prisma, prisma, subscriptionsRepository } from '@cement-house/db'
+import {
+  BUSINESS_TYPE_VALUES,
+  getBusinessTypeConfig,
+  normalizeBusinessType,
+  normalizeCustomModules,
+  normalizeCustomFeatureFlags,
+  validateCustomBusinessSelection,
+} from '@cement-house/utils'
 import {
   computeBusinessAccess,
   createDummySubscriptionCharge,
@@ -33,8 +41,11 @@ const RegisterSchema = z.object({
   password: z.string().min(6),
   role: z.enum(['OWNER', 'MUNIM']).default('OWNER'),
   businessName: z.string().min(2),
-  businessType: z.enum(['GENERAL', 'CEMENT', 'HARDWARE_SANITARY', 'KIRYANA', 'CUSTOM']).default('GENERAL'),
+  businessType: z.enum(BUSINESS_TYPE_VALUES).default('GENERAL_STORE'),
   customBusinessTypeName: z.string().trim().min(2).max(60).optional(),
+  customBusinessDescription: z.string().trim().min(2).max(200).optional(),
+  enabledModules: z.array(z.string().trim().min(1)).optional(),
+  featureFlags: z.record(z.string(), z.boolean()).optional(),
   city: z.string().min(2),
   businessPhone: z.string().min(10).max(10).optional(),
   address: z.string().optional(),
@@ -89,6 +100,9 @@ function buildAuthUser(user: {
     city: string
     businessType?: string | null
     customLabels?: Prisma.JsonValue | Record<string, string> | null
+    enabledModules?: Prisma.JsonValue | string[] | null
+    featureFlags?: Prisma.JsonValue | Record<string, boolean> | null
+    defaultSettings?: Prisma.JsonValue | Record<string, unknown> | null
     subscriptionStatus: string
     subscriptionEndsAt: Date | null
     subscriptionInterval: 'MONTHLY' | 'YEARLY' | null
@@ -108,6 +122,22 @@ function buildAuthUser(user: {
     return entries.length > 0 ? Object.fromEntries(entries) as Record<string, string> : null
   }
 
+  const normalizeStringArray = (value: Prisma.JsonValue | string[] | null | undefined): string[] => {
+    if (!Array.isArray(value)) return []
+    const rows = value as unknown[]
+    return rows.filter((entry): entry is string => typeof entry === 'string')
+  }
+
+  const normalizeBooleanMap = (value: Prisma.JsonValue | Record<string, boolean> | null | undefined): Record<string, boolean> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([, v]) => typeof v === 'boolean')) as Record<string, boolean>
+  }
+
+  const normalizeObject = (value: Prisma.JsonValue | Record<string, unknown> | null | undefined): Record<string, unknown> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+    return value as Record<string, unknown>
+  }
+
   return {
     id: user.id,
     name: user.name,
@@ -116,8 +146,11 @@ function buildAuthUser(user: {
     businessId: user.businessId ?? null,
     businessName: user.business?.name ?? null,
     businessCity: user.business?.city ?? null,
-    businessType: user.business?.businessType ?? 'GENERAL',
+    businessType: user.business?.businessType ?? 'GENERAL_STORE',
     customLabels: normalizeCustomLabels(user.business?.customLabels),
+    enabledModules: normalizeStringArray(user.business?.enabledModules),
+    featureFlags: normalizeBooleanMap(user.business?.featureFlags),
+    defaultSettings: normalizeObject(user.business?.defaultSettings),
     permissions: user.permissions,
     subscriptionStatus: user.business?.subscriptionStatus ?? null,
     subscriptionEndsAt: user.business?.subscriptionEndsAt?.toISOString?.() ?? null,
@@ -279,16 +312,18 @@ export async function authRoutes(app: FastifyInstance) {
     reply.header('Expires', '0')
 
     const settings = await ensurePlatformSettings()
+    // In simplified admin mode, registration/login pricing must mirror
+    // the single super-admin pricing form directly.
 
     return {
       success: true,
       data: {
         trialDays: settings.trialDays,
-        monthlyPrice: Number(settings.monthlyPrice),
-        yearlyPrice: Number(settings.yearlyPrice),
+        monthlyPrice: Number(settings.monthlyPrice ?? 0),
+        yearlyPrice: Number(settings.yearlyPrice ?? 0),
         currency: settings.currency,
         trialRequiresCard: settings.trialRequiresCard,
-        updatedAt: settings.updatedAt?.toISOString?.() ?? null,
+        updatedAt: null,
       },
     }
   })
@@ -408,6 +443,26 @@ export async function authRoutes(app: FastifyInstance) {
     const existingEmail = await emailExists(body.data.email)
     if (existingEmail) return reply.status(409).send({ success: false, error: 'An account with this email already exists' })
 
+  const normalizedBusinessType = normalizeBusinessType(body.data.businessType)
+  const typeConfig = getBusinessTypeConfig(normalizedBusinessType)
+  const customEnabledModules =
+    normalizedBusinessType === 'CUSTOM'
+      ? normalizeCustomModules(body.data.enabledModules)
+      : []
+  const customFeatureFlags =
+    normalizedBusinessType === 'CUSTOM'
+      ? normalizeCustomFeatureFlags(body.data.featureFlags)
+      : null
+  if (normalizedBusinessType === 'CUSTOM') {
+    const errors = validateCustomBusinessSelection({
+      enabledModules: customEnabledModules,
+      featureFlags: customFeatureFlags ?? {},
+    })
+    if (errors.length > 0) {
+      return reply.status(400).send({ success: false, error: errors[0] })
+    }
+  }
+
     const settings = await ensurePlatformSettings()
     const passwordHash = await bcrypt.hash(body.data.password, 10)
     const trialDays = settings.trialDays
@@ -419,11 +474,33 @@ export async function authRoutes(app: FastifyInstance) {
       const business = await tx.business.create({
         data: {
           name: body.data.businessName,
-          businessType: body.data.businessType,
+          businessType: normalizedBusinessType,
           customLabels:
-            body.data.businessType === 'CUSTOM' && body.data.customBusinessTypeName
+            normalizedBusinessType === 'CUSTOM' && body.data.customBusinessTypeName
               ? ({ businessTypeName: body.data.customBusinessTypeName } as Prisma.JsonObject)
               : undefined,
+          enabledModules: (
+            normalizedBusinessType === 'CUSTOM'
+              ? customEnabledModules
+              : typeConfig.enabledModules
+          ) as unknown as Prisma.InputJsonValue,
+          featureFlags: (
+            normalizedBusinessType === 'CUSTOM'
+              ? customFeatureFlags
+              : typeConfig.featureFlags
+          ) as unknown as Prisma.InputJsonValue,
+          defaultSettings: (
+            normalizedBusinessType === 'CUSTOM'
+              ? {
+                  defaultLabels: typeConfig.defaultLabels,
+                  customBusinessDescription: body.data.customBusinessDescription?.trim() || null,
+                  userConfigurableModules: true,
+                }
+              : {
+                  ...typeConfig.defaultSettings,
+                  defaultLabels: typeConfig.defaultLabels,
+                }
+          ) as Prisma.InputJsonValue,
           city: body.data.city,
           phone: body.data.businessPhone || body.data.phone,
           address: body.data.address || undefined,
@@ -449,6 +526,11 @@ export async function authRoutes(app: FastifyInstance) {
       await attachEmailToUser(tx, user.id, body.data.email)
 
       return { business, user }
+    })
+
+    await subscriptionsRepository.ensureDefaultSubscriptionForBusiness({
+      businessId: business.id,
+      trialDays,
     })
 
     const authUser = buildAuthUser({

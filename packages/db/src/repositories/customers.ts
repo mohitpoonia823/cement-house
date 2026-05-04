@@ -143,33 +143,54 @@ export async function listActiveCustomersWithStats(input: ListCustomersInput) {
   if (input.search) filters.push(Prisma.sql`c.name ILIKE ${`%${input.search}%`}`)
 
   return prisma.$queryRaw<CustomerListRow[]>(Prisma.sql`
+    WITH filtered_customers AS (
+      SELECT
+        c.id,
+        c.name,
+        c.phone,
+        c."altPhone" AS "altPhone",
+        c.address,
+        c."siteAddress" AS "siteAddress",
+        c.gstin,
+        c."creditLimit"::double precision AS "creditLimit",
+        c."riskTag"::text AS "riskTag",
+        c.notes,
+        c."isActive" AS "isActive",
+        c."remindersEnabled" AS "remindersEnabled",
+        c."createdAt" AS "createdAt",
+        c."updatedAt" AS "updatedAt",
+        c."businessId" AS "businessId"
+      FROM customers c
+      WHERE ${Prisma.join(filters, ' AND ')}
+    )
     SELECT
-      c.id,
-      c.name,
-      c.phone,
-      c."altPhone" AS "altPhone",
-      c.address,
-      c."siteAddress" AS "siteAddress",
-      c.gstin,
-      c."creditLimit"::double precision AS "creditLimit",
-      c."riskTag"::text AS "riskTag",
-      c.notes,
-      c."isActive" AS "isActive",
-      c."remindersEnabled" AS "remindersEnabled",
-      c."createdAt" AS "createdAt",
-      c."updatedAt" AS "updatedAt",
-      c."businessId" AS "businessId",
+      fc.id,
+      fc.name,
+      fc.phone,
+      fc."altPhone" AS "altPhone",
+      fc.address,
+      fc."siteAddress" AS "siteAddress",
+      fc.gstin,
+      fc."creditLimit"::double precision AS "creditLimit",
+      fc."riskTag"::text AS "riskTag",
+      fc.notes,
+      fc."isActive" AS "isActive",
+      fc."remindersEnabled" AS "remindersEnabled",
+      fc."createdAt" AS "createdAt",
+      fc."updatedAt" AS "updatedAt",
+      fc."businessId" AS "businessId",
       COALESCE(o.order_count, 0)::int AS "orderCount",
       (COALESCE(l.debit, 0) - COALESCE(l.credit, 0))::double precision AS balance
-    FROM customers c
+    FROM filtered_customers fc
     LEFT JOIN (
       SELECT
         "customerId",
         COUNT(*) FILTER (WHERE "isDeleted" = false) AS order_count
       FROM orders
       WHERE "businessId" = ${input.businessId}
+        AND "customerId" IN (SELECT id FROM filtered_customers)
       GROUP BY "customerId"
-    ) o ON o."customerId" = c.id
+    ) o ON o."customerId" = fc.id
     LEFT JOIN (
       SELECT
         "customerId",
@@ -177,10 +198,10 @@ export async function listActiveCustomersWithStats(input: ListCustomersInput) {
         SUM(CASE WHEN type = 'CREDIT'::"LedgerEntryType" THEN amount ELSE 0 END)::double precision AS credit
       FROM ledger_entries
       WHERE "businessId" = ${input.businessId}
+        AND "customerId" IN (SELECT id FROM filtered_customers)
       GROUP BY "customerId"
-    ) l ON l."customerId" = c.id
-    WHERE ${Prisma.join(filters, ' AND ')}
-    ORDER BY c.name ASC
+    ) l ON l."customerId" = fc.id
+    ORDER BY fc.name ASC
   `)
 }
 

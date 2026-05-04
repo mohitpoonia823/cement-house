@@ -3,15 +3,27 @@ import { AppShell }    from '@/components/layout/AppShell'
 import { Card, MetricCard, MetricGrid, SectionHeader } from '@/components/ui/Card'
 import { Badge, statusBadge } from '@/components/ui/Badge'
 import { PageLoader }  from '@/components/ui/Spinner'
-import { useInventory, useStockIn, useCreateMaterial, useDeleteMaterial, useBulkDeleteMaterials } from '@/hooks/useInventory'
+import {
+  useInventory,
+  useStockIn,
+  useCreateMaterial,
+  useUpdateMaterial,
+  useDeleteMaterial,
+  useBulkDeleteMaterials,
+  useLocations,
+  useStockByLocation,
+  useCreateStockTransfer,
+} from '@/hooks/useInventory'
 import { fmt }         from '@/lib/utils'
-import { useEffect, useMemo, useRef, useState }    from 'react'
+import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState }    from 'react'
 import { useQuery }    from '@tanstack/react-query'
 import { api }         from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 import { BillScanPanel } from '@/components/inventory/BillScanPanel'
 import { useAuthStore } from '@/store/auth'
 import { businessTerms, businessUnitOptions, splitPreferredUnits } from '@/lib/business-terms'
+import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
+import Link from 'next/link'
 
 function useMovements(materialId: string) {
   return useQuery({
@@ -24,21 +36,124 @@ function useMovements(materialId: string) {
   })
 }
 
+function sanitizeMaterialPayload(
+  payload: Record<string, any>,
+  capabilities?: {
+    canBarcode?: boolean
+    canBatch?: boolean
+    canExpiry?: boolean
+    canSerial?: boolean
+    canVariants?: boolean
+    canWeight?: boolean
+    canJewellery?: boolean
+    canStorage?: boolean
+  }
+) {
+  const next = { ...payload }
+  const optionalStringFields = [
+    'category',
+    'barcode',
+    'batchNumber',
+    'expiryDate',
+    'manufactureDate',
+    'manufacturer',
+    'rackLocation',
+    'size',
+    'color',
+    'material',
+    'serialNumber',
+    'imeiNumber',
+  ]
+  const optionalNumberFields = ['weight', 'purity', 'makingCharges', 'grossWeight', 'tareWeight', 'netWeight']
+
+  for (const key of optionalStringFields) {
+    if (typeof next[key] === 'string') {
+      const trimmed = next[key].trim()
+      if (!trimmed) delete next[key]
+      else next[key] = trimmed
+    }
+  }
+  for (const key of optionalNumberFields) {
+    if (next[key] === '' || next[key] == null || Number.isNaN(next[key])) delete next[key]
+  }
+
+  if (capabilities) {
+    if (!capabilities.canBarcode) delete next.barcode
+    if (!capabilities.canBatch) delete next.batchNumber
+    if (!capabilities.canExpiry) {
+      delete next.expiryDate
+      delete next.manufactureDate
+      delete next.allowPastExpiry
+    }
+    if (!capabilities.canSerial) {
+      delete next.serialNumber
+      delete next.imeiNumber
+    }
+    if (!capabilities.canVariants) {
+      delete next.size
+      delete next.color
+      delete next.material
+    }
+    if (!capabilities.canWeight) {
+      delete next.weight
+      delete next.grossWeight
+      delete next.tareWeight
+      delete next.netWeight
+    }
+    if (!capabilities.canJewellery) {
+      delete next.purity
+      delete next.makingCharges
+    }
+    if (!capabilities.canStorage) {
+      delete next.manufacturer
+      delete next.rackLocation
+    }
+  }
+  return next
+}
+
+function parseMaterialError(err: any, fallback: string) {
+  if (err instanceof SyntaxError) return 'Invalid metadata JSON'
+  const raw = err?.response?.data?.error
+  if (Array.isArray(raw)) {
+    const fields = raw
+      .map((issue: any) => String(issue?.path?.[0] ?? '').trim())
+      .filter(Boolean)
+    if (fields.length > 0) return `Please check: ${[...new Set(fields)].join(', ')}`
+  }
+  return raw ?? fallback
+}
+
 export default function InventoryPage() {
   const { user } = useAuthStore()
+  const { hasModule, hasFeature } = useTenantCapabilities()
+  const canUseInventory = hasModule('inventory')
+  const canBarcode = hasFeature('barcodeSupport')
+  const canBatch = hasFeature('batchTracking')
+  const canExpiry = hasFeature('expiryTracking')
+  const canSerial = hasFeature('serialTracking')
+  const canWeight = hasFeature('weightBasedBilling')
+  const canVariants = hasFeature('variants')
+  const canJewellery = hasFeature('weightBasedBilling') || hasFeature('makingCharges') || hasFeature('purityTracking')
+  const canStorage = hasFeature('rackLocation')
   const { language } = useI18n()
   const t = (en: string, hi: string, hinglish?: string) => (language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en)
   const terms = businessTerms(user?.businessType as any, user?.customLabels as any)
   const unitPreset = businessUnitOptions(user?.businessType as any)
   const { data: materials, isLoading } = useInventory()
+  const { data: locations } = useLocations()
+  const { data: stockByLocation } = useStockByLocation()
+  const createTransfer = useCreateStockTransfer()
   const stockIn        = useStockIn()
   const createMaterial = useCreateMaterial()
+  const updateMaterial = useUpdateMaterial()
   const deleteMaterial = useDeleteMaterial()
   const bulkDelete     = useBulkDeleteMaterials()
 
   const [selectedId,  setSelectedId]  = useState('')
   const [showStockIn, setShowStockIn] = useState(false)
   const [showAddNew,  setShowAddNew]  = useState(false)
+  const [showEdit, setShowEdit] = useState(false)
   const [showBillScan, setShowBillScan] = useState(false)
   const [billImportMessage, setBillImportMessage] = useState('')
   const [siQty,   setSiQty]   = useState('')
@@ -47,12 +162,29 @@ export default function InventoryPage() {
   const [siError, setSiError] = useState('')
   const stockInPanelRef = useRef<HTMLDivElement | null>(null)
   const inventoryContentRef = useRef<HTMLDivElement | null>(null)
+  const addNewFormRef = useRef<HTMLDivElement | null>(null)
+  const addNewNameInputRef = useRef<HTMLInputElement | null>(null)
 
   // New material form
   const [newForm, setNewForm] = useState({
-    name: '', unit: unitPreset.defaultUnit, stockQty: '', minThreshold: '', maxThreshold: '', purchasePrice: '', salePrice: ''
+    name: '', category: '', unit: unitPreset.defaultUnit, stockQty: '', minThreshold: '', maxThreshold: '', purchasePrice: '', salePrice: '',
+    barcode: '', batchNumber: '', expiryDate: '', manufactureDate: '', manufacturer: '', rackLocation: '',
+    size: '', color: '', material: '', weight: '', purity: '', makingCharges: '', serialNumber: '', imeiNumber: '',
+    grossWeight: '', tareWeight: '', netWeight: '', metadataText: '{}', allowPastExpiry: false
+  })
+  const [editForm, setEditForm] = useState({
+    id: '', name: '', category: '', unit: unitPreset.defaultUnit, stockQty: '', minThreshold: '', maxThreshold: '', purchasePrice: '', salePrice: '',
+    barcode: '', batchNumber: '', expiryDate: '', manufactureDate: '', manufacturer: '', rackLocation: '',
+    size: '', color: '', material: '', weight: '', purity: '', makingCharges: '', serialNumber: '', imeiNumber: '',
+    grossWeight: '', tareWeight: '', netWeight: '', metadataText: '{}', allowPastExpiry: false
   })
   const [newError, setNewError] = useState('')
+  const [editError, setEditError] = useState('')
+  const [transferFromLocationId, setTransferFromLocationId] = useState('')
+  const [transferToLocationId, setTransferToLocationId] = useState('')
+  const [transferMaterialId, setTransferMaterialId] = useState('')
+  const [transferQty, setTransferQty] = useState('')
+  const [transferError, setTransferError] = useState('')
 
   // Bulk selection
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -72,6 +204,14 @@ export default function InventoryPage() {
     [unitOptions, unitPreset.preferred]
   )
   const allSelected = list.length > 0 && selected.size === list.length
+  const activeLocations = (locations ?? []).filter((loc: any) => loc.isActive)
+  const availableTransferQty = useMemo(() => {
+    if (!transferFromLocationId || !transferMaterialId) return 0
+    const row = (stockByLocation ?? []).find(
+      (entry: any) => entry.locationId === transferFromLocationId && entry.materialId === transferMaterialId
+    )
+    return Number(row?.quantity ?? 0)
+  }, [stockByLocation, transferFromLocationId, transferMaterialId])
 
   useEffect(() => {
     setNewForm((prev) => {
@@ -101,17 +241,91 @@ export default function InventoryPage() {
   async function handleCreateMaterial(e: React.FormEvent) {
     e.preventDefault(); setNewError('')
     try {
-      await createMaterial.mutateAsync({
+      let metadata: Record<string, unknown> | undefined
+      if (newForm.metadataText.trim()) {
+        metadata = JSON.parse(newForm.metadataText)
+      }
+      const payload: any = {
         ...newForm,
         stockQty: Number(newForm.stockQty || 0),
         minThreshold: Number(newForm.minThreshold || 0),
         maxThreshold: newForm.maxThreshold === '' ? undefined : Number(newForm.maxThreshold),
         purchasePrice: Number(newForm.purchasePrice || 0),
         salePrice: Number(newForm.salePrice || 0),
-      })
+        metadata,
+      }
+      if (newForm.weight) payload.weight = Number(newForm.weight)
+      if (newForm.purity) payload.purity = Number(newForm.purity)
+      if (newForm.makingCharges) payload.makingCharges = Number(newForm.makingCharges)
+      if (newForm.grossWeight) payload.grossWeight = Number(newForm.grossWeight)
+      if (newForm.tareWeight) payload.tareWeight = Number(newForm.tareWeight)
+      if (newForm.netWeight) payload.netWeight = Number(newForm.netWeight)
+      else if (newForm.grossWeight && newForm.tareWeight) {
+        payload.netWeight = Math.max(0, Number(newForm.grossWeight) - Number(newForm.tareWeight))
+      }
+      await createMaterial.mutateAsync(sanitizeMaterialPayload(payload, {
+        canBarcode,
+        canBatch,
+        canExpiry,
+        canSerial,
+        canVariants,
+        canWeight,
+        canJewellery,
+        canStorage,
+      }))
       setShowAddNew(false)
-      setNewForm({ name: '', unit: unitPreset.defaultUnit, stockQty: '', minThreshold: '', maxThreshold: '', purchasePrice: '', salePrice: '' })
-    } catch (err: any) { setNewError(err.response?.data?.error ?? `Failed to create ${terms.material.toLowerCase()}`) }
+      setNewForm({
+        name: '', category: '', unit: unitPreset.defaultUnit, stockQty: '', minThreshold: '', maxThreshold: '', purchasePrice: '', salePrice: '',
+        barcode: '', batchNumber: '', expiryDate: '', manufactureDate: '', manufacturer: '', rackLocation: '',
+        size: '', color: '', material: '', weight: '', purity: '', makingCharges: '', serialNumber: '', imeiNumber: '',
+        grossWeight: '', tareWeight: '', netWeight: '', metadataText: '{}', allowPastExpiry: false
+      })
+    } catch (err: any) {
+      const message = parseMaterialError(err, `Failed to create ${terms.material.toLowerCase()}`)
+      setNewError(message)
+    }
+  }
+
+  async function handleUpdateMaterial(e: React.FormEvent) {
+    e.preventDefault(); setEditError('')
+    try {
+      let metadata: Record<string, unknown> | undefined
+      if (editForm.metadataText.trim()) {
+        metadata = JSON.parse(editForm.metadataText)
+      }
+      const payload: any = {
+        ...editForm,
+        stockQty: Number(editForm.stockQty || 0),
+        minThreshold: Number(editForm.minThreshold || 0),
+        maxThreshold: editForm.maxThreshold === '' ? undefined : Number(editForm.maxThreshold),
+        purchasePrice: Number(editForm.purchasePrice || 0),
+        salePrice: Number(editForm.salePrice || 0),
+        metadata,
+      }
+      if (editForm.weight) payload.weight = Number(editForm.weight)
+      if (editForm.purity) payload.purity = Number(editForm.purity)
+      if (editForm.makingCharges) payload.makingCharges = Number(editForm.makingCharges)
+      if (editForm.grossWeight) payload.grossWeight = Number(editForm.grossWeight)
+      if (editForm.tareWeight) payload.tareWeight = Number(editForm.tareWeight)
+      if (editForm.netWeight) payload.netWeight = Number(editForm.netWeight)
+      else if (editForm.grossWeight && editForm.tareWeight) {
+        payload.netWeight = Math.max(0, Number(editForm.grossWeight) - Number(editForm.tareWeight))
+      }
+      await updateMaterial.mutateAsync(sanitizeMaterialPayload(payload, {
+        canBarcode,
+        canBatch,
+        canExpiry,
+        canSerial,
+        canVariants,
+        canWeight,
+        canJewellery,
+        canStorage,
+      }))
+      setShowEdit(false)
+    } catch (err: any) {
+      const message = parseMaterialError(err, `Failed to update ${terms.material.toLowerCase()}`)
+      setEditError(message)
+    }
   }
 
   function handleDelete(id: string, name: string) {
@@ -132,6 +346,78 @@ export default function InventoryPage() {
 
   const selectedMat = list.find((m: any) => m.id === selectedId)
 
+  function openAddItemForm() {
+    setShowAddNew(true)
+    setShowBillScan(false)
+    setBillImportMessage('')
+    setTimeout(() => {
+      addNewFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      addNewNameInputRef.current?.focus()
+    }, 40)
+  }
+
+  async function handleCreateTransfer(e: React.FormEvent) {
+    e.preventDefault()
+    setTransferError('')
+    try {
+      if (!transferFromLocationId || !transferToLocationId || !transferMaterialId || Number(transferQty) <= 0) {
+        setTransferError('Select from/to location, material, and valid quantity.')
+        return
+      }
+      if (transferFromLocationId === transferToLocationId) {
+        setTransferError('Source and destination location cannot be same.')
+        return
+      }
+      if (Number(transferQty) > availableTransferQty) {
+        setTransferError(`Transfer quantity exceeds available stock (${availableTransferQty.toFixed(3)}).`)
+        return
+      }
+      await createTransfer.mutateAsync({
+        fromLocationId: transferFromLocationId,
+        toLocationId: transferToLocationId,
+        items: [{ materialId: transferMaterialId, quantity: Number(transferQty) }],
+      })
+      setTransferQty('')
+      setTransferError('')
+    } catch (err: any) {
+      setTransferError(err?.response?.data?.error ?? 'Failed to create stock transfer')
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedMat) return
+    setEditForm({
+      id: selectedMat.id,
+      name: selectedMat.name ?? '',
+      category: selectedMat.category ?? '',
+      unit: selectedMat.unit ?? unitPreset.defaultUnit,
+      stockQty: String(selectedMat.stockQty ?? ''),
+      minThreshold: String(selectedMat.minThreshold ?? ''),
+      maxThreshold: selectedMat.maxThreshold == null ? '' : String(selectedMat.maxThreshold),
+      purchasePrice: String(selectedMat.purchasePrice ?? ''),
+      salePrice: String(selectedMat.salePrice ?? ''),
+      barcode: selectedMat.barcode ?? '',
+      batchNumber: selectedMat.batchNumber ?? '',
+      expiryDate: selectedMat.expiryDate ? String(selectedMat.expiryDate).slice(0, 10) : '',
+      manufactureDate: selectedMat.manufactureDate ? String(selectedMat.manufactureDate).slice(0, 10) : '',
+      manufacturer: selectedMat.manufacturer ?? '',
+      rackLocation: selectedMat.rackLocation ?? '',
+      size: selectedMat.size ?? '',
+      color: selectedMat.color ?? '',
+      material: selectedMat.material ?? '',
+      weight: selectedMat.weight == null ? '' : String(selectedMat.weight),
+      purity: selectedMat.purity == null ? '' : String(selectedMat.purity),
+      makingCharges: selectedMat.makingCharges == null ? '' : String(selectedMat.makingCharges),
+      serialNumber: selectedMat.serialNumber ?? '',
+      imeiNumber: selectedMat.imeiNumber ?? '',
+      grossWeight: selectedMat.grossWeight == null ? '' : String(selectedMat.grossWeight),
+      tareWeight: selectedMat.tareWeight == null ? '' : String(selectedMat.tareWeight),
+      netWeight: selectedMat.netWeight == null ? '' : String(selectedMat.netWeight),
+      metadataText: selectedMat.metadata ? JSON.stringify(selectedMat.metadata, null, 2) : '{}',
+      allowPastExpiry: false,
+    })
+  }, [selectedMat, unitPreset.defaultUnit])
+
   useEffect(() => {
     if (!selectedId) return
     const onPointerDown = (event: MouseEvent) => {
@@ -150,8 +436,180 @@ export default function InventoryPage() {
     return () => document.removeEventListener('mousedown', onPointerDown)
   }, [selectedId])
 
+  const inputClass =
+    'w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500'
+
+  const sectionTitleClass = 'text-[11px] font-semibold uppercase tracking-wide text-stone-500 dark:text-slate-300'
+
+  const renderScopedFields = (
+    form: any,
+    setForm: Dispatch<SetStateAction<any>>,
+  ) => (
+    <>
+      <div className={sectionTitleClass}>Identification</div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {canBarcode ? (
+          <div>
+            <label className="block text-xs text-stone-500 mb-1">Barcode</label>
+            <input type="text" value={form.barcode} onChange={e => setForm((p: any) => ({ ...p, barcode: e.target.value }))} className={inputClass} />
+          </div>
+        ) : null}
+        {canSerial ? (
+          <>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">Serial number</label>
+              <input type="text" value={form.serialNumber} onChange={e => setForm((p: any) => ({ ...p, serialNumber: e.target.value }))} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">IMEI number</label>
+              <input type="text" value={form.imeiNumber} onChange={e => setForm((p: any) => ({ ...p, imeiNumber: e.target.value }))} className={inputClass} />
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      {(canBatch || canExpiry) ? <div className={sectionTitleClass}>Batch & expiry</div> : null}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {canBatch ? (
+          <div>
+            <label className="block text-xs text-stone-500 mb-1">Batch number</label>
+            <input type="text" value={form.batchNumber} onChange={e => setForm((p: any) => ({ ...p, batchNumber: e.target.value }))} className={inputClass} />
+          </div>
+        ) : null}
+        {canExpiry ? (
+          <>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">Manufacture date</label>
+              <input type="date" value={form.manufactureDate} onChange={e => setForm((p: any) => ({ ...p, manufactureDate: e.target.value }))} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">Expiry date</label>
+              <input type="date" value={form.expiryDate} onChange={e => setForm((p: any) => ({ ...p, expiryDate: e.target.value }))} className={inputClass} />
+            </div>
+            <label className="sm:col-span-2 inline-flex items-center gap-2 text-xs text-stone-600 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={Boolean(form.allowPastExpiry)}
+                onChange={e => setForm((p: any) => ({ ...p, allowPastExpiry: e.target.checked }))}
+                className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+              />
+              Allow past expiry for existing/legacy stock
+            </label>
+          </>
+        ) : null}
+      </div>
+
+      {canVariants ? <div className={sectionTitleClass}>Variants</div> : null}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {canVariants ? (
+          <>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">Size</label>
+              <input type="text" value={form.size} onChange={e => setForm((p: any) => ({ ...p, size: e.target.value }))} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">Color</label>
+              <input type="text" value={form.color} onChange={e => setForm((p: any) => ({ ...p, color: e.target.value }))} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">Material</label>
+              <input type="text" value={form.material} onChange={e => setForm((p: any) => ({ ...p, material: e.target.value }))} className={inputClass} />
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      {canWeight ? <div className={sectionTitleClass}>Weight details</div> : null}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {canWeight ? (
+          <>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">Gross weight</label>
+              <input type="number" min={0} step={0.01} value={form.grossWeight} onChange={e => setForm((p: any) => {
+                const grossWeight = e.target.value
+                const tare = Number(p.tareWeight || 0)
+                const gross = Number(grossWeight || 0)
+                const next: any = { ...p, grossWeight }
+                if (!p.netWeight || p.netWeight === '' || Number.isFinite(Number(p.netWeight))) next.netWeight = grossWeight && p.tareWeight ? String(Math.max(0, gross - tare)) : p.netWeight
+                return next
+              })} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">Tare weight</label>
+              <input type="number" min={0} step={0.01} value={form.tareWeight} onChange={e => setForm((p: any) => {
+                const tareWeight = e.target.value
+                const tare = Number(tareWeight || 0)
+                const gross = Number(p.grossWeight || 0)
+                const next: any = { ...p, tareWeight }
+                if (!p.netWeight || p.netWeight === '' || Number.isFinite(Number(p.netWeight))) next.netWeight = p.grossWeight && tareWeight ? String(Math.max(0, gross - tare)) : p.netWeight
+                return next
+              })} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">Net weight</label>
+              <input type="number" min={0} step={0.01} value={form.netWeight} onChange={e => setForm((p: any) => ({ ...p, netWeight: e.target.value }))} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">Weight</label>
+              <input type="number" min={0} step={0.01} value={form.weight} onChange={e => setForm((p: any) => ({ ...p, weight: e.target.value }))} className={inputClass} />
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      {canJewellery ? <div className={sectionTitleClass}>Jewellery details</div> : null}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {canJewellery ? (
+          <>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">Purity (%)</label>
+              <input type="number" min={0} max={100} step={0.01} value={form.purity} onChange={e => setForm((p: any) => ({ ...p, purity: e.target.value }))} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">Making charges</label>
+              <input type="number" min={0} step={0.01} value={form.makingCharges} onChange={e => setForm((p: any) => ({ ...p, makingCharges: e.target.value }))} className={inputClass} />
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      {canStorage ? <div className={sectionTitleClass}>Storage details</div> : null}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {canStorage ? (
+          <>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">Manufacturer</label>
+              <input type="text" value={form.manufacturer} onChange={e => setForm((p: any) => ({ ...p, manufacturer: e.target.value }))} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">Rack location</label>
+              <input type="text" value={form.rackLocation} onChange={e => setForm((p: any) => ({ ...p, rackLocation: e.target.value }))} className={inputClass} />
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      <div className={sectionTitleClass}>Metadata</div>
+      <div>
+        <label className="block text-xs text-stone-500 mb-1">Metadata (JSON)</label>
+        <textarea rows={4} value={form.metadataText} onChange={e => setForm((p: any) => ({ ...p, metadataText: e.target.value }))} className={inputClass} />
+      </div>
+    </>
+  )
+
   return (
     <AppShell>
+      {!canUseInventory ? (
+        <div ref={addNewFormRef}>
+        <Card className="mb-4">
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            {language === 'hi' ? 'à¤¯à¤¹ à¤®à¥‰à¤¡à¥à¤¯à¥‚à¤² à¤†à¤ªà¤•à¥‡ à¤ªà¥à¤²à¤¾à¤¨ à¤®à¥‡à¤‚ à¤¸à¤•à¥à¤·à¤® à¤¨à¤¹à¥€à¤‚ à¤¹à¥ˆà¥¤' : 'This module is not enabled for your workspace.'}
+          </div>
+        </Card>
+        </div>
+      ) : null}
+      {canUseInventory ? (
+      <>
       <SectionHeader
         eyebrow={language === 'hi' ? 'इन्वेंट्री एनालिटिक्स' : language === 'hinglish' ? 'Inventory analytics' : 'Inventory analytics'}
         title={language === 'hi' ? 'इन्वेंट्री नियंत्रण' : language === 'hinglish' ? `${terms.inventory} control` : `${terms.inventory} control`}
@@ -175,7 +633,7 @@ export default function InventoryPage() {
                 ? (language === 'hi' ? 'स्कैनर बंद करें' : language === 'hinglish' ? 'Scanner band karo' : 'Close scanner')
                 : (language === 'hi' ? 'बिल स्कैन करें' : language === 'hinglish' ? 'Bill scan karo' : 'Scan bill')}
             </button>
-            <button onClick={() => { setShowAddNew(true); setShowBillScan(false); setBillImportMessage('') }}
+            <button onClick={openAddItemForm}
               className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950">
               {language === 'hi' ? '+ मटेरियल जोड़ें' : language === 'hinglish' ? `+ ${terms.material} add karo` : `+ Add ${terms.material.toLowerCase()}`}
             </button>
@@ -211,13 +669,14 @@ export default function InventoryPage() {
 
       {/* Add new material form */}
       {showAddNew && (
+        <div ref={addNewFormRef}>
         <Card className="mb-4">
           <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">{t(`New ${terms.material.toLowerCase()}`, 'नया मटेरियल', `New ${terms.material.toLowerCase()}`)}</div>
           <form onSubmit={handleCreateMaterial} className="space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div className="sm:col-span-2">
                 <label className="block text-xs text-stone-500 mb-1">{t('Name *', 'नाम *')}</label>
-                <input type="text" value={newForm.name} onChange={e => setNewForm(p => ({ ...p, name: e.target.value }))}
+                <input ref={addNewNameInputRef} type="text" value={newForm.name} onChange={e => setNewForm(p => ({ ...p, name: e.target.value }))}
                   placeholder={language === 'hi' ? 'जैसे: उदाहरण आइटम' : language === 'hinglish' ? `e.g. Sample ${terms.material}` : `e.g. Sample ${terms.material}`} required
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
@@ -263,6 +722,54 @@ export default function InventoryPage() {
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">{t('Category', 'श्रेणी')}</label>
+                <input type="text" value={newForm.category} onChange={e => setNewForm(p => ({ ...p, category: e.target.value }))}
+                  placeholder={language === 'hi' ? 'जैसे: medicine' : 'e.g. medicine'}
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              {canBatch ? (
+                <div>
+                  <label className="block text-xs text-stone-500 mb-1">Batch number</label>
+                  <input type="text" value={newForm.batchNumber} onChange={e => setNewForm(p => ({ ...p, batchNumber: e.target.value }))}
+                    className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              ) : null}
+              {canExpiry ? (
+                <div>
+                  <label className="block text-xs text-stone-500 mb-1">Expiry date</label>
+                  <input type="date" value={newForm.expiryDate} onChange={e => setNewForm(p => ({ ...p, expiryDate: e.target.value }))}
+                    className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              ) : null}
+              {canSerial ? (
+                <div>
+                  <label className="block text-xs text-stone-500 mb-1">Serial / IMEI</label>
+                  <input type="text" value={newForm.serialNumber} onChange={e => setNewForm(p => ({ ...p, serialNumber: e.target.value }))}
+                    className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              ) : null}
+              {canVariants ? (
+                <div>
+                  <label className="block text-xs text-stone-500 mb-1">Size / Color</label>
+                  <input type="text" value={`${newForm.size}${newForm.color ? ` / ${newForm.color}` : ''}`}
+                    onChange={e => {
+                      const parts = e.target.value.split('/').map((x) => x.trim())
+                      setNewForm(p => ({ ...p, size: parts[0] ?? '', color: parts[1] ?? '' }))
+                    }}
+                    className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              ) : null}
+              {canWeight ? (
+                <div>
+                  <label className="block text-xs text-stone-500 mb-1">Net weight</label>
+                  <input type="number" min={0} step={0.01} value={newForm.netWeight} onChange={e => setNewForm(p => ({ ...p, netWeight: e.target.value }))}
+                    className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              ) : null}
+            </div>
+            {renderScopedFields(newForm, setNewForm)}
             <div className="flex gap-2">
               <button type="submit" disabled={createMaterial.isPending}
                 className="text-xs px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
@@ -274,6 +781,87 @@ export default function InventoryPage() {
             {newError && <div className="text-xs text-red-600">{newError}</div>}
           </form>
         </Card>
+        </div>
+      )}
+
+      {showEdit && selectedMat && (
+        <div ref={addNewFormRef}>
+        <Card className="mb-4">
+          <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">Edit {terms.material.toLowerCase()}</div>
+          <form onSubmit={handleUpdateMaterial} className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">Name *</label>
+                <input type="text" required value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))}
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">Category</label>
+                <input type="text" value={editForm.category} onChange={e => setEditForm(p => ({ ...p, category: e.target.value }))}
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">Unit *</label>
+                <select value={editForm.unit} onChange={e => setEditForm(p => ({ ...p, unit: e.target.value }))}
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  {preferredUnits.map((u) => <option key={`epref-${u}`} value={u}>{u}</option>)}
+                  {preferredUnits.length > 0 && otherUnits.length > 0 ? <option disabled>--------</option> : null}
+                  {otherUnits.map((u) => <option key={`eother-${u}`} value={u}>{u}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">Stock quantity</label>
+                <input type="number" value={editForm.stockQty} min={0} step={0.01} onChange={e => setEditForm(p => ({ ...p, stockQty: e.target.value }))}
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">Min threshold</label>
+                <input type="number" value={editForm.minThreshold} min={0} step={0.01} onChange={e => setEditForm(p => ({ ...p, minThreshold: e.target.value }))}
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">Max threshold</label>
+                <input type="number" value={editForm.maxThreshold} min={0} step={0.01} onChange={e => setEditForm(p => ({ ...p, maxThreshold: e.target.value }))}
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">Purchase price</label>
+                <input type="number" value={editForm.purchasePrice} min={0} step={0.01} onChange={e => setEditForm(p => ({ ...p, purchasePrice: e.target.value }))}
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">Sale price</label>
+                <input type="number" value={editForm.salePrice} min={0} step={0.01} onChange={e => setEditForm(p => ({ ...p, salePrice: e.target.value }))}
+                  className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              {canExpiry ? (
+                <div>
+                  <label className="block text-xs text-stone-500 mb-1">Expiry date</label>
+                  <input type="date" value={editForm.expiryDate} onChange={e => setEditForm(p => ({ ...p, expiryDate: e.target.value }))}
+                    className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              ) : null}
+              {canBatch ? (
+                <div>
+                  <label className="block text-xs text-stone-500 mb-1">Batch number</label>
+                  <input type="text" value={editForm.batchNumber} onChange={e => setEditForm(p => ({ ...p, batchNumber: e.target.value }))}
+                    className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              ) : null}
+            </div>
+            {renderScopedFields(editForm, setEditForm)}
+            <div className="flex gap-2">
+              <button type="submit" disabled={updateMaterial.isPending}
+                className="text-xs px-4 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+                {updateMaterial.isPending ? 'Updating...' : 'Update'}
+              </button>
+              <button type="button" onClick={() => setShowEdit(false)}
+                className="text-xs px-3 py-1.5 border border-stone-200 dark:border-stone-700 rounded-lg hover:bg-stone-50 dark:hover:bg-stone-800">Cancel</button>
+            </div>
+            {editError && <div className="text-xs text-red-600">{editError}</div>}
+          </form>
+        </Card>
+        </div>
       )}
 
       {/* Bulk action bar */}
@@ -344,8 +932,32 @@ export default function InventoryPage() {
                     <span>Min: {Number(m.minThreshold)} {m.unit}</span>
                     <span>Buy: {fmt(Number(m.purchasePrice))} · Sell: {fmt(Number(m.salePrice))}</span>
                   </div>
+                  <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-stone-500 dark:text-slate-300">
+                    {canBatch && m.batchNumber ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Batch: {m.batchNumber}</span> : null}
+                    {canExpiry && m.expiryDate ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Expiry: {String(m.expiryDate).slice(0, 10)}</span> : null}
+                    {canStorage && m.manufacturer ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Mfr: {m.manufacturer}</span> : null}
+                    {canStorage && m.rackLocation ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Rack: {m.rackLocation}</span> : null}
+                    {canBarcode && m.barcode ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Barcode: {m.barcode}</span> : null}
+                    {canVariants && m.size ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Size: {m.size}</span> : null}
+                    {canVariants && m.color ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Color: {m.color}</span> : null}
+                    {canVariants && m.material ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Material: {m.material}</span> : null}
+                    {canSerial && m.serialNumber ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Serial: {m.serialNumber}</span> : null}
+                    {canSerial && m.imeiNumber ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">IMEI: {m.imeiNumber}</span> : null}
+                    {canWeight && m.grossWeight != null ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Gross: {m.grossWeight}</span> : null}
+                    {canWeight && m.tareWeight != null ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Tare: {m.tareWeight}</span> : null}
+                    {canWeight && m.netWeight != null ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Net: {m.netWeight}</span> : null}
+                    {canJewellery && m.purity != null ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Purity: {m.purity}%</span> : null}
+                    {canJewellery && m.makingCharges != null ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Making: {fmt(Number(m.makingCharges))}</span> : null}
+                  </div>
                 </button>
                 {/* Delete button */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setSelectedId(m.id); setShowEdit(true); setShowAddNew(false) }}
+                  className="absolute top-3 right-8 text-stone-300 hover:text-emerald-500 transition-colors text-xs z-10"
+                  title="Edit"
+                >
+                  ✎
+                </button>
                 <button onClick={(e) => { e.stopPropagation(); handleDelete(m.id, m.name) }}
                   className="absolute top-3 right-3 text-stone-300 hover:text-red-500 transition-colors text-xs z-10"
                   title={`Delete ${terms.material.toLowerCase()}`}>✕</button>
@@ -390,7 +1002,19 @@ export default function InventoryPage() {
                     placeholder={language === 'hi' ? 'जैसे: सप्लायर से खरीद' : language === 'hinglish' ? 'e.g. Supplier purchase' : 'e.g. Supplier purchase'}
                     className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
-                {siError && <div className="text-xs text-red-600">{siError}</div>}
+                {siError ? (
+                  <div className="space-y-2">
+                    <div className="text-xs text-red-600">{siError}</div>
+                    {siError.toLowerCase().includes('default location') ? (
+                      <Link
+                        href="/settings/locations"
+                        className="inline-flex rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-900/40"
+                      >
+                        Open Locations
+                      </Link>
+                    ) : null}
+                  </div>
+                ) : null}
                 <button type="submit" disabled={stockIn.isPending}
                   className="w-full py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50">
                   {stockIn.isPending ? (language === 'hi' ? 'सेव हो रहा है...' : language === 'hinglish' ? 'Save ho raha hai...' : 'Saving...') : (language === 'hi' ? 'स्टॉक में जोड़ें' : language === 'hinglish' ? `${terms.inventory} me add karo` : `Add to ${terms.inventory.toLowerCase()}`)}
@@ -440,6 +1064,89 @@ export default function InventoryPage() {
           </Card>
         </div>
       )}
+
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">Stock by location</div>
+          <div className="max-h-64 overflow-auto rounded-lg border border-stone-200 dark:border-slate-700">
+            <table className="w-full text-xs">
+              <thead className="bg-stone-50 dark:bg-slate-900">
+                <tr>
+                  <th className="px-2 py-2 text-left">Material</th>
+                  <th className="px-2 py-2 text-left">Location</th>
+                  <th className="px-2 py-2 text-right">Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(stockByLocation ?? []).slice(0, 150).map((row: any) => (
+                  <tr key={`${row.materialId}:${row.locationId}`} className="border-t border-stone-100 dark:border-slate-800">
+                    <td className="px-2 py-1.5">{row.materialName}</td>
+                    <td className="px-2 py-1.5">{row.locationName}</td>
+                    <td className="px-2 py-1.5 text-right">{Number(row.quantity).toFixed(2)} {row.unit}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">Stock transfer</div>
+          <form onSubmit={handleCreateTransfer} className="grid grid-cols-1 gap-2">
+            <select
+              value={transferFromLocationId}
+              onChange={(e) => setTransferFromLocationId(e.target.value)}
+              className={inputClass}
+            >
+              <option value="">From location</option>
+              {activeLocations.map((loc: any) => (
+                <option key={`from-${loc.id}`} value={loc.id}>{loc.name}</option>
+              ))}
+            </select>
+            <select
+              value={transferToLocationId}
+              onChange={(e) => setTransferToLocationId(e.target.value)}
+              className={inputClass}
+            >
+              <option value="">To location</option>
+              {activeLocations.filter((loc: any) => loc.id !== transferFromLocationId).map((loc: any) => (
+                <option key={`to-${loc.id}`} value={loc.id}>{loc.name}</option>
+              ))}
+            </select>
+            <select
+              value={transferMaterialId}
+              onChange={(e) => setTransferMaterialId(e.target.value)}
+              className={inputClass}
+            >
+              <option value="">Material</option>
+              {list.map((m: any) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min={0.001}
+              step={0.001}
+              value={transferQty}
+              onChange={(e) => setTransferQty(e.target.value)}
+              max={availableTransferQty > 0 ? availableTransferQty : undefined}
+              placeholder="Quantity"
+              className={inputClass}
+            />
+            <div className="text-[11px] text-stone-500 dark:text-slate-400">
+              Available at source: {availableTransferQty.toFixed(3)}
+            </div>
+            {transferError ? <div className="text-xs text-red-600">{transferError}</div> : null}
+            <button
+              type="submit"
+              disabled={createTransfer.isPending}
+              className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60 dark:bg-sky-500 dark:text-slate-950"
+            >
+              {createTransfer.isPending ? 'Transferring...' : 'Transfer stock'}
+            </button>
+          </form>
+        </Card>
+      </div>
       </div>
 
       {selectedMat ? (
@@ -454,8 +1161,12 @@ export default function InventoryPage() {
           {language === 'hi' ? '+ स्टॉक जोड़ें' : language === 'hinglish' ? `+ ${terms.inventory} add karo` : `+ Add ${terms.inventory.toLowerCase()}`}
         </button>
       ) : null}
+      </>
+      ) : null}
     </AppShell>
   )
 }
+
+
 
 

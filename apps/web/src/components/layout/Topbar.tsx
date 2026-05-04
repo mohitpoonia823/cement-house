@@ -8,6 +8,7 @@ import { getDeferredInstallPrompt } from '@/lib/pwa-install'
 import { NotificationBell } from './NotificationBell'
 import { useI18n } from '@/lib/i18n'
 import { LanguageSelect } from '@/components/common/LanguageSelect'
+import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 
 type InstallTarget = 'android' | 'ios' | 'desktop' | 'other'
 
@@ -38,12 +39,14 @@ export function Topbar() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { user, logout } = useAuthStore()
+  const { hasModule, hasFeature } = useTenantCapabilities()
   const isOwner = user?.role === 'OWNER'
   const { t, language } = useI18n()
   const titleKey = pageTitles[pathname] ?? 'brand.cementHouse'
   const page = exportPageForPath(pathname)
   const [isExporting, setIsExporting] = useState(false)
   const [installTarget, setInstallTarget] = useState<InstallTarget>('other')
+  const [isInstalled, setIsInstalled] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(false)
   const locale = language === 'hi' ? 'hi-IN' : 'en-IN'
   const today = new Date().toLocaleDateString(locale, {
@@ -61,16 +64,26 @@ export function Topbar() {
   const mobileNavItems = navItems.filter((item) => {
     if (item.group === 'workspace' && item.href !== '/tickets') return isOwner
     if (item.group === 'insights') return isOwner
+    if (item.moduleKey && !hasModule(item.moduleKey)) return false
+    if (item.featureKey && !hasFeature(item.featureKey)) return false
     if (isOwner) return true
     if (item.permissionId) return user?.permissions?.includes(item.permissionId)
     return true
   })
+  const canCreateOrders = hasModule('orders')
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const standalone = window.matchMedia('(display-mode: standalone)').matches
+    const standalone = window.matchMedia('(display-mode: standalone)').matches || Boolean((window.navigator as any).standalone)
     const target = detectInstallTarget()
+    setIsInstalled(standalone)
     setInstallTarget(standalone ? 'other' : target)
+    const onInstalled = () => {
+      setIsInstalled(true)
+      setInstallTarget('other')
+    }
+    window.addEventListener('appinstalled', onInstalled)
+    return () => window.removeEventListener('appinstalled', onInstalled)
   }, [])
 
   useEffect(() => {
@@ -203,11 +216,16 @@ export function Topbar() {
               </svg>
             )}
           </button>
-          {installTarget !== 'other' ? (
+          {isInstalled ? (
+            <span className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-950/30 dark:text-emerald-200">
+              Installed
+            </span>
+          ) : null}
+          {installTarget !== 'other' && !isInstalled ? (
             <div className="group relative">
               <button
                 onClick={handleDesktopInstall}
-                className="inline-flex rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
+                className="inline-flex min-h-10 rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
               >
                 {installTarget === 'ios' ? 'Add to Home' : t('top.installApp')}
               </button>
@@ -224,18 +242,22 @@ export function Topbar() {
             {isExporting ? t('top.exporting') : t('top.exportCsv')}
           </button>
           <NotificationBell />
-          <Link
-            href="/orders/new"
-            className="hidden rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400 xl:inline-flex"
-          >
-            {t('top.newOrder')}
-          </Link>
-          <Link
-            href="/orders?openNewOrder=1"
-            className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400 xl:hidden"
-          >
-            {t('top.newOrder')}
-          </Link>
+          {canCreateOrders ? (
+            <>
+              <Link
+                href="/orders/new"
+                className="hidden rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400 xl:inline-flex"
+              >
+                {t('top.newOrder')}
+              </Link>
+              <Link
+                href="/orders?openNewOrder=1"
+                className="min-h-10 rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400 xl:hidden"
+              >
+                {t('top.newOrder')}
+              </Link>
+            </>
+          ) : null}
           <button
             onClick={logout}
             className="rounded-full border border-rose-200 px-4 py-2 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-50 dark:border-rose-400/40 dark:text-rose-200 dark:hover:bg-rose-500/10 xl:hidden"
@@ -258,8 +280,8 @@ export function Topbar() {
               href={item.href}
               className={
                 active
-                  ? 'rounded-full border border-slate-950 bg-slate-950 px-4 py-2 text-xs font-semibold text-white dark:border-sky-400 dark:bg-sky-400 dark:text-slate-950'
-                  : 'rounded-full border border-slate-200 bg-white/75 px-4 py-2 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200'
+                  ? 'min-h-10 rounded-full border border-slate-950 bg-slate-950 px-4 py-2 text-xs font-semibold text-white dark:border-sky-400 dark:bg-sky-400 dark:text-slate-950'
+                  : 'min-h-10 rounded-full border border-slate-200 bg-white/75 px-4 py-2 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200'
               }
             >
               {t(item.label)}

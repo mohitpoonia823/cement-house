@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { customersRepository } from '@cement-house/db'
 import { requireOwner, getBizId } from '../../middleware/auth'
+import { ensureUsageAllowed } from '../../services/subscription-access'
 const CUSTOMERS_LIST_CACHE_TTL_MS = 10_000
 const customersListCache = new Map<string, { expiresAt: number; value: any }>()
 const customersListInFlight = new Map<string, Promise<any>>()
@@ -129,6 +130,18 @@ export async function customerRoutes(app: FastifyInstance) {
     const bizId = getBizId(req)
     const body = CreateCustomerSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    try {
+      await ensureUsageAllowed(bizId, 'customers')
+    } catch (error: any) {
+      if (error.message === 'PLAN_EXPIRED') {
+        return reply.status(402).send({ success: false, code: 'PLAN_EXPIRED', error: 'Plan expired. Please renew your subscription.' })
+      }
+      if (error.message === 'LIMIT_EXCEEDED') {
+        return reply.status(403).send({ success: false, code: 'LIMIT_EXCEEDED', error: 'Customer limit reached for your current plan.' })
+      }
+      throw error
+    }
 
     const existing = await customersRepository.findCustomerByPhoneInBusiness(body.data.phone, bizId)
     if (existing) return reply.status(409).send({ success: false, error: 'Customer with this phone already exists' })

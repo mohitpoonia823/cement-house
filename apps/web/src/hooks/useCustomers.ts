@@ -10,7 +10,9 @@ export function useCustomers(
     queryFn:  () => api.get('/api/customers', { params: filters }).then(r => r.data.data),
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     retry: 1,
   })
 }

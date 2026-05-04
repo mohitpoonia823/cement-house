@@ -1,10 +1,10 @@
-import type { FastifyInstance } from 'fastify'
+﻿import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { ledgerRepository } from '@cement-house/db'
 import { getBizId } from '../../middleware/auth'
 
-const LEDGER_SUMMARY_CACHE_TTL_MS = 10_000
-const LEDGER_DETAIL_CACHE_TTL_MS = 10_000
+const LEDGER_SUMMARY_CACHE_TTL_MS = 60_000
+const LEDGER_DETAIL_CACHE_TTL_MS = 30_000
 const ledgerSummaryCache = new Map<string, { expiresAt: number; value: any }>()
 const ledgerSummaryInFlight = new Map<string, Promise<any>>()
 const ledgerDetailCache = new Map<string, { expiresAt: number; value: any }>()

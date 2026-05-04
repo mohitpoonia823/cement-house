@@ -33,10 +33,6 @@ export default function SuperAdminBusinessesPage() {
   const { data: billingConfig } = useSuperAdminBillingConfig()
 
   useEffect(() => {
-    if (billingConfig) setBillingDraft(billingConfig)
-  }, [billingConfig])
-
-  useEffect(() => {
     if (!data?.items) return
     const next = Object.fromEntries(
       data.items.map((business) => [
@@ -54,6 +50,10 @@ export default function SuperAdminBusinessesPage() {
     )
     setDrafts((current) => ({ ...current, ...next }))
   }, [data])
+
+  useEffect(() => {
+    if (billingConfig) setBillingDraft(billingConfig)
+  }, [billingConfig])
 
   const updateBusiness = useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: Record<string, unknown> }) =>
@@ -135,34 +135,27 @@ export default function SuperAdminBusinessesPage() {
       <Card className="mb-6">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Platform billing defaults</div>
-            <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">Admin-controlled trial and subscription pricing</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Plan pricing</div>
+            <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">Free trial + paid plan</div>
           </div>
           <button
             onClick={() => updateBillingConfig.mutate(billingDraft)}
             disabled={updateBillingConfig.isPending}
             className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white dark:bg-white dark:text-slate-950"
           >
-            {updateBillingConfig.isPending ? 'Saving...' : 'Save defaults'}
+            {updateBillingConfig.isPending ? 'Saving...' : 'Save plan'}
           </button>
         </div>
-        <div className="grid gap-4 xl:grid-cols-5">
+        <div className="grid gap-4 xl:grid-cols-3">
           <Field label="Trial days">
             <input type="number" min={1} max={90} value={billingDraft.trialDays} onChange={(e) => setBillingDraft((current) => ({ ...current, trialDays: Number(e.target.value) }))} className={inputCls} />
           </Field>
-          <Field label="Monthly price">
+          <Field label="Monthly plan">
             <input type="number" min={0} value={billingDraft.monthlyPrice} onChange={(e) => setBillingDraft((current) => ({ ...current, monthlyPrice: Number(e.target.value) }))} className={inputCls} />
           </Field>
-          <Field label="Yearly price">
+          <Field label="Yearly plan">
             <input type="number" min={0} value={billingDraft.yearlyPrice} onChange={(e) => setBillingDraft((current) => ({ ...current, yearlyPrice: Number(e.target.value) }))} className={inputCls} />
           </Field>
-          <Field label="Currency">
-            <input value={billingDraft.currency} maxLength={3} onChange={(e) => setBillingDraft((current) => ({ ...current, currency: e.target.value.toUpperCase() }))} className={inputCls} />
-          </Field>
-          <label className="flex items-end gap-2 rounded-2xl border border-slate-200/70 px-4 py-3 dark:border-slate-800">
-            <input type="checkbox" checked={billingDraft.trialRequiresCard} onChange={(e) => setBillingDraft((current) => ({ ...current, trialRequiresCard: e.target.checked }))} />
-            <span className="text-sm text-slate-700 dark:text-slate-200">Require card at trial signup</span>
-          </label>
         </div>
       </Card>
 

@@ -144,10 +144,10 @@ export default function LoginPage() {
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                 <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-900/70">
-                  Monthly {fmt(config?.monthlyPrice ?? 200)}
+                  Monthly {fmt(config?.monthlyPrice ?? 0)}
                 </span>
                 <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-900/70">
-                  Yearly {fmt(config?.yearlyPrice ?? 2100)}
+                  Yearly {fmt(config?.yearlyPrice ?? 0)}
                 </span>
               </div>
               <Link

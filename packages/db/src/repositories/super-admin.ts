@@ -828,3 +828,300 @@ export async function getBusinessForImpersonation(businessId: string) {
 
   return { ...business, users }
 }
+
+export async function getAdminDashboardOverview() {
+  const [overviewRows, revenueRows] = await Promise.all([
+    prisma.$queryRaw<
+      Array<{
+        totalBusinesses: number
+        activeSubscriptions: number
+        trialSubscriptions: number
+        expiredSubscriptions: number
+        failedPaymentsCount: number
+        totalUsers: number
+      }>
+    >`
+      SELECT
+        (SELECT COUNT(*)::int FROM businesses) AS "totalBusinesses",
+        (SELECT COUNT(*)::int FROM subscriptions WHERE status = 'ACTIVE') AS "activeSubscriptions",
+        (SELECT COUNT(*)::int FROM subscriptions WHERE status = 'TRIAL') AS "trialSubscriptions",
+        (SELECT COUNT(*)::int FROM subscriptions WHERE status = 'EXPIRED') AS "expiredSubscriptions",
+        (SELECT COUNT(*)::int FROM subscription_payments WHERE status = 'FAILED') AS "failedPaymentsCount",
+        (SELECT COUNT(*)::int FROM users) AS "totalUsers"
+    `,
+    prisma.$queryRaw<Array<{ totalRevenue: number }>>`
+      SELECT COALESCE(SUM(amount), 0)::double precision AS "totalRevenue"
+      FROM subscription_payments
+      WHERE status = 'SUCCESS'
+    `,
+  ])
+
+  return {
+    totalBusinesses: overviewRows[0]?.totalBusinesses ?? 0,
+    activeSubscriptions: overviewRows[0]?.activeSubscriptions ?? 0,
+    trialSubscriptions: overviewRows[0]?.trialSubscriptions ?? 0,
+    expiredSubscriptions: overviewRows[0]?.expiredSubscriptions ?? 0,
+    totalRevenue: revenueRows[0]?.totalRevenue ?? 0,
+    failedPaymentsCount: overviewRows[0]?.failedPaymentsCount ?? 0,
+    totalUsers: overviewRows[0]?.totalUsers ?? 0,
+  }
+}
+
+export async function getAdminPlanDistribution() {
+  return prisma.$queryRaw<
+    Array<{
+      planName: string
+      numberOfBusinesses: number
+    }>
+  >`
+    SELECT
+      p.name::text AS "planName",
+      COUNT(s.id)::int AS "numberOfBusinesses"
+    FROM plans p
+    LEFT JOIN subscriptions s ON s."planId" = p.id AND s.status IN ('TRIAL', 'ACTIVE', 'EXPIRED', 'CANCELLED')
+    GROUP BY p.name
+    ORDER BY COUNT(s.id) DESC, p.name ASC
+  `
+}
+
+export async function getAdminRevenueAnalytics() {
+  const [revenueByDay, revenueByMonth, revenueByPlan] = await Promise.all([
+    prisma.$queryRaw<
+      Array<{
+        day: string
+        revenue: number
+      }>
+    >`
+      WITH days AS (
+        SELECT generate_series(
+          date_trunc('day', NOW()) - interval '29 day',
+          date_trunc('day', NOW()),
+          interval '1 day'
+        )::date AS day
+      )
+      SELECT
+        d.day::text AS day,
+        COALESCE(SUM(sp.amount), 0)::double precision AS revenue
+      FROM days d
+      LEFT JOIN subscription_payments sp
+        ON date_trunc('day', sp."createdAt")::date = d.day
+       AND sp.status = 'SUCCESS'
+      GROUP BY d.day
+      ORDER BY d.day ASC
+    `,
+    prisma.$queryRaw<
+      Array<{
+        month: string
+        revenue: number
+      }>
+    >`
+      SELECT
+        to_char(date_trunc('month', "createdAt"), 'YYYY-MM') AS month,
+        COALESCE(SUM(amount), 0)::double precision AS revenue
+      FROM subscription_payments
+      WHERE status = 'SUCCESS'
+      GROUP BY date_trunc('month', "createdAt")
+      ORDER BY date_trunc('month', "createdAt") ASC
+    `,
+    prisma.$queryRaw<
+      Array<{
+        planName: string
+        revenue: number
+      }>
+    >`
+      SELECT
+        p.name::text AS "planName",
+        COALESCE(SUM(sp.amount), 0)::double precision AS revenue
+      FROM subscription_payments sp
+      INNER JOIN plans p ON p.id = sp."planId"
+      WHERE sp.status = 'SUCCESS'
+      GROUP BY p.name
+      ORDER BY revenue DESC, p.name ASC
+    `,
+  ])
+
+  return { revenueByDay, revenueByMonth, revenueByPlan }
+}
+
+export async function listAdminPayments(input: {
+  status?: 'SUCCESS' | 'FAILED' | 'PENDING'
+  startDate?: Date
+  endDate?: Date
+}) {
+  const filters: Prisma.Sql[] = [Prisma.sql`1 = 1`]
+  if (input.status) filters.push(Prisma.sql`sp.status = ${input.status}`)
+  if (input.startDate) filters.push(Prisma.sql`sp."createdAt" >= ${input.startDate}`)
+  if (input.endDate) filters.push(Prisma.sql`sp."createdAt" <= ${input.endDate}`)
+
+  return prisma.$queryRaw<
+    Array<{
+      paymentId: string
+      businessId: string
+      planName: string
+      amount: number
+      status: string
+      createdAt: Date
+    }>
+  >(Prisma.sql`
+    SELECT
+      sp.id AS "paymentId",
+      sp."businessId" AS "businessId",
+      p.name::text AS "planName",
+      sp.amount::double precision AS amount,
+      sp.status::text AS status,
+      sp."createdAt" AS "createdAt"
+    FROM subscription_payments sp
+    INNER JOIN plans p ON p.id = sp."planId"
+    WHERE ${Prisma.join(filters, ' AND ')}
+    ORDER BY sp."createdAt" DESC
+    LIMIT 500
+  `)
+}
+
+export async function listAdminWebhookLogs() {
+  return prisma.$queryRaw<
+    Array<{
+      eventId: string
+      eventType: string
+      status: string
+      processedAt: Date | null
+      error: string | null
+      createdAt: Date
+    }>
+  >`
+    SELECT
+      "eventId" AS "eventId",
+      "eventType" AS "eventType",
+      CASE WHEN processed THEN 'PROCESSED' ELSE 'PENDING' END AS status,
+      "processedAt" AS "processedAt",
+      NULL::text AS error,
+      "createdAt" AS "createdAt"
+    FROM razorpay_webhook_events
+    ORDER BY "createdAt" DESC
+    LIMIT 500
+  `
+}
+
+export async function listAdminBusinessesForDashboard() {
+  return prisma.$queryRaw<
+    Array<{
+      businessId: string
+      name: string
+      plan: string
+      subscriptionStatus: string
+      subscriptionEndsAt: Date | null
+      createdAt: Date
+    }>
+  >`
+    SELECT
+      b.id AS "businessId",
+      b.name,
+      b."subscriptionPlan"::text AS plan,
+      b."subscriptionStatus"::text AS "subscriptionStatus",
+      b."subscriptionEndsAt" AS "subscriptionEndsAt",
+      b."createdAt" AS "createdAt"
+    FROM businesses b
+    ORDER BY b."createdAt" DESC
+    LIMIT 500
+  `
+}
+
+export async function suspendBusinessByAdmin(input: { businessId: string; reason?: string | null }) {
+  return updateBusiness(input.businessId, {
+    isActive: false,
+    suspendedReason: input.reason ?? 'Suspended by super admin',
+    subscriptionStatus: 'SUSPENDED',
+  })
+}
+
+export async function changeBusinessPlanByAdmin(input: {
+  businessId: string
+  plan: 'STARTER' | 'PRO' | 'ENTERPRISE'
+}) {
+  return updateBusiness(input.businessId, {
+    subscriptionPlan: input.plan,
+  })
+}
+
+export async function extendBusinessSubscriptionByAdmin(input: {
+  businessId: string
+  days: number
+}) {
+  const current = await getBusinessById(input.businessId)
+  if (!current) return null
+  const base = current.subscriptionEndsAt ? new Date(current.subscriptionEndsAt) : new Date()
+  const next = new Date(base)
+  next.setDate(next.getDate() + Math.max(1, input.days))
+  return updateBusiness(input.businessId, {
+    subscriptionEndsAt: next.toISOString(),
+    subscriptionStatus: current.subscriptionStatus === 'SUSPENDED' ? 'ACTIVE' : current.subscriptionStatus,
+  })
+}
+
+export type AdminPlanPricingRow = {
+  id: string
+  name: 'FREE' | 'BASIC' | 'PRO' | 'ENTERPRISE'
+  priceMonthly: number
+  priceYearly: number
+  description: string | null
+  isActive: boolean
+}
+
+export async function listAdminPlanPricing() {
+  return prisma.$queryRaw<AdminPlanPricingRow[]>`
+    SELECT
+      id,
+      name::text AS name,
+      "priceMonthly"::double precision AS "priceMonthly",
+      "priceYearly"::double precision AS "priceYearly",
+      description,
+      "isActive" AS "isActive"
+    FROM plans
+    ORDER BY
+      CASE name
+        WHEN 'FREE' THEN 1
+        WHEN 'BASIC' THEN 2
+        WHEN 'PRO' THEN 3
+        WHEN 'ENTERPRISE' THEN 4
+        ELSE 100
+      END ASC
+  `
+}
+
+export async function updateAdminPlanPricing(input: {
+  name: 'FREE' | 'BASIC' | 'PRO' | 'ENTERPRISE'
+  priceMonthly: number
+  priceYearly: number
+  description?: string | null
+  isActive?: boolean
+}) {
+  const rows = await prisma.$queryRaw<AdminPlanPricingRow[]>(Prisma.sql`
+    INSERT INTO plans (id, name, "priceMonthly", "priceYearly", description, "isActive", features, "createdAt", "updatedAt")
+    VALUES (
+      ${`plan_${input.name.toLowerCase()}`},
+      ${input.name},
+      ${input.priceMonthly},
+      ${input.priceYearly},
+      ${input.description ?? null},
+      COALESCE(${input.isActive ?? null}, TRUE),
+      '{}'::jsonb,
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT (name)
+    DO UPDATE SET
+      "priceMonthly" = EXCLUDED."priceMonthly",
+      "priceYearly" = EXCLUDED."priceYearly",
+      description = COALESCE(EXCLUDED.description, plans.description),
+      "isActive" = COALESCE(${input.isActive ?? null}, plans."isActive"),
+      "updatedAt" = NOW()
+    RETURNING
+      id,
+      name::text AS name,
+      "priceMonthly"::double precision AS "priceMonthly",
+      "priceYearly"::double precision AS "priceYearly",
+      description,
+      "isActive" AS "isActive"
+  `)
+  return rows[0] ?? null
+}

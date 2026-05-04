@@ -2,5 +2,7 @@
   "name": "@cement-house/utils",
   "version": "1.0.0",
   "private": true,
-  "exports": { ".": "./src/index.ts" }
+  "exports": {
+    ".": "./src/index.ts"
+  }
 }

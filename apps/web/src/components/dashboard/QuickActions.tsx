@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 
 interface Action {
   label: string
@@ -69,16 +70,29 @@ const actions: Action[] = [
 ]
 
 export function QuickActions() {
+  const { hasModule, hasFeature } = useTenantCapabilities()
+  const canDelivery = hasModule('delivery') && hasFeature('transportManagement')
+  const canInventory = hasModule('inventory')
+  const canOrders = hasModule('orders')
+  const canPayments = hasModule('payments')
+  const visible = actions.filter((action) => {
+    if (action.href === '/delivery') return canDelivery
+    if (action.href === '/inventory') return canInventory
+    if (action.href === '/orders/new') return canOrders
+    if (action.href === '/khata') return canPayments
+    return true
+  })
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-4">
       <div className="text-xs font-medium text-gray-900 dark:text-gray-100 mb-2">Quick actions</div>
 
-      {actions.map((a, i) => (
+      {visible.map((a, i) => (
         <Link
           key={a.href}
           href={a.href}
           className={`flex items-center justify-between py-2.5 cursor-pointer group ${
-            i < actions.length - 1 ? 'border-b border-gray-100 dark:border-gray-700' : ''
+            i < visible.length - 1 ? 'border-b border-gray-100 dark:border-gray-700' : ''
           }`}
         >
           <div className="flex items-center gap-2">

@@ -14,6 +14,7 @@ import { cn, fmt, fmtDate } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth'
 import { useI18n } from '@/lib/i18n'
 import { businessTerms } from '@/lib/business-terms'
+import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 
 const RevenueRhythmChart = dynamic(
   () => import('@/components/dashboard/DashboardCharts').then((mod) => mod.RevenueRhythmChart),
@@ -113,7 +114,12 @@ function DashboardContent() {
 
   const { data, isLoading } = useDashboard(dashboardQuery)
   const { user } = useAuthStore()
+  const { hasModule, hasFeature } = useTenantCapabilities()
   const terms = businessTerms(user?.businessType as any, user?.customLabels as any)
+  const canOrders = hasModule('orders')
+  const canPayments = hasModule('payments')
+  const canInventory = hasModule('inventory')
+  const canDelivery = hasModule('delivery') && hasFeature('transportManagement')
   const { data: customers } = useCustomers(undefined, { enabled: user?.role === 'OWNER' })
   const sendReminders = useSendReminders()
 
@@ -481,10 +487,10 @@ function DashboardContent() {
             <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">{tr('Move faster', 'तेजी से काम करें', 'Move faster')}</div>
           </div>
           <div className="space-y-3">
-            <ActionLink title={tr('New order', 'नया ऑर्डर', 'Naya order')} sub={tr('Create and dispatch a sales order', 'सेल्स ऑर्डर बनाएं और डिस्पैच करें', 'Sales order banao aur dispatch karo')} href="/orders/new" />
-            <ActionLink title={tr('Record payment', 'भुगतान दर्ज करें', 'Payment record karo')} sub={tr('Update khata and clear balances', 'खाता अपडेट करें और बकाया साफ करें', 'Khata update karo aur balances clear karo')} href="/khata" />
-            <ActionLink title={tr('Stock purchase', 'स्टॉक खरीद', 'Stock purchase')} sub={tr('Add inventory or replenish fast movers', 'इन्वेंट्री जोड़ें या फास्ट मूवर्स रीफिल करें', 'Inventory add karo ya fast movers replenish karo')} href="/inventory" />
-            <ActionLink title={tr('Create delivery', 'डिलीवरी बनाएं', 'Delivery create karo')} sub={tr('Manage challan and delivery status', 'चालान और डिलीवरी स्टेटस मैनेज करें', 'Challan aur delivery status manage karo')} href="/delivery" />
+            {canOrders ? <ActionLink title={tr('New order', 'नया ऑर्डर', 'Naya order')} sub={tr('Create and dispatch a sales order', 'सेल्स ऑर्डर बनाएं और डिस्पैच करें', 'Sales order banao aur dispatch karo')} href="/orders/new" /> : null}
+            {canPayments ? <ActionLink title={tr('Record payment', 'भुगतान दर्ज करें', 'Payment record karo')} sub={tr('Update khata and clear balances', 'खाता अपडेट करें और बकाया साफ करें', 'Khata update karo aur balances clear karo')} href="/khata" /> : null}
+            {canInventory ? <ActionLink title={tr('Stock purchase', 'स्टॉक खरीद', 'Stock purchase')} sub={tr('Add inventory or replenish fast movers', 'इन्वेंट्री जोड़ें या फास्ट मूवर्स रीफिल करें', 'Inventory add karo ya fast movers replenish karo')} href="/inventory" /> : null}
+            {canDelivery ? <ActionLink title={tr('Create delivery', 'डिलीवरी बनाएं', 'Delivery create karo')} sub={tr('Manage challan and delivery status', 'चालान और डिलीवरी स्टेटस मैनेज करें', 'Challan aur delivery status manage karo')} href="/delivery" /> : null}
             {user?.role === 'OWNER' ? (
               <button
                 onClick={handleSendReminders}

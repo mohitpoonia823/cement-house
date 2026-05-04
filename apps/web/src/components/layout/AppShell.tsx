@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { AskAdminFab } from './AskAdminFab'
+import { MobileBottomNav } from './MobileBottomNav'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { token, user, originalAdminSession, restoreAdminSession, logout } = useAuthStore()
@@ -67,8 +68,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         )}
-        <main className="flex-1 px-3 pb-6 sm:px-4 md:px-6">{children}</main>
+        <main className="flex-1 px-3 pb-24 sm:px-4 md:px-6 xl:pb-6">{children}</main>
         {!pathname.startsWith('/tickets') ? <AskAdminFab /> : null}
+        <MobileBottomNav />
       </div>
     </div>
   )

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { inventoryRepository } from '@cement-house/db'
+import { inventoryRepository, multiLocationRepository, type Prisma } from '@cement-house/db'
 import { getBizId } from '../../middleware/auth'
 import { createHash } from 'node:crypto'
 import { PurchaseBillScannerConfigError, scanPurchaseBillImage } from '../../services/purchase-bill-scanner'
@@ -10,6 +10,7 @@ import {
   listBillImagesForBusiness,
   uploadBillImageIfConfigured,
 } from '../../services/bill-image-storage'
+import { ensureUsageAllowed } from '../../services/subscription-access'
 
 const INVENTORY_LIST_CACHE_TTL_MS = 10_000
 const INVENTORY_MOVEMENTS_CACHE_TTL_MS = 10_000
@@ -61,17 +62,108 @@ const AdjustSchema = z.object({
 
 const CreateMaterialSchema = z.object({
   name: z.string().min(2),
+  category: z.string().trim().max(80).optional(),
   unit: z.string().min(1),
   stockQty: z.number().min(0).default(0),
   minThreshold: z.number().min(0).default(0),
   maxThreshold: z.number().min(0).optional(),
   purchasePrice: z.number().min(0),
   salePrice: z.number().min(0),
+  barcode: z.string().trim().max(120).optional(),
+  batchNumber: z.string().trim().max(120).optional(),
+  expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  manufactureDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  manufacturer: z.string().trim().max(120).optional(),
+  rackLocation: z.string().trim().max(80).optional(),
+  size: z.string().trim().max(60).optional(),
+  color: z.string().trim().max(60).optional(),
+  material: z.string().trim().max(80).optional(),
+  weight: z.number().min(0).optional(),
+  purity: z.number().min(0).max(100).optional(),
+  makingCharges: z.number().min(0).optional(),
+  serialNumber: z.string().trim().max(120).optional(),
+  imeiNumber: z.string().trim().max(20).optional(),
+  grossWeight: z.number().min(0).optional(),
+  tareWeight: z.number().min(0).optional(),
+  netWeight: z.number().min(0).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  allowPastExpiry: z.boolean().optional(),
+})
+
+const UpdateMaterialSchema = CreateMaterialSchema.extend({
+  id: z.string().uuid(),
 })
 
 const BulkDeleteSchema = z.object({
   ids: z.array(z.string().uuid()).min(1),
 })
+
+const StockByLocationQuerySchema = z.object({
+  materialId: z.string().uuid().optional(),
+  locationId: z.string().uuid().optional(),
+})
+
+type AuthFeatureUser = {
+  featureFlags?: Record<string, boolean> | null
+}
+
+function hasFeature(req: any, key: string) {
+  const user = req.user as AuthFeatureUser
+  return Boolean(user?.featureFlags && typeof user.featureFlags === 'object' && user.featureFlags[key] === true)
+}
+
+function isMedicineLikeCategory(value?: string | null) {
+  const v = String(value ?? '').trim().toLowerCase()
+  if (!v) return false
+  return v.includes('med') || v.includes('pharma') || v.includes('drug') || v.includes('medicine')
+}
+
+function validateMaterialByFeatures(
+  req: any,
+  payload: z.infer<typeof CreateMaterialSchema>,
+): string | null {
+  if (hasFeature(req, 'expiryTracking') && isMedicineLikeCategory(payload.category) && !payload.expiryDate) {
+    return 'expiryDate is required for medicine/pharmacy category when expiry tracking is enabled'
+  }
+  if (!hasFeature(req, 'barcodeSupport') && payload.barcode) return 'Barcode is not enabled for this workspace'
+  if (!hasFeature(req, 'batchTracking') && payload.batchNumber) return 'Batch tracking is not enabled for this workspace'
+  if (!hasFeature(req, 'expiryTracking') && (payload.expiryDate || payload.manufactureDate)) {
+    return 'Expiry tracking is not enabled for this workspace'
+  }
+  if (!hasFeature(req, 'serialTracking') && (payload.serialNumber || payload.imeiNumber)) {
+    return 'Serial tracking is not enabled for this workspace'
+  }
+  if (!hasFeature(req, 'weightBasedBilling') && (payload.grossWeight || payload.tareWeight || payload.netWeight || payload.weight)) {
+    return 'Weight-based billing is not enabled for this workspace'
+  }
+  if (!hasFeature(req, 'variants') && (payload.size || payload.color || payload.material)) {
+    return 'Variants are not enabled for this workspace'
+  }
+  if (!payload.allowPastExpiry && payload.expiryDate) {
+    const expiry = new Date(`${payload.expiryDate}T00:00:00.000Z`)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    if (expiry.getTime() < today.getTime() && Number(payload.stockQty ?? 0) > 0) {
+      return 'expiryDate cannot be in the past unless allowPastExpiry is true'
+    }
+  }
+  return null
+}
+
+function withDerivedWeightFields<T extends z.infer<typeof CreateMaterialSchema>>(payload: T): T {
+  if (
+    payload.netWeight == null &&
+    payload.grossWeight != null &&
+    payload.tareWeight != null
+  ) {
+    const derived = payload.grossWeight - payload.tareWeight
+    return {
+      ...payload,
+      netWeight: derived > 0 ? Number(derived.toFixed(3)) : 0,
+    } as T
+  }
+  return payload
+}
 
 const BillScanSchema = z.object({
   fileName: z.string().trim().max(180).optional(),
@@ -178,15 +270,27 @@ export async function inventoryRoutes(app: FastifyInstance) {
     const bizId = getBizId(req)
     const body = StockInSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
-
-    const updated = await inventoryRepository.stockInMaterial({
-      materialId: body.data.materialId,
-      businessId: bizId,
-      recordedById: user.id,
-      quantity: body.data.quantity,
-      purchasePrice: body.data.purchasePrice,
-      reason: body.data.reason,
-    })
+    let updated
+    try {
+      updated = await inventoryRepository.stockInMaterial({
+        materialId: body.data.materialId,
+        businessId: bizId,
+        recordedById: user.id,
+        quantity: body.data.quantity,
+        purchasePrice: body.data.purchasePrice,
+        reason: body.data.reason,
+      })
+    } catch (error: any) {
+      const message = String(error?.message ?? '')
+      if (message.includes('Default location is not configured')) {
+        return reply.status(400).send({
+          success: false,
+          code: 'DEFAULT_LOCATION_MISSING',
+          error: 'Default location is not configured. Go to Settings > Locations and set one location as default.',
+        })
+      }
+      throw error
+    }
 
     if (!updated) return reply.status(404).send({ success: false, error: 'Material not found' })
     invalidateInventoryCacheForBusiness(bizId)
@@ -210,6 +314,18 @@ export async function inventoryRoutes(app: FastifyInstance) {
     if (!adjusted) return reply.status(404).send({ success: false, error: 'Material not found' })
     invalidateInventoryCacheForBusiness(bizId)
     return { success: true }
+  })
+
+  app.get('/stock-by-location', async (req, reply) => {
+    const bizId = getBizId(req)
+    const query = StockByLocationQuerySchema.safeParse(req.query)
+    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    const rows = await multiLocationRepository.getStockByLocation({
+      businessId: bizId,
+      materialId: query.data.materialId,
+      locationId: query.data.locationId,
+    })
+    return { success: true, data: rows }
   })
 
   app.post('/bill-scans', { bodyLimit: 12_000_000 }, async (req, reply) => {
@@ -539,12 +655,58 @@ export async function inventoryRoutes(app: FastifyInstance) {
     const bizId = getBizId(req)
     const body = CreateMaterialSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    const normalized = withDerivedWeightFields(body.data)
+    const validationError = validateMaterialByFeatures(req, normalized)
+    if (validationError) return reply.status(400).send({ success: false, error: validationError })
 
+    try {
+      await ensureUsageAllowed(bizId, 'products')
+    } catch (error: any) {
+      if (error.message === 'PLAN_EXPIRED') {
+        return reply.status(402).send({ success: false, code: 'PLAN_EXPIRED', error: 'Plan expired. Please renew your subscription.' })
+      }
+      if (error.message === 'LIMIT_EXCEEDED') {
+        return reply.status(403).send({ success: false, code: 'LIMIT_EXCEEDED', error: 'Product limit reached for your current plan.' })
+      }
+      throw error
+    }
+
+    const createPayload = {
+      ...normalized,
+      metadata: (normalized.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
+    }
+    delete (createPayload as any).allowPastExpiry
     const material = await inventoryRepository.createMaterial({
-      ...body.data,
+      ...createPayload,
       businessId: bizId,
     })
 
+    invalidateInventoryCacheForBusiness(bizId)
+    return { success: true, data: material }
+  })
+
+  app.patch('/:id', async (req, reply) => {
+    const bizId = getBizId(req)
+    const params = MaterialIdParamsSchema.safeParse(req.params)
+    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    const body = UpdateMaterialSchema.safeParse({ ...(req.body as object), id: params.data.id })
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    const normalized = withDerivedWeightFields(body.data)
+    const validationError = validateMaterialByFeatures(req, normalized)
+    if (validationError) return reply.status(400).send({ success: false, error: validationError })
+    const { id: _id, ...payload } = normalized
+
+    const updatePayload = {
+      ...payload,
+      metadata: (payload.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
+    }
+    delete (updatePayload as any).allowPastExpiry
+    const material = await inventoryRepository.updateMaterial({
+      ...updatePayload,
+      materialId: params.data.id,
+      businessId: bizId,
+    })
+    if (!material) return reply.status(404).send({ success: false, error: 'Material not found' })
     invalidateInventoryCacheForBusiness(bizId)
     return { success: true, data: material }
   })
