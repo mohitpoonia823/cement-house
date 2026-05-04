@@ -966,14 +966,95 @@ export async function markDeliveredAndCloseDeliveries(orderId: string, businessI
 
 export async function softDeleteOrder(orderId: string, businessId: string) {
   await prisma.$transaction(async (tx) => {
-    const ownedOrder = await tx.$queryRaw<Array<{ id: string; sourceLocationId: string | null }>>(Prisma.sql`
-      SELECT id, "sourceLocationId" AS "sourceLocationId"
+    const orderRows = await tx.$queryRaw<Array<{
+      id: string
+      status: 'DRAFT' | 'CONFIRMED' | 'DISPATCHED' | 'DELIVERED' | 'CANCELLED'
+      customerId: string
+      createdById: string
+      paymentMode: 'CASH' | 'UPI' | 'CHEQUE' | 'CREDIT' | 'PARTIAL'
+      totalAmount: number
+      amountPaid: number
+      orderNumber: string
+    }>>(Prisma.sql`
+      SELECT
+        id,
+        status::text AS status,
+        "customerId" AS "customerId",
+        "createdById" AS "createdById",
+        "paymentMode"::text AS "paymentMode",
+        "totalAmount"::double precision AS "totalAmount",
+        "amountPaid"::double precision AS "amountPaid",
+        "orderNumber" AS "orderNumber"
       FROM orders
       WHERE id = ${orderId} AND "businessId" = ${businessId} AND "isDeleted" = false
       LIMIT 1
     `)
-    if (ownedOrder.length === 0) throw new Error('Order not found for this business')
     const sourceLocationId = await resolveSourceLocationId(businessId, ownedOrder[0]?.sourceLocationId)
+    const order = orderRows[0]
+    if (!order) throw new Error('ORDER_NOT_FOUND')
+
+    const items = await tx.$queryRaw<Array<{ materialId: string; quantity: number }>>(Prisma.sql`
+      SELECT "materialId" AS "materialId", quantity::double precision AS quantity
+      FROM order_items
+      WHERE "orderId" = ${orderId}
+    `)
+
+    const shouldRestoreStock = order.status !== 'DELIVERED'
+    if (shouldRestoreStock) {
+      for (const item of items) {
+        await tx.$executeRaw(Prisma.sql`
+          UPDATE materials
+          SET "stockQty" = "stockQty" + ${item.quantity}, "updatedAt" = NOW()
+          WHERE id = ${item.materialId}
+        `)
+      }
+      await tx.$executeRaw(Prisma.sql`DELETE FROM stock_movements WHERE "orderId" = ${orderId}`)
+    }
+
+    const dueAmount = order.totalAmount - order.amountPaid
+    const shouldKeepKhata = order.status === 'DELIVERED' && dueAmount > 0
+    if (shouldKeepKhata) {
+      const ref = `SOFT_DELETED_ORDER:${order.orderNumber}`
+      const note = `Order soft-deleted after delivery; pending due retained in khata.`
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE ledger_entries
+        SET
+          reference = COALESCE(reference, ${ref}),
+          notes = COALESCE(notes, ${note})
+        WHERE "orderId" = ${orderId}
+      `)
+    } else {
+      await tx.$executeRaw(Prisma.sql`DELETE FROM ledger_entries WHERE "orderId" = ${orderId}`)
+    }
+
+    if (order.status !== 'DELIVERED') {
+      await tx.$executeRaw(Prisma.sql`
+        DELETE FROM delivery_items
+        WHERE "deliveryId" IN (SELECT id FROM deliveries WHERE "orderId" = ${orderId})
+      `)
+      await tx.$executeRaw(Prisma.sql`DELETE FROM deliveries WHERE "orderId" = ${orderId}`)
+    }
+
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE orders
+      SET "isDeleted" = true, "updatedAt" = NOW()
+      WHERE id = ${orderId} AND "businessId" = ${businessId}
+    `)
+  }, { maxWait: 10000, timeout: 15000 })
+}
+
+export async function cancelOrderWithReversal(orderId: string, businessId: string) {
+  await prisma.$transaction(async (tx) => {
+    const orderRows = await tx.$queryRaw<Array<{ status: 'DRAFT' | 'CONFIRMED' | 'DISPATCHED' | 'DELIVERED' | 'CANCELLED' }>>(Prisma.sql`
+      SELECT status::text AS status
+      FROM orders
+      WHERE id = ${orderId} AND "businessId" = ${businessId} AND "isDeleted" = false
+      LIMIT 1
+    `)
+    const current = orderRows[0]
+    if (!current) throw new Error('ORDER_NOT_FOUND')
+    if (current.status === 'DELIVERED') throw new Error('DELIVERED_ORDER_CANNOT_BE_CANCELLED')
+    if (current.status === 'CANCELLED') return
 
     const items = await tx.$queryRaw<Array<{ materialId: string; quantity: number }>>(Prisma.sql`
       SELECT oi."materialId" AS "materialId", oi.quantity::double precision AS quantity
@@ -1015,7 +1096,7 @@ export async function softDeleteOrder(orderId: string, businessId: string) {
 
     await tx.$executeRaw(Prisma.sql`
       UPDATE orders
-      SET "isDeleted" = true, "updatedAt" = NOW()
+      SET status = 'CANCELLED'::"OrderStatus", "updatedAt" = NOW()
       WHERE id = ${orderId} AND "businessId" = ${businessId}
     `)
   }, { maxWait: 10000, timeout: 15000 })
