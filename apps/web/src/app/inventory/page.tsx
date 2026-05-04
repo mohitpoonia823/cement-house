@@ -188,6 +188,13 @@ export default function InventoryPage() {
 
   // Bulk selection
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    open: boolean
+    mode: 'single' | 'bulk'
+    id?: string
+    name?: string
+    ids?: string[]
+  }>({ open: false, mode: 'single' })
   const list = materials ?? []
   const unitOptions = useMemo(() => {
     const merged = [...unitPreset.all, ...list.map((m: any) => String(m.unit ?? '').trim()).filter(Boolean)]
@@ -329,19 +336,46 @@ export default function InventoryPage() {
   }
 
   function handleDelete(id: string, name: string) {
-    if (!confirm(`Delete "${name}" from ${terms.inventory.toLowerCase()}? It will be deactivated.`)) return
-    deleteMaterial.mutate(id, { onSuccess: () => {
-      setSelected(prev => { const n = new Set(prev); n.delete(id); return n })
-      if (selectedId === id) setSelectedId('')
-    }})
+    setDeleteConfirm({ open: true, mode: 'single', id, name })
   }
 
   function handleBulkDelete() {
-    if (!confirm(`Delete ${selected.size} selected ${terms.material.toLowerCase()}(s) from ${terms.inventory.toLowerCase()}?`)) return
-    bulkDelete.mutate([...selected], { onSuccess: () => {
-      setSelected(new Set())
-      if (selected.has(selectedId)) setSelectedId('')
-    }})
+    if (selected.size === 0) return
+    setDeleteConfirm({ open: true, mode: 'bulk', ids: [...selected] })
+  }
+
+  function closeDeleteConfirm() {
+    if (deleteMaterial.isPending || bulkDelete.isPending) return
+    setDeleteConfirm({ open: false, mode: 'single' })
+  }
+
+  function confirmDelete() {
+    if (deleteConfirm.mode === 'single' && deleteConfirm.id) {
+      const id = deleteConfirm.id
+      deleteMaterial.mutate(id, {
+        onSuccess: () => {
+          setSelected((prev) => {
+            const n = new Set(prev)
+            n.delete(id)
+            return n
+          })
+          if (selectedId === id) setSelectedId('')
+          setDeleteConfirm({ open: false, mode: 'single' })
+        },
+      })
+      return
+    }
+
+    if (deleteConfirm.mode === 'bulk' && deleteConfirm.ids && deleteConfirm.ids.length > 0) {
+      const ids = deleteConfirm.ids
+      bulkDelete.mutate(ids, {
+        onSuccess: () => {
+          setSelected(new Set())
+          if (selected.has(selectedId)) setSelectedId('')
+          setDeleteConfirm({ open: false, mode: 'single' })
+        },
+      })
+    }
   }
 
   const selectedMat = list.find((m: any) => m.id === selectedId)
