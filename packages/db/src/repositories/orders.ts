@@ -968,6 +968,7 @@ export async function softDeleteOrder(orderId: string, businessId: string) {
   await prisma.$transaction(async (tx) => {
     const orderRows = await tx.$queryRaw<Array<{
       id: string
+      sourceLocationId: string | null
       status: 'DRAFT' | 'CONFIRMED' | 'DISPATCHED' | 'DELIVERED' | 'CANCELLED'
       customerId: string
       createdById: string
@@ -978,6 +979,7 @@ export async function softDeleteOrder(orderId: string, businessId: string) {
     }>>(Prisma.sql`
       SELECT
         id,
+        "sourceLocationId" AS "sourceLocationId",
         status::text AS status,
         "customerId" AS "customerId",
         "createdById" AS "createdById",
@@ -989,9 +991,9 @@ export async function softDeleteOrder(orderId: string, businessId: string) {
       WHERE id = ${orderId} AND "businessId" = ${businessId} AND "isDeleted" = false
       LIMIT 1
     `)
-    const sourceLocationId = await resolveSourceLocationId(businessId, ownedOrder[0]?.sourceLocationId)
     const order = orderRows[0]
     if (!order) throw new Error('ORDER_NOT_FOUND')
+    const sourceLocationId = await resolveSourceLocationId(businessId, order.sourceLocationId)
 
     const items = await tx.$queryRaw<Array<{ materialId: string; quantity: number }>>(Prisma.sql`
       SELECT "materialId" AS "materialId", quantity::double precision AS quantity
@@ -1002,13 +1004,15 @@ export async function softDeleteOrder(orderId: string, businessId: string) {
     const shouldRestoreStock = order.status !== 'DELIVERED'
     if (shouldRestoreStock) {
       for (const item of items) {
-        await tx.$executeRaw(Prisma.sql`
-          UPDATE materials
-          SET "stockQty" = "stockQty" + ${item.quantity}, "updatedAt" = NOW()
-          WHERE id = ${item.materialId}
-        `)
+        await adjustMaterialLocationStock(tx, {
+          businessId,
+          materialId: item.materialId,
+          locationId: sourceLocationId,
+          deltaQty: item.quantity,
+          allowNegativeStock: true,
+        })
       }
-      await tx.$executeRaw(Prisma.sql`DELETE FROM stock_movements WHERE "orderId" = ${orderId}`)
+      await tx.$executeRaw(Prisma.sql`DELETE FROM stock_movements WHERE "orderId" = ${orderId} AND "businessId" = ${businessId}`)
     }
 
     const dueAmount = order.totalAmount - order.amountPaid
@@ -1045,14 +1049,17 @@ export async function softDeleteOrder(orderId: string, businessId: string) {
 
 export async function cancelOrderWithReversal(orderId: string, businessId: string) {
   await prisma.$transaction(async (tx) => {
-    const orderRows = await tx.$queryRaw<Array<{ status: 'DRAFT' | 'CONFIRMED' | 'DISPATCHED' | 'DELIVERED' | 'CANCELLED' }>>(Prisma.sql`
-      SELECT status::text AS status
+    const orderRows = await tx.$queryRaw<Array<{ status: 'DRAFT' | 'CONFIRMED' | 'DISPATCHED' | 'DELIVERED' | 'CANCELLED'; sourceLocationId: string | null }>>(Prisma.sql`
+      SELECT
+        status::text AS status,
+        "sourceLocationId" AS "sourceLocationId"
       FROM orders
       WHERE id = ${orderId} AND "businessId" = ${businessId} AND "isDeleted" = false
       LIMIT 1
     `)
     const current = orderRows[0]
     if (!current) throw new Error('ORDER_NOT_FOUND')
+    const sourceLocationId = await resolveSourceLocationId(businessId, current.sourceLocationId)
     if (current.status === 'DELIVERED') throw new Error('DELIVERED_ORDER_CANNOT_BE_CANCELLED')
     if (current.status === 'CANCELLED') return
 
