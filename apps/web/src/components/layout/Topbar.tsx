@@ -1,7 +1,7 @@
-'use client'
+﻿'use client'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { navItems, pageTitles } from './navigation'
+import { pageTitles } from './navigation'
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/store/auth'
 import { getDeferredInstallPrompt } from '@/lib/pwa-install'
@@ -39,8 +39,7 @@ export function Topbar() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { user, logout } = useAuthStore()
-  const { hasModule, hasFeature } = useTenantCapabilities()
-  const isOwner = user?.role === 'OWNER'
+  const { hasModule } = useTenantCapabilities()
   const { t, language } = useI18n()
   const titleKey = pageTitles[pathname] ?? 'brand.cementHouse'
   const page = exportPageForPath(pathname)
@@ -48,6 +47,8 @@ export function Topbar() {
   const [installTarget, setInstallTarget] = useState<InstallTarget>('other')
   const [isInstalled, setIsInstalled] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [trialBannerDismissed, setTrialBannerDismissed] = useState(false)
   const locale = language === 'hi' ? 'hi-IN' : 'en-IN'
   const today = new Date().toLocaleDateString(locale, {
     weekday: 'long',
@@ -57,19 +58,12 @@ export function Topbar() {
   })
   const trialDaysRemaining = user?.subscriptionEndsAt ? Math.max(0, Math.ceil((new Date(user.subscriptionEndsAt).getTime() - Date.now()) / 86_400_000)) : 0
   const showTrialBanner = user?.role === 'OWNER' && user?.subscriptionStatus === 'TRIAL' && !user?.subscriptionInterval
+  const showTopTrialBanner = showTrialBanner && !pathname.startsWith('/settings') && !trialBannerDismissed
+  const showTrialPill = showTrialBanner && !pathname.startsWith('/settings') && trialBannerDismissed
   const trialMessage =
     trialDaysRemaining > 0
       ? `${trialDaysRemaining} day${trialDaysRemaining === 1 ? '' : 's'} remaining in your free trial. Get a subscription to actively access the platform without interruption.`
       : 'Your free trial has ended. Subscribe now to keep accessing the full platform.'
-  const mobileNavItems = navItems.filter((item) => {
-    if (item.group === 'workspace' && item.href !== '/tickets') return isOwner
-    if (item.group === 'insights') return isOwner
-    if (item.moduleKey && !hasModule(item.moduleKey)) return false
-    if (item.featureKey && !hasFeature(item.featureKey)) return false
-    if (isOwner) return true
-    if (item.permissionId) return user?.permissions?.includes(item.permissionId)
-    return true
-  })
   const canCreateOrders = hasModule('orders')
 
   useEffect(() => {
@@ -96,6 +90,21 @@ export function Topbar() {
     setIsDarkMode(shouldUseDark)
   }, [])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!showTrialBanner) {
+      setTrialBannerDismissed(false)
+      return
+    }
+    const hideUntilRaw = window.localStorage.getItem('trial_banner_hide_until')
+    const hideUntil = hideUntilRaw ? Number(hideUntilRaw) : 0
+    setTrialBannerDismissed(Number.isFinite(hideUntil) && hideUntil > Date.now())
+  }, [showTrialBanner, user?.subscriptionEndsAt])
+
+  useEffect(() => {
+    setMobileMenuOpen(false)
+  }, [pathname])
+
   function toggleTheme() {
     if (typeof window === 'undefined') return
     const next = !isDarkMode
@@ -103,6 +112,18 @@ export function Topbar() {
     root.classList.toggle('dark', next)
     window.localStorage.setItem('theme_preference', next ? 'dark' : 'light')
     setIsDarkMode(next)
+  }
+
+  function hideTrialBanner(hours: number) {
+    if (typeof window === 'undefined') return
+    if (hours <= 0) {
+      window.localStorage.removeItem('trial_banner_hide_until')
+      setTrialBannerDismissed(false)
+      return
+    }
+    const until = Date.now() + hours * 60 * 60 * 1000
+    window.localStorage.setItem('trial_banner_hide_until', String(until))
+    setTrialBannerDismissed(true)
   }
 
   async function handleExport() {
@@ -152,7 +173,7 @@ export function Topbar() {
       window.URL.revokeObjectURL(url)
     } catch (error) {
       console.error(error)
-      window.alert(language === 'hi' ? 'एक्सपोर्ट विफल हुआ। कृपया फिर से प्रयास करें।' : language === 'hinglish' ? 'Export fail hua. Please dobara try karo.' : 'Export failed. Please try again.')
+      window.alert(language === 'hi' ? 'à¤à¤•à¥à¤¸à¤ªà¥‹à¤°à¥à¤Ÿ à¤µà¤¿à¤«à¤² à¤¹à¥à¤†à¥¤ à¤•à¥ƒà¤ªà¤¯à¤¾ à¤«à¤¿à¤° à¤¸à¥‡ à¤ªà¥à¤°à¤¯à¤¾à¤¸ à¤•à¤°à¥‡à¤‚à¥¤' : language === 'hinglish' ? 'Export fail hua. Please dobara try karo.' : 'Export failed. Please try again.')
     } finally {
       setIsExporting(false)
     }
@@ -179,13 +200,59 @@ export function Topbar() {
       : installTarget === 'ios'
       ? 'Tap Share and choose Add to Home Screen.'
       : 'Install Business Hub for faster access.'
-
   return (
     <header className="sticky top-0 z-20 shrink-0 px-4 pb-4 pt-4 md:px-6">
-      {showTrialBanner ? (
-        <div className="mb-3 rounded-[24px] border border-amber-200/80 bg-amber-50/95 px-4 py-3 text-sm text-amber-900 shadow-sm dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-100">
-          {trialMessage}
+      {showTopTrialBanner ? (
+        <>
+        <div className="mb-2 flex items-center justify-between gap-2 rounded-full border border-amber-200/80 bg-amber-50/95 px-3 py-1.5 text-[11px] text-amber-900 shadow-sm sm:hidden dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-100">
+          <span className="truncate">
+            {language === 'hi'
+              ? `à¤Ÿà¥à¤°à¤¾à¤¯à¤²: ${trialDaysRemaining} à¤¦à¤¿à¤¨ à¤¶à¥‡à¤·`
+              : language === 'hinglish'
+              ? `Trial: ${trialDaysRemaining} din left`
+              : `Trial: ${trialDaysRemaining} day${trialDaysRemaining === 1 ? '' : 's'} left`}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => hideTrialBanner(12)}
+              className="rounded-full border border-amber-300/80 px-2 py-0.5 text-[10px] font-semibold text-amber-800 transition-colors hover:bg-amber-100 dark:border-amber-400/40 dark:text-amber-200 dark:hover:bg-amber-900/40"
+            >
+              {language === 'hi' ? 'à¤¬à¤¾à¤¦ à¤®à¥‡à¤‚' : language === 'hinglish' ? 'Later' : 'Later'}
+            </button>
+            <button
+              type="button"
+              onClick={() => hideTrialBanner(24)}
+              className="inline-flex h-5 w-5 items-center justify-center rounded-full text-amber-800 transition-colors hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40"
+              aria-label={language === 'hi' ? 'à¤¸à¥‚à¤šà¤¨à¤¾ à¤¬à¤‚à¤¦ à¤•à¤°à¥‡à¤‚' : language === 'hinglish' ? 'Reminder band karo' : 'Dismiss reminder'}
+            >
+              Ã—
+            </button>
+          </div>
         </div>
+        <div className="mb-3 hidden rounded-[24px] border border-amber-200/80 bg-amber-50/95 px-4 py-3 text-sm text-amber-900 shadow-sm sm:block dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-100">
+          <div className="flex items-start justify-between gap-3">
+            <span>{trialMessage}</span>
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={() => hideTrialBanner(12)}
+                className="rounded-full border border-amber-300/80 px-2 py-0.5 text-[10px] font-semibold text-amber-800 transition-colors hover:bg-amber-100 dark:border-amber-400/40 dark:text-amber-200 dark:hover:bg-amber-900/40"
+              >
+                {language === 'hi' ? 'à¤¬à¤¾à¤¦ à¤®à¥‡à¤‚' : language === 'hinglish' ? 'Later' : 'Later'}
+              </button>
+              <button
+                type="button"
+                onClick={() => hideTrialBanner(24)}
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full text-amber-800 transition-colors hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40"
+                aria-label={language === 'hi' ? 'à¤¸à¥‚à¤šà¤¨à¤¾ à¤¬à¤‚à¤¦ à¤•à¤°à¥‡à¤‚' : language === 'hinglish' ? 'Reminder band karo' : 'Dismiss reminder'}
+              >
+                Ã—
+              </button>
+            </div>
+          </div>
+        </div>
+        </>
       ) : null}
       <div className="flex flex-col gap-3 rounded-[28px] border border-white/60 bg-white/75 px-4 py-4 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:px-5 dark:border-white/10 dark:bg-slate-950/60">
         <div className="min-w-0">
@@ -195,13 +262,27 @@ export function Topbar() {
           <div className="mt-1 flex flex-wrap items-center gap-3">
             <span className="text-xl font-semibold tracking-tight text-slate-950 dark:text-white">{t(titleKey)}</span>
             <span className="text-sm text-slate-500 dark:text-slate-300">{today}</span>
+            {showTrialPill ? (
+              <button
+                type="button"
+                onClick={() => hideTrialBanner(0)}
+                className="inline-flex items-center rounded-full border border-amber-300/80 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-800 transition-colors hover:bg-amber-100 dark:border-amber-400/40 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-900/40"
+                title={trialMessage}
+              >
+                {language === 'hi'
+                  ? `à¤Ÿà¥à¤°à¤¾à¤¯à¤²: ${trialDaysRemaining} à¤¦à¤¿à¤¨`
+                  : language === 'hinglish'
+                  ? `Trial: ${trialDaysRemaining} din`
+                  : `Trial: ${trialDaysRemaining} day${trialDaysRemaining === 1 ? '' : 's'} left`}
+              </button>
+            ) : null}
           </div>
         </div>
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+        <div className="hidden w-full flex-wrap items-center gap-1.5 sm:flex sm:w-auto sm:gap-2 sm:justify-end">
           <LanguageSelect compact />
           <button
             onClick={toggleTheme}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 sm:h-9 sm:w-9"
             title={isDarkMode ? t('theme.light') : t('theme.dark')}
             aria-label={isDarkMode ? t('theme.light') : t('theme.dark')}
           >
@@ -225,7 +306,7 @@ export function Topbar() {
             <div className="group relative">
               <button
                 onClick={handleDesktopInstall}
-                className="inline-flex min-h-10 rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
+                className="inline-flex rounded-full bg-slate-950 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white sm:px-4 sm:py-2 sm:text-xs"
               >
                 {installTarget === 'ios' ? 'Add to Home' : t('top.installApp')}
               </button>
@@ -237,7 +318,7 @@ export function Topbar() {
           <button
             onClick={handleExport}
             disabled={isExporting}
-            className="hidden rounded-full border border-slate-200 px-4 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 md:inline-flex"
+            className="hidden rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 md:inline-flex md:px-4 md:py-2 md:text-xs"
           >
             {isExporting ? t('top.exporting') : t('top.exportCsv')}
           </button>
@@ -246,49 +327,168 @@ export function Topbar() {
             <>
               <Link
                 href="/orders/new"
-                className="hidden rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400 xl:inline-flex"
+                className="hidden rounded-full bg-slate-950 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400 xl:inline-flex xl:px-4 xl:py-2 xl:text-xs"
               >
                 {t('top.newOrder')}
               </Link>
               <Link
                 href="/orders?openNewOrder=1"
-                className="min-h-10 rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400 xl:hidden"
+                className="rounded-full bg-slate-950 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400 xl:hidden sm:px-4 sm:py-2 sm:text-xs"
               >
                 {t('top.newOrder')}
               </Link>
             </>
           ) : null}
+          <button onClick={logout} className="rounded-full border border-rose-200 px-4 py-2 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-50 dark:border-rose-400/40 dark:text-rose-200 dark:hover:bg-rose-500/10">{t('common.signOut')}</button>
+        </div>
+        <div className="flex w-full items-center justify-end gap-2 sm:hidden">
+          <NotificationBell />
+          {canCreateOrders ? (
+            <Link
+              href="/orders?openNewOrder=1"
+              className="rounded-full bg-slate-950 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
+            >
+              {t('top.newOrder')}
+            </Link>
+          ) : null}
           <button
-            onClick={logout}
-            className="rounded-full border border-rose-200 px-4 py-2 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-50 dark:border-rose-400/40 dark:text-rose-200 dark:hover:bg-rose-500/10 xl:hidden"
+            type="button"
+            onClick={() => { if (typeof window !== 'undefined') { window.dispatchEvent(new CustomEvent('app:close-mobile-more')) } setMobileMenuOpen(true) }}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            aria-label={language === 'hi' ? 'à¤®à¥‡à¤¨à¥à¤¯à¥‚ à¤–à¥‹à¤²à¥‡à¤‚' : language === 'hinglish' ? 'Menu kholo' : 'Open menu'}
           >
-            {t('common.signOut')}
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
           </button>
         </div>
       </div>
-      <div className="mt-3 flex gap-2 overflow-x-auto xl:hidden">
-        {mobileNavItems.map((item) => {
-          const active =
-            pathname === item.href ||
-            (item.href !== '/dashboard' &&
-              pathname.startsWith(item.href + '/') &&
-              !(item.href === '/orders' && pathname === '/orders/new'))
+      {mobileMenuOpen ? (
+        <div className="fixed inset-0 z-[60] sm:hidden">
+          <button type="button" onClick={() => setMobileMenuOpen(false)} className="absolute inset-0 bg-slate-950/45 backdrop-blur-[1px]" aria-label="Close menu" />
+          <aside className="absolute right-0 top-0 h-full w-[88%] max-w-[360px] overflow-y-auto border-l border-slate-200 bg-white px-4 pb-6 pt-4 shadow-2xl dark:border-slate-700 dark:bg-slate-950">
+            <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-900/60">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                {language === 'hi' ? 'क्विक पैनल' : language === 'hinglish' ? 'Quick panel' : 'Quick panel'}
+              </div>
+              <div className="mt-1 text-base font-semibold text-slate-900 dark:text-slate-100">
+                {language === 'hi' ? 'वर्कस्पेस शॉर्टकट्स' : language === 'hinglish' ? 'Workspace shortcuts' : 'Workspace shortcuts'}
+              </div>
+            </div>
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={
-                active
-                  ? 'min-h-10 rounded-full border border-slate-950 bg-slate-950 px-4 py-2 text-xs font-semibold text-white dark:border-sky-400 dark:bg-sky-400 dark:text-slate-950'
-                  : 'min-h-10 rounded-full border border-slate-200 bg-white/75 px-4 py-2 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200'
-              }
-            >
-              {t(item.label)}
-            </Link>
-          )
-        })}
-      </div>
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <div className="text-base font-semibold text-slate-900 dark:text-slate-100">{language === 'hi' ? 'त्वरित क्रियाएं' : language === 'hinglish' ? 'Quick actions' : 'Quick actions'}</div>
+                <div className="text-sm text-slate-500 dark:text-slate-400">
+                  {language === 'hi' ? 'मुख्य सेटिंग्स और टूल्स' : language === 'hinglish' ? 'Main settings and tools' : 'Main settings and tools'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(false)}
+                className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                {language === 'hi' ? 'बंद करें' : language === 'hinglish' ? 'Band karo' : 'Close'}
+              </button>
+            </div>
+            <div className="space-y-2.5">
+              <div className="px-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                {language === 'hi' ? 'प्राथमिकताएं' : language === 'hinglish' ? 'Preferences' : 'Preferences'}
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="inline-flex items-center gap-2.5 text-sm font-medium text-slate-600 dark:text-slate-300">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-violet-200 bg-violet-100/80 text-violet-600 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300">
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h8M7 5c0 6-3 9-3 9M13 5h7M16.5 5c0 6 3.5 9 3.5 9M7 14c1.5 0 3.5-.8 5-2M14 19l2-6 2 6M14.7 17h2.6" /></svg>
+                    </span>
+                    <span>{language === 'hi' ? 'भाषा चुनें' : language === 'hinglish' ? 'Choose language' : 'Choose language'}</span>
+                  </div>
+                  <LanguageSelect compact />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-[16px] font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                <span className="inline-flex items-center gap-2.5">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-violet-200 bg-violet-100/80 text-violet-600 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300">
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z" /></svg>
+                  </span>
+                  <span>{isDarkMode ? t('theme.light') : t('theme.dark')}</span>
+                </span>
+                <span aria-hidden="true" className="text-slate-400">›</span>
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-2.5">
+              <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                {language === 'hi' ? 'ऐप' : language === 'hinglish' ? 'App' : 'App'}
+              </div>
+              {installTarget !== 'other' && !isInstalled ? (
+                <button
+                  type="button"
+                  onClick={handleDesktopInstall}
+                  className="flex w-full items-center justify-between rounded-xl bg-slate-950 px-3 py-2.5 text-left text-sm font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
+                >
+                  <span className="inline-flex items-center gap-2.5">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-violet-300/50 bg-violet-200/25 text-violet-100 dark:border-violet-500/40 dark:bg-violet-500/20 dark:text-violet-700">
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 21h14" /></svg>
+                    </span>
+                    <span>{installTarget === 'ios' ? 'Add to Home' : t('top.installApp')}</span>
+                  </span>
+                  <span aria-hidden="true" className="text-white/80 dark:text-slate-900/80">›</span>
+                </button>
+              ) : null}
+              <Link
+                href="/settings"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-[16px] font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                <span className="inline-flex items-center gap-2.5">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-violet-200 bg-violet-100/80 text-violet-600 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300">
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a1 1 0 1 1-1.4 1.4l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V19a1 1 0 1 1-2 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a1 1 0 1 1-1.4-1.4l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H9a1 1 0 1 1 0-2h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a1 1 0 1 1 1.4-1.4l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V5a1 1 0 1 1 2 0v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a1 1 0 1 1 1.4 1.4l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6H19a1 1 0 1 1 0 2h-.2a1 1 0 0 0-.9.6z" /></svg>
+                  </span>
+                  <span>{language === 'hi' ? 'सेटिंग्स' : language === 'hinglish' ? 'Settings' : 'Settings'}</span>
+                </span>
+                <span aria-hidden="true" className="text-slate-400">›</span>
+              </Link>
+              <Link
+                href="/tickets"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-[16px] font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                <span className="inline-flex items-center gap-2.5">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-violet-200 bg-violet-100/80 text-violet-600 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300">
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                  </span>
+                  <span>{language === 'hi' ? 'सहायता और सपोर्ट' : language === 'hinglish' ? 'Help & support' : 'Help & support'}</span>
+                </span>
+                <span aria-hidden="true" className="text-slate-400">›</span>
+              </Link>
+            </div>
+
+            <div className="mt-5 border-t border-slate-200 pt-4 dark:border-slate-700">
+              <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-rose-500/90 dark:text-rose-300/90">
+                {language === 'hi' ? 'अकाउंट' : language === 'hinglish' ? 'Account' : 'Account'}
+              </div>
+              <button
+                type="button"
+                onClick={logout}
+                className="w-full rounded-xl border border-rose-200 px-3 py-2.5 text-left text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-50 dark:border-rose-400/40 dark:text-rose-200 dark:hover:bg-rose-500/10"
+              >
+                <span className="inline-flex items-center gap-2.5">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-300">
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>
+                  </span>
+                  <span>{t('common.signOut')}</span>
+                </span>
+              </button>
+            </div>
+          </aside>
+        </div>
+      ) : null}
     </header>
   )
 }
+

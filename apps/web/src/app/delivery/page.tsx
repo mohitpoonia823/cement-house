@@ -58,7 +58,15 @@ export default function DeliveryPage() {
           {language === 'hi' ? 'आज का डिलीवरी बोर्ड' : "Today's delivery board"}
         </div>
         {isLoading ? (
-          <PageLoader />
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="rounded-xl border border-stone-200 bg-white p-3 dark:border-stone-700 dark:bg-stone-900">
+                <div className="text-xs text-stone-500">Loading...</div>
+                <div className="mt-1 text-sm font-semibold text-stone-800 dark:text-stone-200">—</div>
+                <div className="mt-1 text-xs text-stone-400">Loading...</div>
+              </div>
+            ))}
+          </div>
         ) : deliveries.length === 0 ? (
           <EmptyState title={language === 'hi' ? 'आज कोई डिलीवरी नहीं' : 'No deliveries today'} sub={language === 'hi' ? 'डिलीवरी ऑर्डर डिस्पैच होने पर बनती है' : 'Deliveries are created when an order is dispatched'} />
         ) : (

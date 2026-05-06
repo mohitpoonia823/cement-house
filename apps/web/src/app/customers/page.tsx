@@ -93,6 +93,9 @@ export default function CustomersPage() {
 
   const list = customers ?? []
   const allSelected = list.length > 0 && selected.size === list.length
+  const outstandingTotal = list.reduce((sum: number, c: any) => sum + Math.max(0, Number(c.balance)), 0)
+  const highRiskCount = list.filter((c: any) => c.riskTag !== 'RELIABLE').length
+  const relationshipCount = list.reduce((sum: number, c: any) => sum + Number(c.orderCount), 0)
 
   function toggleOne(id: string) {
     setSelected((prev) => {
@@ -193,6 +196,21 @@ export default function CustomersPage() {
 
   return (
     <AppShell>
+      <div className="mb-4 rounded-2xl border border-slate-200/80 bg-white/70 p-4 shadow-sm backdrop-blur-sm md:hidden dark:border-slate-700 dark:bg-slate-900/70">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{tr.eyebrow}</div>
+        <h1 className="mt-1 text-2xl font-semibold leading-tight text-slate-950 dark:text-white">{tr.title}</h1>
+        <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
+          {t('Monitor outstanding exposure, risky accounts, and relationship value in one view.', 'एक ही व्यू में बकाया, जोखिम और रिलेशनशिप वैल्यू ट्रैक करें।', 'Outstanding, risk aur relationship value ek view me track karo.')}
+        </p>
+        <button
+          onClick={openCreateForm}
+          className="mt-3 w-full rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950"
+        >
+          {tr.add}
+        </button>
+      </div>
+
+      <div className="hidden md:block">
       <SectionHeader
         eyebrow={tr.eyebrow}
         title={tr.title}
@@ -206,31 +224,38 @@ export default function CustomersPage() {
           </button>
         }
       />
+      </div>
 
-      <MetricGrid className="mb-6">
+      <MetricGrid className="mb-6 hidden md:grid">
         <MetricCard label={tr.customersInView} value={String(list.length)} hint={tr.filteredActiveAccounts} />
         <MetricCard
           label={tr.outstanding}
-          value={fmt(list.reduce((sum: number, c: any) => sum + Math.max(0, Number(c.balance)), 0))}
+          value={fmt(outstandingTotal)}
           hint={tr.openExposure}
           tone="warning"
         />
         <MetricCard
           label={tr.highRisk}
-          value={String(list.filter((c: any) => c.riskTag !== 'RELIABLE').length)}
+          value={String(highRiskCount)}
           hint={tr.watchBlocked}
           tone="danger"
         />
         <MetricCard
           label={tr.orderRelations}
-          value={String(list.reduce((sum: number, c: any) => sum + Number(c.orderCount), 0))}
+          value={String(relationshipCount)}
           hint={tr.lifetimeOrders}
           tone="brand"
         />
       </MetricGrid>
+      <div className="mb-4 grid grid-cols-2 gap-3 md:hidden">
+        <MetricCard label={tr.customersInView} value={String(list.length)} hint={tr.filteredActiveAccounts} />
+        <MetricCard label={tr.outstanding} value={fmt(outstandingTotal)} hint={tr.openExposure} tone="warning" />
+        <MetricCard label={tr.highRisk} value={String(highRiskCount)} hint={tr.watchBlocked} tone="danger" />
+        <MetricCard label={tr.orderRelations} value={String(relationshipCount)} hint={tr.lifetimeOrders} tone="brand" />
+      </div>
 
       <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex flex-wrap gap-2">
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden xl:mx-0 xl:flex-wrap xl:overflow-visible xl:px-0">
           {RISK_TAGS.map((t) => (
             <button
               key={t}
@@ -238,7 +263,7 @@ export default function CustomersPage() {
                 setRiskTag(t)
                 setSelected(new Set())
               }}
-              className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
+              className={`shrink-0 rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
                 riskTag === t
                   ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950'
                   : 'border border-slate-200 bg-white/75 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300'
@@ -394,11 +419,92 @@ export default function CustomersPage() {
 
       <Card>
         {isLoading ? (
-          <PageLoader />
+          <>
+            <div className="space-y-3 md:hidden">
+              {[1, 2, 3].map((idx) => (
+                <div key={idx} className="rounded-xl border border-slate-200 bg-white/80 p-3 dark:border-slate-800 dark:bg-slate-900/50">
+                  <div className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Customer</div>
+                  <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">—</div>
+                  <div className="text-xs text-slate-500">Loading...</div>
+                </div>
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[860px] text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200/70 dark:border-slate-800">
+                    {[t('Name', 'नाम'), t('Phone', 'फोन'), t('Address', 'पता'), t('Credit limit', 'क्रेडिट सीमा'), t('Outstanding', 'बकाया'), t('Orders', 'ऑर्डर'), t('Risk', 'रिस्क')].map((h) => (
+                      <th key={h} className="py-3 pr-3 text-left font-normal uppercase tracking-[0.18em] text-slate-400 dark:text-slate-300">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[1, 2, 3, 4].map((r) => (
+                    <tr key={r} className="border-b border-stone-50 dark:border-stone-800">
+                      {[1, 2, 3, 4, 5, 6, 7].map((c) => <td key={c} className="py-2.5 pr-3 text-slate-500">Loading...</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         ) : list.length === 0 ? (
           <EmptyState title={tr.noData} sub={tr.emptySub} />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="space-y-3 md:hidden">
+            {list.map((c: any) => {
+              const isSelected = selected.has(c.id)
+              const balance = Number(c.balance)
+              return (
+                <div
+                  key={c.id}
+                  className={`rounded-xl border p-3 ${isSelected ? 'border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-900/30' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/50'}`}
+                >
+                  <div className="mb-2 flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{c.name}</div>
+                      <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{c.phone}</div>
+                    </div>
+                    <Badge variant={statusBadge(c.riskTag)}>{c.riskTag}</Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                    <div className="text-slate-500 dark:text-slate-400">{t('Address', 'पता')}</div>
+                    <div className="text-right font-medium text-slate-800 dark:text-slate-200 truncate">{c.address ?? '-'}</div>
+                    <div className="text-slate-500 dark:text-slate-400">{t('Credit limit', 'क्रेडिट सीमा')}</div>
+                    <div className="text-right font-medium text-slate-900 dark:text-slate-100">{fmt(Number(c.creditLimit))}</div>
+                    <div className="text-slate-500 dark:text-slate-400">{t('Outstanding', 'बकाया')}</div>
+                    <div className={`text-right font-semibold ${balance > 0 ? 'text-rose-600 dark:text-rose-300' : 'text-slate-400'}`}>{balance > 0 ? fmt(balance) : '-'}</div>
+                    <div className="text-slate-500 dark:text-slate-400">{t('Orders', 'ऑर्डर')}</div>
+                    <div className="text-right font-medium text-slate-800 dark:text-slate-200">{c.orderCount}</div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <label className="inline-flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleOne(c.id)}
+                        className="cursor-pointer rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      {t('Select', 'चुनें', 'Select')}
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <Link href={`/khata?customer=${c.id}`} className="rounded-md border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:border-slate-700 dark:text-slate-200">
+                        Khata
+                      </Link>
+                      <button onClick={() => handleEditClick(c)} className="rounded-md border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:border-slate-700 dark:text-slate-200">
+                        {tr.edit}
+                      </button>
+                      <button onClick={() => handleDelete(c.id, c.name)} className="rounded-md border border-rose-200 px-2.5 py-1 text-[11px] font-medium text-rose-700 dark:border-rose-500/40 dark:text-rose-300">
+                        {tr.del}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[860px] text-xs">
               <thead>
                 <tr className="border-b border-slate-200/70 dark:border-slate-800">
@@ -465,6 +571,7 @@ export default function CustomersPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
     </AppShell>

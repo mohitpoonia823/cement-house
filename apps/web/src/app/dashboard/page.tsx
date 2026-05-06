@@ -94,6 +94,7 @@ function DashboardContent() {
   const [recentOrdersLimit, setRecentOrdersLimit] = useState<number>(5)
   const [topCustomersLimit, setTopCustomersLimit] = useState<number>(5)
   const [stockAlertsLimit, setStockAlertsLimit] = useState<number>(5)
+  const [mobileTrendExpanded, setMobileTrendExpanded] = useState(false)
 
   useEffect(() => {
     setCustomStartDate(startDateParam || fallbackCustomStart)
@@ -193,16 +194,73 @@ function DashboardContent() {
     }
   }
 
-  if (isLoading && !data) {
-    return (
-      <AppShell>
-        <PageLoader />
-      </AppShell>
-    )
-  }
+  const initialLoading = isLoading && !data
 
   return (
     <AppShell>
+      <div className="mb-4 space-y-3 md:hidden">
+        <Card className="p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
+            {tr('Business pulse', 'बिज़नेस पल्स', 'Business pulse')}
+          </div>
+          <h1 className="mt-1 text-xl font-semibold leading-tight text-slate-950 dark:text-white">
+            {tr('Overview command center', 'ओवरव्यू कमांड सेंटर', 'Overview command center')}
+          </h1>
+          <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
+            {tr('Track sales, collections, risk, and inventory in one place.', 'सेल्स, कलेक्शन, रिस्क और इन्वेंट्री एक ही जगह ट्रैक करें।', 'Sales, collections, risk aur inventory ek hi jagah track karo.')}
+          </p>
+        </Card>
+
+        <Card className="p-3">
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {RANGE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => handleRangeSelect(option.value)}
+                className={cn(
+                  'shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors',
+                  activeRange === option.value
+                    ? 'border-slate-950 bg-slate-950 text-white dark:border-sky-400 dark:bg-sky-400 dark:text-slate-950'
+                    : 'border-slate-200 bg-white/85 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300 dark:hover:bg-slate-900'
+                )}
+              >
+                {option.value === 'custom' ? tr('Custom', 'कस्टम', 'Custom') : option.label}
+              </button>
+            ))}
+          </div>
+          {activeRange === 'custom' ? (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={(event) => setCustomStartDate(event.target.value)}
+                className="rounded-xl border border-slate-200 bg-white/85 px-3 py-2 text-xs font-medium text-slate-700 outline-none transition focus:border-slate-400 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-100"
+              />
+              <input
+                type="date"
+                value={customEndDate}
+                onChange={(event) => setCustomEndDate(event.target.value)}
+                className="rounded-xl border border-slate-200 bg-white/85 px-3 py-2 text-xs font-medium text-slate-700 outline-none transition focus:border-slate-400 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-100"
+              />
+              <button
+                onClick={handleApplyCustomRange}
+                disabled={!customStartDate || !customEndDate || customRangeInvalid}
+                className="col-span-2 rounded-full border border-slate-950 bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 dark:border-sky-400 dark:bg-sky-400 dark:text-slate-950 dark:hover:bg-sky-300 dark:disabled:border-slate-700 dark:disabled:bg-slate-800 dark:disabled:text-slate-400"
+              >
+                {tr('Apply range', 'रेंज लागू करें', 'Range apply karo')}
+              </button>
+              {customRangeInvalid ? (
+                <div className="col-span-2 text-xs font-medium text-rose-600 dark:text-rose-300">
+                  {tr('End date must be on or after start date.', 'एंड डेट, स्टार्ट डेट के बाद या बराबर होनी चाहिए।', 'End date start date ke baad ya barabar honi chahiye.')}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </Card>
+      </div>
+      <>
+
+      <div className="hidden md:block">
       <SectionHeader
         eyebrow={tr('Business pulse', 'बिज़नेस पल्स', 'Business pulse')}
         title={tr('Analytics-first command center', 'एनालिटिक्स कमांड सेंटर', 'Analytics-first command center')}
@@ -257,16 +315,17 @@ function DashboardContent() {
           </div>
         }
       />
+      </div>
 
-      <Card className="mb-6">
+      <Card className="mb-4 hidden md:block md:mb-6">
         <div className="grid gap-4 xl:grid-cols-[1.35fr_0.8fr_0.8fr_0.8fr]">
-          <div className="rounded-[24px] border border-slate-200/70 bg-slate-50/80 p-5 dark:border-slate-800 dark:bg-slate-900/55">
+          <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/80 p-4 md:rounded-[24px] md:p-5 dark:border-slate-800 dark:bg-slate-900/55">
             <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{tr('Current window', 'वर्तमान विंडो', 'Current window')}</div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <div className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{selectedLabel}</div>
+              <div className="text-xl font-semibold tracking-tight text-slate-950 md:text-2xl dark:text-white">{selectedLabel}</div>
               <Badge variant="info">{granularityLabel(data?.range?.granularity, tr)}</Badge>
             </div>
-            <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            <div className="mt-2 text-xs text-slate-600 md:text-sm dark:text-slate-300">
               {tr('Comparing against', 'तुलना', 'Comparing')} {compareLabel.toLowerCase()} {tr('with live inventory and delivery context retained below.', 'के साथ, नीचे लाइव इन्वेंट्री और डिलीवरी संदर्भ दिख रहा है।', 'ke saath, neeche live inventory aur delivery context dikh raha hai.')}
             </div>
           </div>
@@ -288,33 +347,70 @@ function DashboardContent() {
           />
         </div>
       </Card>
+      <div className="mb-4 grid grid-cols-2 gap-3 md:hidden">
+        <div className="col-span-2 rounded-[18px] border border-slate-200/70 bg-slate-50/80 p-3 dark:border-slate-800 dark:bg-slate-900/55">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">{tr('Current window', 'वर्तमान विंडो', 'Current window')}</div>
+          <div className="mt-1 flex items-center gap-2">
+            <div className="text-lg font-semibold tracking-tight text-slate-950 dark:text-white">{selectedLabel}</div>
+            <Badge variant="info">{granularityLabel(data?.range?.granularity, tr)}</Badge>
+          </div>
+          <div className="mt-1 text-[11px] text-slate-600 dark:text-slate-300">
+            {tr('Comparing against', 'तुलना', 'Comparing')} {compareLabel.toLowerCase()}
+          </div>
+        </div>
+        <InsightTile
+          compact
+          label={tr('Peak sales', 'पीक सेल्स', 'Peak sales')}
+          value={initialLoading ? '—' : (data?.highlights?.strongestBucketSales ? fmt(data.highlights.strongestBucketSales) : fmt(0))}
+          hint={initialLoading ? 'Loading...' : (data?.highlights?.strongestBucketLabel ?? tr('No standout period yet', 'अभी कोई प्रमुख अवधि नहीं', 'Abhi koi standout period nahi'))}
+        />
+        <InsightTile compact label={tr('Average pace', 'औसत गति', 'Average pace')} value={initialLoading ? '—' : fmt(data?.highlights?.averagePerBucket ?? 0)} hint={initialLoading ? 'Loading...' : granularityLabel(data?.range?.granularity, tr)} />
+        <InsightTile compact label={tr('Today sales', 'आज की सेल्स', 'Aaj ki sales')} value={initialLoading ? '—' : fmt(data?.todaySnapshot?.sales ?? 0)} hint={initialLoading ? 'Loading...' : `${data?.todaySnapshot?.orderCount ?? 0} ${tr('orders', 'ऑर्डर', 'orders')}`} />
+        <InsightTile compact label={tr('Today collected', 'आज का कलेक्शन', 'Aaj ka collection')} value={initialLoading ? '—' : fmt(data?.todaySnapshot?.collected ?? 0)} hint={initialLoading ? 'Loading...' : tr('Live today snapshot', 'आज का लाइव स्नैपशॉट', 'Aaj ka live snapshot')} />
+      </div>
 
-      <MetricGrid className="mb-6">
+      <MetricGrid className="mb-6 hidden md:grid">
         <MetricCard
           label={tr('Sales in range', 'रेंज में सेल्स', 'Sales in range')}
-          value={fmt(data?.summary?.totalSales ?? 0)}
-          hint={`${data?.summary?.orderCount ?? 0} ${tr('orders booked', 'ऑर्डर बुक हुए', 'orders booked')} | ${percentageLabel(data?.comparison?.salesDeltaPct, compareLabel, tr)}`}
+          value={initialLoading ? '—' : fmt(data?.summary?.totalSales ?? 0)}
+          hint={initialLoading ? 'Loading...' : `${data?.summary?.orderCount ?? 0} ${tr('orders booked', 'ऑर्डर बुक हुए', 'orders booked')} | ${percentageLabel(data?.comparison?.salesDeltaPct, compareLabel, tr)}`}
           tone="brand"
         />
         <MetricCard
           label={tr('Cash collected', 'कलेक्टेड कैश', 'Cash collected')}
-          value={fmt(data?.summary?.cashCollected ?? 0)}
-          hint={`${data?.summary?.collectionRate ?? 0}% ${tr('collection rate', 'कलेक्शन रेट', 'collection rate')} | ${percentageLabel(data?.comparison?.collectedDeltaPct, compareLabel, tr)}`}
+          value={initialLoading ? '—' : fmt(data?.summary?.cashCollected ?? 0)}
+          hint={initialLoading ? 'Loading...' : `${data?.summary?.collectionRate ?? 0}% ${tr('collection rate', 'कलेक्शन रेट', 'collection rate')} | ${percentageLabel(data?.comparison?.collectedDeltaPct, compareLabel, tr)}`}
           tone="success"
         />
         <MetricCard
           label={tr('Outstanding in range', 'रेंज में बकाया', 'Outstanding in range')}
-          value={fmt(data?.summary?.totalOutstanding ?? 0)}
-          hint={`${data?.summary?.activeCustomersInRange ?? 0} ${tr('customers billed', 'ग्राहकों का बिल बना', 'customers billed')} | ${percentageLabel(data?.comparison?.outstandingDeltaPct, compareLabel, tr)}`}
+          value={initialLoading ? '—' : fmt(data?.summary?.totalOutstanding ?? 0)}
+          hint={initialLoading ? 'Loading...' : `${data?.summary?.activeCustomersInRange ?? 0} ${tr('customers billed', 'ग्राहकों का बिल बना', 'customers billed')} | ${percentageLabel(data?.comparison?.outstandingDeltaPct, compareLabel, tr)}`}
           tone={(data?.summary?.totalOutstanding ?? 0) > 0 ? 'warning' : 'default'}
         />
         <MetricCard
           label={tr('Inventory pressure', 'इन्वेंट्री प्रेशर', 'Inventory pressure')}
-          value={String(data?.summary?.lowStockCount ?? 0)}
-          hint={`${data?.summary?.activeMaterials ?? 0} ${tr('active SKUs', 'सक्रिय SKU', 'active SKUs')} | ${tr('Today', 'आज', 'Today')} ${data?.todaySnapshot?.orderCount ?? 0} ${tr('orders', 'ऑर्डर', 'orders')}`}
+          value={initialLoading ? '—' : String(data?.summary?.lowStockCount ?? 0)}
+          hint={initialLoading ? 'Loading...' : `${data?.summary?.activeMaterials ?? 0} ${tr('active SKUs', 'सक्रिय SKU', 'active SKUs')} | ${tr('Today', 'आज', 'Today')} ${data?.todaySnapshot?.orderCount ?? 0} ${tr('orders', 'ऑर्डर', 'orders')}`}
           tone={(data?.summary?.lowStockCount ?? 0) > 0 ? 'danger' : 'default'}
         />
       </MetricGrid>
+      <div className="mb-6 grid grid-cols-2 gap-3 md:hidden">
+        <div className="rounded-[18px] border border-slate-200/70 bg-white/75 p-3 dark:border-slate-800 dark:bg-slate-950/55">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+            {tr('Sales in range', 'रेंज में सेल्स', 'Sales in range')}
+          </div>
+          <div className="mt-2 text-[32px] font-bold leading-none text-slate-950 dark:text-white">{initialLoading ? '—' : fmt(data?.summary?.totalSales ?? 0)}</div>
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{initialLoading ? 'Loading...' : `${data?.summary?.orderCount ?? 0} ${tr('orders', 'ऑर्डर', 'orders')}`}</div>
+        </div>
+        <div className="rounded-[18px] border border-slate-200/70 bg-white/75 p-3 dark:border-slate-800 dark:bg-slate-950/55">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-600 dark:text-amber-300">
+            {tr('Outstanding', 'बकाया', 'Outstanding')}
+          </div>
+          <div className="mt-2 text-[32px] font-bold leading-none text-slate-950 dark:text-white">{initialLoading ? '—' : fmt(data?.summary?.totalOutstanding ?? 0)}</div>
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{initialLoading ? 'Loading...' : `${data?.summary?.activeCustomersInRange ?? 0} ${tr('customers', 'ग्राहक', 'customers')}`}</div>
+        </div>
+      </div>
 
       <div className="mb-6 grid gap-6 xl:grid-cols-[1.45fr_0.9fr]">
         <Card>
@@ -334,7 +430,21 @@ function DashboardContent() {
               <Badge>{tr('Auto refresh', 'ऑटो रिफ्रेश', 'Auto refresh')}</Badge>
             </div>
           </div>
-          <div className="h-80">
+          <div className="md:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileTrendExpanded((prev) => !prev)}
+              className="mb-3 w-full rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200"
+            >
+              {mobileTrendExpanded ? tr('Hide trend', 'ट्रेंड छिपाएं', 'Trend hide karo') : tr('View trend chart', 'ट्रेंड चार्ट देखें', 'Trend chart dekho')}
+            </button>
+            {mobileTrendExpanded ? (
+              <div className="h-64">
+                <RevenueRhythmChart data={data?.revenueSeries ?? []} selectedLabel={selectedLabel} />
+              </div>
+            ) : null}
+          </div>
+          <div className="hidden h-80 md:block">
             <RevenueRhythmChart data={data?.revenueSeries ?? []} selectedLabel={selectedLabel} />
           </div>
         </Card>
@@ -347,26 +457,26 @@ function DashboardContent() {
             </div>
             <Badge>{tr('Live snapshot', 'लाइव स्नैपशॉट', 'Live snapshot')}</Badge>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <StatusTile label={tr('Total', 'कुल', 'Total')} value={data?.deliverySnapshot?.total ?? 0} tone="default" />
-            <StatusTile label={tr('Scheduled', 'शेड्यूल्ड', 'Scheduled')} value={data?.deliverySnapshot?.SCHEDULED ?? 0} tone="info" />
-            <StatusTile label={tr('In transit', 'ट्रांजिट में', 'In transit')} value={data?.deliverySnapshot?.IN_TRANSIT ?? 0} tone="warning" />
-            <StatusTile label={tr('Delivered', 'डिलीवर हुआ', 'Delivered')} value={data?.deliverySnapshot?.DELIVERED ?? 0} tone="success" />
+          <div className="grid grid-cols-2 gap-2 md:gap-3">
+            <StatusTile compact label={tr('Total', 'कुल', 'Total')} value={data?.deliverySnapshot?.total ?? 0} tone="default" />
+            <StatusTile compact label={tr('Scheduled', 'शेड्यूल्ड', 'Scheduled')} value={data?.deliverySnapshot?.SCHEDULED ?? 0} tone="info" />
+            <StatusTile compact label={tr('In transit', 'ट्रांजिट में', 'In transit')} value={data?.deliverySnapshot?.IN_TRANSIT ?? 0} tone="warning" />
+            <StatusTile compact label={tr('Delivered', 'डिलीवर हुआ', 'Delivered')} value={data?.deliverySnapshot?.DELIVERED ?? 0} tone="success" />
           </div>
 
           <div className="mt-6 grid gap-4 lg:grid-cols-2">
-            <DonutBreakdown title={tr('Order mix in range', 'रेंज में ऑर्डर मिक्स', 'Order mix in range')} data={data?.orderStatus ?? []} />
-            <DonutBreakdown title={tr('Customer risk mix', 'ग्राहक रिस्क मिक्स', 'Customer risk mix')} data={data?.riskSegments ?? []} />
+            <DonutBreakdown compact title={tr('Order mix in range', 'रेंज में ऑर्डर मिक्स', 'Order mix in range')} data={data?.orderStatus ?? []} />
+            <DonutBreakdown compact title={tr('Customer risk mix', 'ग्राहक रिस्क मिक्स', 'Customer risk mix')} data={data?.riskSegments ?? []} />
           </div>
         </Card>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr_0.9fr_0.85fr]">
+      <div className="grid gap-4 md:gap-6 xl:grid-cols-[1.1fr_0.9fr_0.9fr_0.85fr]">
         <Card>
-          <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="mb-3 flex items-start justify-between gap-3 md:mb-4">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{tr('Recent flow', 'हाल की गतिविधि', 'Recent flow')}</div>
-              <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">{tr('Latest orders in selection', 'चयन में नवीनतम ऑर्डर', 'Latest orders in selection')}</div>
+              <div className="mt-1 text-lg font-semibold tracking-tight text-slate-950 md:mt-2 md:text-xl dark:text-white">{tr('Latest orders in selection', 'चयन में नवीनतम ऑर्डर', 'Latest orders in selection')}</div>
             </div>
             <div className="shrink-0 pt-0.5">
               <SectionLimitSelect
@@ -376,18 +486,18 @@ function DashboardContent() {
             </div>
           </div>
           {(data?.recentOrders ?? []).length > 0 ? (
-            <div className="space-y-3">
+            <div className="space-y-2.5 md:space-y-3">
               {(data?.recentOrders ?? []).map((order: any) => (
-                <div key={order.id} className="rounded-[24px] border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-900/60">
+                <div key={order.id} className="rounded-[16px] border border-slate-200/70 bg-slate-50/70 p-3 md:rounded-[24px] md:p-4 dark:border-slate-800 dark:bg-slate-900/60">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-slate-950 dark:text-white">{order.orderNumber}</div>
-                      <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">{order.customerName}</div>
-                      <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{order.itemSummary || tr('Mixed material order', 'मिक्स मैटेरियल ऑर्डर', 'Mixed material order')}</div>
+                      <div className="text-[13px] font-semibold text-slate-950 md:text-sm dark:text-white">{order.orderNumber}</div>
+                      <div className="mt-0.5 text-xs text-slate-600 md:mt-1 md:text-sm dark:text-slate-300">{order.customerName}</div>
+                      <div className="mt-0.5 text-[11px] text-slate-500 md:mt-1 md:text-xs dark:text-slate-400">{order.itemSummary || tr('Mixed material order', 'मिक्स मैटेरियल ऑर्डर', 'Mixed material order')}</div>
                     </div>
                     <Badge variant={statusBadge(order.status)}>{order.status}</Badge>
                   </div>
-                  <div className="mt-4 flex items-center justify-between text-sm">
+                  <div className="mt-3 flex items-center justify-between text-xs md:mt-4 md:text-sm">
                     <span className="font-semibold text-slate-950 dark:text-white">{fmt(order.totalAmount)}</span>
                     <span className="text-slate-500 dark:text-slate-400">{fmtDate(order.createdAt)}</span>
                   </div>
@@ -403,10 +513,10 @@ function DashboardContent() {
         </Card>
 
         <Card>
-          <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="mb-3 flex items-start justify-between gap-3 md:mb-4">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{tr(`${terms.customer} concentration`, 'ग्राहक संकेंद्रण', `${terms.customer} concentration`)}</div>
-              <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">{tr(`Top revenue ${terms.customer.toLowerCase()}`, 'टॉप रेवेन्यू अकाउंट्स', `Top revenue ${terms.customer.toLowerCase()}`)}</div>
+              <div className="mt-1 text-lg font-semibold tracking-tight text-slate-950 md:mt-2 md:text-xl dark:text-white">{tr(`Top revenue ${terms.customer.toLowerCase()}`, 'टॉप रेवेन्यू अकाउंट्स', `Top revenue ${terms.customer.toLowerCase()}`)}</div>
             </div>
             <div className="shrink-0 pt-0.5">
               <SectionLimitSelect
@@ -416,19 +526,19 @@ function DashboardContent() {
             </div>
           </div>
           {(data?.topCustomers ?? []).length > 0 ? (
-            <div className="space-y-3">
+            <div className="space-y-2.5 md:space-y-3">
               {(data?.topCustomers ?? []).map((customer: any, index: number) => (
-                <div key={customer.customerId} className="rounded-[22px] border border-slate-200/70 px-4 py-3 dark:border-slate-800">
+                <div key={customer.customerId} className="rounded-[16px] border border-slate-200/70 px-3 py-2.5 md:rounded-[22px] md:px-4 md:py-3 dark:border-slate-800">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-slate-950 dark:text-white">
+                      <div className="text-[13px] font-semibold text-slate-950 md:text-sm dark:text-white">
                         {index + 1}. {customer.customerName}
                       </div>
-                      <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      <div className="mt-0.5 text-[11px] text-slate-500 md:mt-1 md:text-xs dark:text-slate-400">
                         {customer.orderCount} {tr('orders', 'ऑर्डर', 'orders')} | {tr('Outstanding', 'बकाया', 'Outstanding')} {fmt(customer.outstanding)}
                       </div>
                     </div>
-                    <div className="text-sm font-semibold text-slate-950 dark:text-white">{fmt(customer.totalSales)}</div>
+                    <div className="text-[13px] font-semibold text-slate-950 md:text-sm dark:text-white">{fmt(customer.totalSales)}</div>
                   </div>
                 </div>
               ))}
@@ -442,10 +552,10 @@ function DashboardContent() {
         </Card>
 
         <Card>
-          <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="mb-3 flex items-start justify-between gap-3 md:mb-4">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{tr(`${terms.inventory} watch`, 'इन्वेंट्री वॉच', `${terms.inventory} watch`)}</div>
-              <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">{tr(`${terms.material}s needing attention`, 'ध्यान देने योग्य आइटम', `${terms.material}s needing attention`)}</div>
+              <div className="mt-1 text-lg font-semibold tracking-tight text-slate-950 md:mt-2 md:text-xl dark:text-white">{tr(`${terms.material}s needing attention`, 'ध्यान देने योग्य आइटम', `${terms.material}s needing attention`)}</div>
             </div>
             <div className="shrink-0 pt-0.5">
               <SectionLimitSelect
@@ -482,31 +592,42 @@ function DashboardContent() {
         </Card>
 
         <Card>
-          <div className="mb-4">
+          <div className="mb-3 md:mb-4">
             <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{tr('Quick actions', 'त्वरित क्रियाएं', 'Quick actions')}</div>
-            <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">{tr('Move faster', 'तेजी से काम करें', 'Move faster')}</div>
+            <div className="mt-1 text-lg font-semibold tracking-tight text-slate-950 md:mt-2 md:text-xl dark:text-white">{tr('Move faster', 'तेजी से काम करें', 'Move faster')}</div>
           </div>
-          <div className="space-y-3">
-            {canOrders ? <ActionLink title={tr('New order', 'नया ऑर्डर', 'Naya order')} sub={tr('Create and dispatch a sales order', 'सेल्स ऑर्डर बनाएं और डिस्पैच करें', 'Sales order banao aur dispatch karo')} href="/orders/new" /> : null}
-            {canPayments ? <ActionLink title={tr('Record payment', 'भुगतान दर्ज करें', 'Payment record karo')} sub={tr('Update khata and clear balances', 'खाता अपडेट करें और बकाया साफ करें', 'Khata update karo aur balances clear karo')} href="/khata" /> : null}
-            {canInventory ? <ActionLink title={tr('Stock purchase', 'स्टॉक खरीद', 'Stock purchase')} sub={tr('Add inventory or replenish fast movers', 'इन्वेंट्री जोड़ें या फास्ट मूवर्स रीफिल करें', 'Inventory add karo ya fast movers replenish karo')} href="/inventory" /> : null}
-            {canDelivery ? <ActionLink title={tr('Create delivery', 'डिलीवरी बनाएं', 'Delivery create karo')} sub={tr('Manage challan and delivery status', 'चालान और डिलीवरी स्टेटस मैनेज करें', 'Challan aur delivery status manage karo')} href="/delivery" /> : null}
+          <div className="grid grid-cols-1 gap-2 md:space-y-3">
+            {canOrders ? <ActionLink icon="order" featured title={tr('New order', 'नया ऑर्डर', 'Naya order')} sub={tr('Create and dispatch a sales order', 'सेल्स ऑर्डर बनाएं और डिस्पैच करें', 'Sales order banao aur dispatch karo')} href="/orders/new" /> : null}
+            {canPayments ? <ActionLink icon="payment" title={tr('Record payment', 'भुगतान दर्ज करें', 'Payment record karo')} sub={tr('Update khata and clear balances', 'खाता अपडेट करें और बकाया साफ करें', 'Khata update karo aur balances clear karo')} href="/khata" /> : null}
+            {canInventory ? <ActionLink icon="inventory" title={tr('Stock purchase', 'स्टॉक खरीद', 'Stock purchase')} sub={tr('Add inventory or replenish fast movers', 'इन्वेंट्री जोड़ें या फास्ट मूवर्स रीफिल करें', 'Inventory add karo ya fast movers replenish karo')} href="/inventory" /> : null}
+            {canDelivery ? <ActionLink icon="delivery" title={tr('Create delivery', 'डिलीवरी बनाएं', 'Delivery create karo')} sub={tr('Manage challan and delivery status', 'चालान और डिलीवरी स्टेटस मैनेज करें', 'Challan aur delivery status manage karo')} href="/delivery" /> : null}
             {user?.role === 'OWNER' ? (
               <button
                 onClick={handleSendReminders}
                 disabled={sendReminders.isPending}
-                className="w-full rounded-[22px] border border-slate-200/70 bg-white/70 px-4 py-4 text-left transition-colors hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900/50 dark:hover:bg-slate-800"
+                className="w-full rounded-[16px] border border-slate-200/70 bg-white/80 px-3 py-3 text-left transition-colors hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60 md:rounded-[22px] md:px-4 md:py-4 dark:border-slate-800 dark:bg-slate-900/50 dark:hover:bg-slate-800"
               >
                 <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-950 dark:text-white">
+                  <div className="flex items-start gap-2.5">
+                    <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                      </svg>
+                    </span>
+                    <div>
+                    <div className="text-[13px] font-semibold text-slate-950 md:text-sm dark:text-white">
                       {sendReminders.isPending ? tr('Sending reminders...', 'रिमाइंडर भेजे जा रहे हैं...', 'Reminders bheje ja rahe hain...') : tr('Send reminders', 'रिमाइंडर भेजें', 'Reminders bhejo')}
                     </div>
-                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    <div className="mt-0.5 text-[11px] text-slate-500 md:mt-1 md:text-xs dark:text-slate-400">
                       {tr('Trigger WhatsApp reminders for', 'WhatsApp रिमाइंडर भेजें', 'WhatsApp reminders bhejo')} {overdueCustomers.length} {tr(overdueCustomers.length === 1 ? 'customer' : 'customers', overdueCustomers.length === 1 ? 'ग्राहक' : 'ग्राहकों', overdueCustomers.length === 1 ? 'customer' : 'customers')} {tr('with dues', 'जिनका बकाया है', 'jinpar due hai')}
                     </div>
                   </div>
-                  <Badge variant="warning">Live</Badge>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="warning">Live</Badge>
+                    <span className="text-sm text-slate-400 dark:text-slate-500">›</span>
+                  </div>
                 </div>
               </button>
             ) : (
@@ -517,16 +638,17 @@ function DashboardContent() {
           </div>
         </Card>
       </div>
+      </>
     </AppShell>
   )
 }
 
-function InsightTile({ label, value, hint }: { label: string; value: string; hint: string }) {
+function InsightTile({ label, value, hint, compact = false }: { label: string; value: string; hint: string; compact?: boolean }) {
   return (
-    <div className="rounded-[24px] border border-slate-200/70 bg-white/75 p-5 dark:border-slate-800 dark:bg-slate-950/55">
+    <div className={compact ? 'rounded-[18px] border border-slate-200/70 bg-white/75 p-3 dark:border-slate-800 dark:bg-slate-950/55' : 'rounded-[24px] border border-slate-200/70 bg-white/75 p-5 dark:border-slate-800 dark:bg-slate-950/55'}>
       <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{label}</div>
-      <div className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{value}</div>
-      <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">{hint}</div>
+      <div className={compact ? 'mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white' : 'mt-3 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white'}>{value}</div>
+      <div className={compact ? 'mt-1 text-[11px] text-slate-500 dark:text-slate-400' : 'mt-2 text-sm text-slate-500 dark:text-slate-400'}>{hint}</div>
     </div>
   )
 }
@@ -574,38 +696,64 @@ function SectionLimitSelect({
 
 function EmptyDashboardState({ title, description }: { title: string; description: string }) {
   return (
-    <div className="rounded-[22px] border border-dashed border-slate-200/80 px-4 py-8 text-center dark:border-slate-800">
-      <div className="text-sm font-semibold text-slate-950 dark:text-white">{title}</div>
-      <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">{description}</div>
+    <div className="rounded-[16px] border border-dashed border-slate-200/80 px-3 py-6 text-center md:rounded-[22px] md:px-4 md:py-8 dark:border-slate-800">
+      <div className="text-[13px] font-semibold text-slate-950 md:text-sm dark:text-white">{title}</div>
+      <div className="mt-1.5 text-[11px] text-slate-500 md:mt-2 md:text-xs dark:text-slate-400">{description}</div>
     </div>
   )
 }
 
-function ActionLink({ title, sub, href }: { title: string; sub: string; href: string }) {
+function ActionLink({ title, sub, href, featured = false, icon = 'order' }: { title: string; sub: string; href: string; featured?: boolean; icon?: 'order' | 'payment' | 'inventory' | 'delivery' }) {
   return (
     <Link
       href={href}
-      className="block rounded-[22px] border border-slate-200/70 bg-white/70 px-4 py-4 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900/50 dark:hover:bg-slate-800"
+      className={`block rounded-[16px] px-3 py-3 transition-colors md:rounded-[22px] md:px-4 md:py-4 ${
+        featured
+          ? 'border border-slate-950 bg-slate-950 text-white hover:bg-slate-800 dark:border-sky-400 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400'
+          : 'border border-slate-200/70 bg-white/80 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900/50 dark:hover:bg-slate-800'
+      }`}
     >
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-slate-950 dark:text-white">{title}</div>
-          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{sub}</div>
+        <div className="flex items-start gap-2.5">
+          <span className={`mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+            featured ? 'bg-white/20 text-white dark:bg-slate-900/20 dark:text-slate-950' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
+          }`}>
+            <ActionIcon kind={icon} />
+          </span>
+          <div>
+            <div className={`text-[13px] font-semibold md:text-sm ${featured ? 'text-white dark:text-slate-950' : 'text-slate-950 dark:text-white'}`}>{title}</div>
+            <div className={`mt-0.5 text-[11px] md:mt-1 md:text-xs ${featured ? 'text-white/80 dark:text-slate-800' : 'text-slate-500 dark:text-slate-400'}`}>{sub}</div>
+          </div>
         </div>
-        <span className="text-lg text-slate-300 dark:text-slate-600">+</span>
+        <span className={`text-sm md:text-base ${featured ? 'text-white/90 dark:text-slate-900' : 'text-slate-400 dark:text-slate-500'}`}>›</span>
       </div>
     </Link>
   )
+}
+
+function ActionIcon({ kind }: { kind: 'order' | 'payment' | 'inventory' | 'delivery' }) {
+  if (kind === 'payment') {
+    return <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" /></svg>
+  }
+  if (kind === 'inventory') {
+    return <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7l9-4 9 4-9 4-9-4z" /><path d="M3 17l9 4 9-4" /><path d="M3 12l9 4 9-4" /></svg>
+  }
+  if (kind === 'delivery') {
+    return <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7h11v9H3z" /><path d="M14 10h4l3 3v3h-7z" /><circle cx="7.5" cy="18" r="1.5" /><circle cx="17.5" cy="18" r="1.5" /></svg>
+  }
+  return <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
 }
 
 function StatusTile({
   label,
   value,
   tone,
+  compact = false,
 }: {
   label: string
   value: number
   tone: 'default' | 'success' | 'warning' | 'info'
+  compact?: boolean
 }) {
   const map = {
     default: 'bg-slate-100 text-slate-900 dark:bg-slate-900 dark:text-white',
@@ -615,9 +763,9 @@ function StatusTile({
   } as const
 
   return (
-    <div className={`rounded-[22px] p-4 ${map[tone]}`}>
+    <div className={`${compact ? 'rounded-[16px] p-3' : 'rounded-[22px] p-4'} ${map[tone]}`}>
       <div className="text-[11px] font-semibold uppercase tracking-[0.24em] opacity-70">{label}</div>
-      <div className="mt-2 text-3xl font-semibold tracking-tight">{value}</div>
+      <div className={compact ? 'mt-1 text-2xl font-semibold tracking-tight' : 'mt-2 text-3xl font-semibold tracking-tight'}>{value}</div>
     </div>
   )
 }

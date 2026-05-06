@@ -50,6 +50,7 @@ function OrdersContent() {
     ),
     newOrder: t('+ New order', '+ नया ऑर्डर', '+ Naya order'),
     clearSelection: t('Clear selection', 'चयन हटाएँ', 'Selection clear karo'),
+    selectAll: t('Select all', 'सभी चुनें', 'Select all'),
     deleteSelected: t('Delete selected', 'चयनित हटाएँ', 'Selected delete karo'),
     deleting: t('Deleting...', 'हटाया जा रहा है...', 'Delete ho raha hai...'),
     noOrders: t('No orders found', 'कोई ऑर्डर नहीं मिला', 'Koi order nahi mila'),
@@ -105,6 +106,18 @@ function OrdersContent() {
   const searchParams = useSearchParams()
   const [status, setStatus] = useState<(typeof STATUSES)[number]>('ALL')
   const [showNewOrderModal, setShowNewOrderModal] = useState(false)
+  const mobilePrimaryStatuses = useMemo(() => ['ALL', 'CONFIRMED', 'DISPATCHED'] as (typeof STATUSES)[number][], [])
+  const mobileExtraStatuses = useMemo(() => STATUSES.filter((s) => !mobilePrimaryStatuses.includes(s)), [mobilePrimaryStatuses])
+  const mobileStatusLabels = useMemo(
+    () => ({
+      ALL: t('ALL', 'सभी', 'ALL'),
+      CONFIRMED: t('CONF', 'कन्फ', 'CONF'),
+      DISPATCHED: t('DISP', 'डिस्प', 'DISP'),
+      DELIVERED: t('DELV', 'डिलीव', 'DELV'),
+      CANCELLED: t('CANC', 'रद्द', 'CANC'),
+    }),
+    [language]
+  )
   const { data, isLoading } = useOrders({ status: status === 'ALL' ? undefined : status } as any)
   const deleteOrder = useDeleteOrder()
   const bulkDelete = useBulkDeleteOrders()
@@ -123,6 +136,13 @@ function OrdersContent() {
   const [cancelConfirm, setCancelConfirm] = useState<{ open: boolean; id?: string; orderNumber?: string }>({ open: false })
   const allSelected = orders.length > 0 && selected.size === orders.length
   const selectedOrders = useMemo(() => orders.filter((o: any) => selected.has(o.id)), [orders, selected])
+  const initialLoading = isLoading && !data
+  const bookedValue = useMemo(() => orders.reduce((sum: number, o: any) => sum + Number(o.totalAmount), 0), [orders])
+  const collectedValue = useMemo(() => orders.reduce((sum: number, o: any) => sum + Number(o.amountPaid), 0), [orders])
+  const outstandingValue = useMemo(
+    () => orders.reduce((sum: number, o: any) => sum + (Number(o.totalAmount) - Number(o.amountPaid)), 0),
+    [orders]
+  )
 
   useEffect(() => {
     const message = sessionStorage.getItem('orders_success_message')
@@ -236,12 +256,21 @@ function OrdersContent() {
       {!canUseOrders ? (
         <Card className="mb-4">
           <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-            {language === 'hi' ? 'à¤¯à¤¹ à¤®à¥‰à¤¡à¥à¤¯à¥‚à¤² à¤†à¤ªà¤•à¥‡ à¤ªà¥à¤²à¤¾à¤¨ à¤®à¥‡à¤‚ à¤¸à¤•à¥à¤·à¤® à¤¨à¤¹à¥€à¤‚ à¤¹à¥ˆà¥¤' : 'This module is not enabled for your workspace.'}
+            {language === 'hi' ? 'यह मॉड्यूल आपके प्लान में सक्षम नहीं है।' : 'This module is not enabled for your workspace.'}
           </div>
         </Card>
       ) : null}
       {canUseOrders ? (
       <>
+      <div className="md:hidden mb-4 rounded-2xl border border-slate-200/80 bg-white/70 p-4 shadow-sm backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/70">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
+          {tr.eyebrow}
+        </div>
+        <h1 className="mt-1 text-2xl font-semibold leading-tight text-slate-900 dark:text-slate-100">{tr.title}</h1>
+        <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">{tr.desc}</p>
+      </div>
+
+      <div className="hidden md:block">
       <SectionHeader
         eyebrow={tr.eyebrow}
         title={tr.title}
@@ -264,28 +293,43 @@ function OrdersContent() {
           </>
         }
       />
+      </div>
 
-      <MetricGrid className="mb-6">
-        <MetricCard label={tr.visibleOrders} value={String(orders.length)} hint={`${data?.total ?? 0} ${tr.totalInResult}`} />
+      <MetricGrid className="mb-6 hidden md:grid">
+        <MetricCard label={tr.visibleOrders} value={initialLoading ? '—' : String(orders.length)} hint={initialLoading ? 'Loading...' : `${data?.total ?? 0} ${tr.totalInResult}`} />
         <MetricCard
           label={tr.bookedValue}
-          value={fmt(orders.reduce((sum: number, o: any) => sum + Number(o.totalAmount), 0))}
-          hint={tr.currentFilterSelection}
+          value={initialLoading ? '—' : fmt(bookedValue)}
+          hint={initialLoading ? 'Loading...' : tr.currentFilterSelection}
           tone="brand"
         />
         <MetricCard
           label={tr.collected}
-          value={fmt(orders.reduce((sum: number, o: any) => sum + Number(o.amountPaid), 0))}
-          hint={tr.paymentsReceived}
+          value={initialLoading ? '—' : fmt(collectedValue)}
+          hint={initialLoading ? 'Loading...' : tr.paymentsReceived}
           tone="success"
         />
         <MetricCard
           label={tr.outstanding}
-          value={fmt(orders.reduce((sum: number, o: any) => sum + (Number(o.totalAmount) - Number(o.amountPaid)), 0))}
-          hint={tr.remainingDue}
+          value={initialLoading ? '—' : fmt(outstandingValue)}
+          hint={initialLoading ? 'Loading...' : tr.remainingDue}
           tone="warning"
         />
       </MetricGrid>
+      <div className="mb-4 grid grid-cols-2 gap-3 md:hidden">
+        {[
+          { label: tr.visibleOrders, value: initialLoading ? '—' : String(orders.length), hint: initialLoading ? 'Loading...' : `${data?.total ?? 0} ${tr.totalInResult}`, accent: 'text-slate-900 dark:text-slate-100' },
+          { label: tr.bookedValue, value: initialLoading ? '—' : fmt(bookedValue), hint: initialLoading ? 'Loading...' : tr.currentFilterSelection, accent: 'text-slate-900 dark:text-slate-100' },
+          { label: tr.collected, value: initialLoading ? '—' : fmt(collectedValue), hint: initialLoading ? 'Loading...' : tr.paymentsReceived, accent: 'text-emerald-700 dark:text-emerald-300' },
+          { label: tr.outstanding, value: initialLoading ? '—' : fmt(outstandingValue), hint: initialLoading ? 'Loading...' : tr.remainingDue, accent: 'text-amber-700 dark:text-amber-300' },
+        ].map((item) => (
+          <div key={item.label} className="rounded-xl border border-slate-200/80 bg-white/75 p-3 shadow-sm backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/70">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{item.label}</div>
+            <div className={`mt-1 text-2xl font-bold leading-tight ${item.accent}`}>{item.value}</div>
+            <div className="mt-1 truncate text-[11px] text-slate-500 dark:text-slate-400">{item.hint}</div>
+          </div>
+        ))}
+      </div>
 
       {alert ? (
         <div
@@ -308,8 +352,44 @@ function OrdersContent() {
         </div>
       ) : null}
 
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap gap-2">
+      <div className="sticky top-2 z-10 mb-4 flex flex-col gap-3 rounded-xl bg-slate-50/90 p-2 backdrop-blur-sm dark:bg-slate-900/70 lg:static lg:rounded-none lg:bg-transparent lg:p-0">
+        <div className="grid grid-cols-[repeat(3,minmax(0,1fr))_auto] gap-2 lg:hidden">
+          {mobilePrimaryStatuses.map((s) => (
+            <button
+              key={s}
+              onClick={() => {
+                setStatus(s)
+                setSelected(new Set())
+              }}
+              className={`rounded-full px-2 py-2 text-[10px] font-semibold transition-colors ${status === s
+                  ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950'
+                  : 'border border-slate-200 bg-white/75 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300'
+                } whitespace-nowrap`}
+            >
+              {mobileStatusLabels[s]}
+            </button>
+          ))}
+          {mobileExtraStatuses.length > 0 ? (
+            <select
+              value={mobileExtraStatuses.includes(status) ? status : ''}
+              onChange={(e) => {
+                const next = e.target.value as (typeof STATUSES)[number]
+                if (!next) return
+                setStatus(next)
+                setSelected(new Set())
+              }}
+              className="h-9 min-w-[86px] rounded-full border border-slate-300 bg-white px-2.5 text-[10px] font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+            >
+              <option value="">… More</option>
+              {mobileExtraStatuses.map((s) => (
+                <option key={s} value={s}>
+                  {mobileStatusLabels[s]}
+                </option>
+              ))}
+            </select>
+          ) : null}
+        </div>
+        <div className="hidden gap-2 overflow-x-auto pr-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:flex lg:flex-wrap lg:overflow-visible lg:pr-0">
           {STATUSES.map((s) => (
             <button
               key={s}
@@ -320,7 +400,7 @@ function OrdersContent() {
               className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${status === s
                   ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950'
                   : 'border border-slate-200 bg-white/75 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300'
-                }`}
+                } shrink-0 whitespace-nowrap`}
             >
               {statusLabels[s]}
             </button>
@@ -333,6 +413,15 @@ function OrdersContent() {
           <span className="text-xs font-medium text-red-800 dark:text-red-200">
             {selected.size} {language === 'hi' ? `ऑर्डर ${tr.selectedSuffix}` : language === 'hinglish' ? 'order selected' : `order${selected.size > 1 ? 's' : ''} selected`}
           </span>
+          {!allSelected ? (
+            <button
+              type="button"
+              onClick={toggleAll}
+              className="rounded-md border border-red-300 bg-white px-3 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-700 dark:bg-red-950 dark:text-red-200 dark:hover:bg-red-900"
+            >
+              {tr.selectAll}
+            </button>
+          ) : null}
           <button
             onClick={handleBulkDelete}
             disabled={bulkDelete.isPending}
@@ -348,7 +437,42 @@ function OrdersContent() {
 
       <Card>
         {isLoading ? (
-          <PageLoader />
+          <>
+            <div className="space-y-3 md:hidden">
+              {[1, 2, 3].map((idx) => (
+                <div key={idx} className="rounded-2xl border border-slate-200/80 bg-white/80 p-3.5 dark:border-slate-800 dark:bg-slate-950/55">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Order</div>
+                    <div className="rounded-full bg-slate-100 px-2 py-1 text-[10px] text-slate-500 dark:bg-slate-800">Loading...</div>
+                  </div>
+                  <div className="mt-2 text-lg font-semibold text-slate-900 dark:text-slate-100">—</div>
+                  <div className="mt-1 text-xs text-slate-500">Loading...</div>
+                </div>
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[860px] text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200/70 dark:border-slate-800">
+                    {[tr.columns.orderNo, tr.columns.orderDate, tr.columns.deliveryDate, tr.columns.customer, tr.columns.items, tr.columns.amount, tr.columns.paid, tr.columns.due, tr.columns.status, tr.columns.actions].map((h) => (
+                      <th key={h} className="py-3 pr-3 text-left font-normal uppercase tracking-[0.18em] text-slate-400 dark:text-slate-300">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[1, 2, 3, 4].map((r) => (
+                    <tr key={r} className="border-b border-stone-50 dark:border-stone-800">
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((c) => (
+                        <td key={c} className="py-2.5 pr-3 text-slate-500">Loading...</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         ) : orders.length === 0 ? (
           <EmptyState
             title={tr.noOrders}
@@ -365,7 +489,71 @@ function OrdersContent() {
             }
           />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="space-y-3 md:hidden">
+            {orders.map((o: any) => {
+              const due = Number(o.totalAmount) - Number(o.amountPaid)
+              const isSelected = selected.has(o.id)
+              return (
+                <div
+                  key={o.id}
+                  className={`rounded-xl border p-3 transition-colors ${isSelected ? 'border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-900/30' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/50'}`}
+                >
+                  <div className="mb-2 flex items-start justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/orders/${o.id}`)}
+                      className="text-left"
+                    >
+                      <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{o.orderNumber}</div>
+                      <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{fmtDate(o.orderDate ?? o.createdAt)}</div>
+                    </button>
+                    <Badge variant={statusBadge(o.status)}>{statusLabels[o.status as keyof typeof statusLabels] ?? o.status}</Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                    <div className="text-slate-500 dark:text-slate-400">{tr.columns.customer}</div>
+                    <div className="text-right font-medium text-slate-800 dark:text-slate-200">{o.customer?.name ?? '-'}</div>
+                    <div className="text-slate-500 dark:text-slate-400">{tr.columns.items}</div>
+                    <div className="text-right font-medium text-slate-800 dark:text-slate-200">{o.items?.length ?? 0}</div>
+                    <div className="text-slate-500 dark:text-slate-400">{tr.columns.amount}</div>
+                    <div className="text-right font-medium text-slate-900 dark:text-slate-100">{fmt(Number(o.totalAmount))}</div>
+                    <div className="text-slate-500 dark:text-slate-400">{tr.columns.paid}</div>
+                    <div className="text-right font-medium text-emerald-700 dark:text-emerald-300">{fmt(Number(o.amountPaid))}</div>
+                    <div className="text-slate-500 dark:text-slate-400">{tr.columns.due}</div>
+                    <div className={`text-right font-semibold ${due > 0 ? 'text-rose-600 dark:text-rose-300' : 'text-slate-400'}`}>{due > 0 ? fmt(due) : '-'}</div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <label className="inline-flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleOne(o.id)}
+                        className="cursor-pointer rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      {t('Select', 'à¤šà¥à¤¨à¥‡à¤‚', 'Select')}
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/orders/${o.id}`)}
+                        className="rounded-md border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                      >
+                        {t('Open', 'à¤–à¥‹à¤²à¥‡à¤‚', 'Open')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(o.id, o.orderNumber, o.status)}
+                        className="rounded-md border border-rose-200 px-2.5 py-1 text-[11px] font-medium text-rose-700 dark:border-rose-500/40 dark:text-rose-300"
+                      >
+                        {tr.del}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[860px] text-xs">
               <thead>
                 <tr className="border-b border-slate-200/70 dark:border-slate-800">
@@ -461,6 +649,7 @@ function OrdersContent() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
 
@@ -469,14 +658,14 @@ function OrdersContent() {
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
             <div className="flex items-start justify-between gap-3">
               <div className="text-lg font-semibold text-slate-950 dark:text-slate-100">
-                {t('????? ?? ?????? ????', '????? ?? ?????? ????', 'Delete confirm karo')}
+                {t('Confirm delete', 'डिलीट की पुष्टि करें', 'Delete confirm karo')}
               </div>
               <button
                 type="button"
                 onClick={closeDeleteConfirm}
                 disabled={deleteOrder.isPending || bulkDelete.isPending}
                 className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-                aria-label={t('Close', 'Close', 'Close')}
+                aria-label={t('Close', 'बंद करें', 'Close')}
               >
                 &times;
               </button>
@@ -486,7 +675,7 @@ function OrdersContent() {
                 if (deleteConfirm.mode === 'single') {
                   const target = orders.find((o: any) => o.id === deleteConfirm.id)
                   const deliveredWarning = target?.status === 'DELIVERED'
-                    ? t('Delivered order: inventory will not be restored. If due is pending, khata entries stay linked to this soft-deleted order.', '?? ???????? ????? ??? ????????? ???? ???? ????? ????? ???? ?? ???? ?????? ???? ??????', 'Delivered order hai: inventory restore nahi hoga. Agar due pending hai to khata entries is soft-deleted order se linked rahengi.')
+                    ? t('Delivered order: inventory will not be restored. If due is pending, khata entries stay linked to this soft-deleted order.', 'डिलीवर ऑर्डर के लिए इन्वेंट्री बहाल नहीं होगी। यदि बकाया बाकी है, तो खाता एंट्री इस सॉफ्ट-डिलीटेड ऑर्डर से जुड़ी रहेगी।', 'Delivered order hai: inventory restore nahi hoga. Agar due pending hai to khata entries is soft-deleted order se linked rahengi.')
                     : t('Non-delivered order: inventory will be restored and related khata/ledger entries will be removed.', 'Non-delivered order: inventory will be restored and related khata/ledger entries will be removed.', 'Non-delivered order: inventory restore hoga aur related khata/ledger entries remove hongi.')
                   return `${tr.del} ${deleteConfirm.orderNumber}? ${deliveredWarning}`
                 }
@@ -495,7 +684,7 @@ function OrdersContent() {
                 const deliveredCount = selectedOrders.filter((o: any) => o.status === 'DELIVERED').length
                 if (count === 1 && selectedOrders[0]?.orderNumber) {
                   const deliveredWarning = selectedOrders[0].status === 'DELIVERED'
-                    ? t('Delivered order: inventory will not be restored. If due is pending, khata entries stay linked to this soft-deleted order.', '?? ???????? ????? ??? ????????? ???? ???? ????? ????? ???? ?? ???? ?????? ???? ??????', 'Delivered order hai: inventory restore nahi hoga. Agar due pending hai to khata entries is soft-deleted order se linked rahengi.')
+                    ? t('Delivered order: inventory will not be restored. If due is pending, khata entries stay linked to this soft-deleted order.', 'डिलीवर ऑर्डर के लिए इन्वेंट्री बहाल नहीं होगी। यदि बकाया बाकी है, तो खाता एंट्री इस सॉफ्ट-डिलीटेड ऑर्डर से जुड़ी रहेगी।', 'Delivered order hai: inventory restore nahi hoga. Agar due pending hai to khata entries is soft-deleted order se linked rahengi.')
                     : t('Non-delivered order: inventory will be restored and related khata/ledger entries will be removed.', 'Non-delivered order: inventory will be restored and related khata/ledger entries will be removed.', 'Non-delivered order: inventory restore hoga aur related khata/ledger entries remove hongi.')
                   return `${tr.del} ${selectedOrders[0].orderNumber}? ${deliveredWarning}`
                 }
@@ -536,14 +725,14 @@ function OrdersContent() {
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
             <div className="flex items-start justify-between gap-3">
               <div className="text-lg font-semibold text-slate-950 dark:text-slate-100">
-                {t('???? ???? ?? ?????? ????', '???? ???? ?? ?????? ????', 'Cancel confirm karo')}
+                {t('Confirm cancel order', 'ऑर्डर रद्द करने की पुष्टि करें', 'Cancel confirm karo')}
               </div>
               <button
                 type="button"
                 onClick={closeCancelConfirm}
                 disabled={updateStatus.isPending}
                 className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-                aria-label={t('Close', 'Close', 'Close')}
+                aria-label={t('Close', 'बंद करें', 'Close')}
               >
                 &times;
               </button>
@@ -603,6 +792,13 @@ function OrdersContent() {
           </div>
         </div>
       )}
+      <button
+        type="button"
+        onClick={() => setShowNewOrderModal(true)}
+        className="fixed bottom-24 right-4 z-30 rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white shadow-lg transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 md:hidden"
+      >
+        {tr.newOrder}
+      </button>
       </>
       ) : null}
     </AppShell>

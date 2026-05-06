@@ -1,5 +1,5 @@
-'use client'
-import { Suspense, useEffect, useMemo, useState } from 'react'
+﻿'use client'
+import { Suspense, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AppShell } from '@/components/layout/AppShell'
 import { Card, KpiCard, SectionHeader } from '@/components/ui/Card'
@@ -137,6 +137,24 @@ function humanizeKey(key: string) {
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+function mobileTabLabel(key: ReportTabKey) {
+  const map: Record<ReportTabKey, string> = {
+    sales: 'Sales',
+    inventory: 'Stock',
+    gst: 'GST',
+    payments: 'Payments',
+    'profit-loss': 'P&L',
+    customers: 'Customers',
+    returns: 'Returns',
+    expenses: 'Expenses',
+    transport: 'Transport',
+    expiry: 'Expiry',
+    batch: 'Batch',
+    serial: 'Serial',
+  }
+  return map[key] ?? key
+}
+
 function SortablePagedTable({
   rows,
   columns,
@@ -185,7 +203,7 @@ function SortablePagedTable({
 
   return (
     <div className="rounded-2xl border border-slate-200 dark:border-slate-800">
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs dark:border-slate-800">
+      <div className="hidden flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs dark:border-slate-800 md:flex">
         <span className="font-semibold text-slate-500">Columns:</span>
         {columns.map((col) => (
           <label key={`${tableId}-${col.key}`} className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-2 py-1">
@@ -203,7 +221,27 @@ function SortablePagedTable({
           </label>
         ))}
       </div>
-      <div className="overflow-x-auto">
+      <div className="space-y-2 p-3 md:hidden">
+        {current.length === 0 ? (
+          <div className="rounded-xl border border-slate-200 bg-white px-3 py-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900">
+            No data in selected filters.
+          </div>
+        ) : current.map((row, idx) => (
+          <div key={`${idx}-${String(row[columns[0].key] ?? 'row-mobile')}`} className="rounded-xl border border-slate-200 bg-white/80 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+              {activeColumns.map((col) => (
+                <div key={col.key} className="min-w-0">
+                  <div className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">{col.label}</div>
+                  <div className="truncate text-xs font-medium text-slate-800 dark:text-slate-100">
+                    {col.format ? col.format(row[col.key], row) : String(row[col.key] ?? '-')}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full min-w-[760px] text-sm">
           <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-900/90 backdrop-blur">
             <tr>
@@ -326,7 +364,7 @@ function ReportTabPanel({ tab, data }: { tab: ReportTabKey; data: any }) {
     )
     return (
       <div className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
           <KpiCard label="Invoices" value={String(rows.length)} />
           <KpiCard label="Amount" value={fmt(totals.amount)} />
           <KpiCard label="Paid" value={fmt(totals.paid)} />
@@ -448,6 +486,36 @@ function ReportTabPanel({ tab, data }: { tab: ReportTabKey; data: any }) {
   return <SortablePagedTable rows={data} columns={columns} />
 }
 
+function LoadingReportPanel({ tab }: { tab: ReportTabKey }) {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          tab === 'sales' ? 'Invoices' : 'Metric 1',
+          tab === 'sales' ? 'Amount' : 'Metric 2',
+          tab === 'sales' ? 'Paid' : 'Metric 3',
+          tab === 'sales' ? 'Due' : 'Metric 4',
+        ].map((label) => (
+          <div key={label} className="rounded-2xl border border-slate-200 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/60">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</div>
+            <div className="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">—</div>
+            <div className="mt-1 text-xs text-slate-500">Loading...</div>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-2xl border border-slate-200 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/60">
+        <div className="mb-3 h-3 w-28 rounded bg-slate-200 dark:bg-slate-700" />
+        <div className="grid gap-2">
+          <div className="h-10 rounded bg-slate-100 dark:bg-slate-800" />
+          <div className="h-10 rounded bg-slate-100 dark:bg-slate-800" />
+          <div className="h-10 rounded bg-slate-100 dark:bg-slate-800" />
+          <div className="h-10 rounded bg-slate-100 dark:bg-slate-800" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ReportsContent() {
   const user = useAuthStore((s) => s.user)
   const catalog = useReportsCatalog()
@@ -469,6 +537,7 @@ function ReportsContent() {
   const [error, setError] = useState('')
   const [presetVersion, setPresetVersion] = useState(0)
   const [exportFormat, setExportFormat] = useState<'csv' | 'xlsx'>('csv')
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
 
   const presetStorageKey = useMemo(() => {
     const userId = user?.id ?? 'anonymous'
@@ -527,6 +596,16 @@ function ReportsContent() {
   }, [startDate, endDate, customerId, materialId, paymentStatus, orderStatus, locationId])
 
   const report = useReportData(tab, filters)
+  const mobilePrimaryTabs = useMemo(() => {
+    const preferred: ReportTabKey[] = ['sales', 'inventory', 'gst']
+    const picks = preferred.filter((k) => availableTabs.includes(k))
+    if (picks.length > 0) return picks
+    return availableTabs.slice(0, 3)
+  }, [availableTabs])
+  const mobileExtraTabs = useMemo(
+    () => availableTabs.filter((k) => !mobilePrimaryTabs.includes(k)),
+    [availableTabs, mobilePrimaryTabs]
+  )
 
   async function onExport() {
     setError('')
@@ -557,11 +636,42 @@ function ReportsContent() {
   const materials = (filterOptions.data?.materials ?? []) as Array<{ id: string; name: string }>
   const filterControlClass =
     'rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-400'
+  const dateControlClass = `${filterControlClass} h-10 pr-3 [color-scheme:light] [&::-webkit-calendar-picker-indicator]:mr-1 [&::-webkit-calendar-picker-indicator]:opacity-80`
+  const selectControlClass = `${filterControlClass} h-10 appearance-none pr-10 [&::-ms-expand]:hidden`
+  const inputControlClass = `${filterControlClass} h-10`
+  const selectChevronStyle: CSSProperties = {
+    backgroundImage:
+      "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5.5 7.5l4.5 4.5 4.5-4.5' stroke='%23475569' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'right 0.8rem center',
+    backgroundSize: '15px 15px',
+  }
   const subtleButtonClass =
     'rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:disabled:bg-slate-900/60 dark:disabled:text-slate-400'
 
   return (
     <AppShell>
+      <div className="mb-4 rounded-2xl border border-slate-200/80 bg-white/70 p-4 shadow-sm backdrop-blur-sm md:hidden dark:border-slate-700 dark:bg-slate-900/70">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Business intelligence</div>
+        <h1 className="mt-1 text-2xl font-semibold leading-tight text-slate-950 dark:text-white">Reports</h1>
+        <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
+          Sortable reports with compact mobile filters and quick export.
+        </p>
+        <div className="mt-3 flex items-center gap-2">
+          <select
+            value={exportFormat}
+            onChange={(e) => setExportFormat(e.target.value as 'csv' | 'xlsx')}
+            className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+          >
+            <option value="csv">CSV</option>
+            <option value="xlsx">XLSX</option>
+          </select>
+          <button onClick={onExport} className="rounded-full bg-slate-950 px-3 py-1.5 text-[11px] font-semibold text-white dark:bg-sky-500 dark:text-slate-950">
+            Export
+          </button>
+        </div>
+      </div>
+      <div className="hidden md:block">
       <SectionHeader
         eyebrow="Business intelligence"
         title="Reports"
@@ -592,30 +702,31 @@ function ReportsContent() {
           </div>
         }
       />
+      </div>
 
       <Card className="mb-4">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-          <input value={startDate} onChange={(e) => setStartDate(e.target.value)} type="date" className={filterControlClass} />
-          <input value={endDate} onChange={(e) => setEndDate(e.target.value)} type="date" className={filterControlClass} />
-          <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className={filterControlClass}>
+          <input value={startDate} onChange={(e) => setStartDate(e.target.value)} type="date" className={`${dateControlClass} w-full sm:w-auto`} />
+          <input value={endDate} onChange={(e) => setEndDate(e.target.value)} type="date" className={`${dateControlClass} w-full sm:w-auto`} />
+          <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className={`${selectControlClass} w-full sm:w-auto`} style={selectChevronStyle}>
             <option value="">All customers</option>
             {customers.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
-          <select value={materialId} onChange={(e) => setMaterialId(e.target.value)} className={filterControlClass}>
+          <select value={materialId} onChange={(e) => setMaterialId(e.target.value)} className={`${selectControlClass} w-full sm:w-auto`} style={selectChevronStyle}>
             <option value="">All products/materials</option>
             {materials.map((m) => (
               <option key={m.id} value={m.id}>{m.name}</option>
             ))}
           </select>
-          <select value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)} className={filterControlClass}>
+          <select value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)} className={`${selectControlClass} w-full sm:w-auto`} style={selectChevronStyle}>
             <option value="">Payment status</option>
             <option value="PAID">Paid</option>
             <option value="PARTIAL">Partial</option>
             <option value="UNPAID">Unpaid</option>
           </select>
-          <select value={orderStatus} onChange={(e) => setOrderStatus(e.target.value)} className={filterControlClass}>
+          <select value={orderStatus} onChange={(e) => setOrderStatus(e.target.value)} className={`${selectControlClass} w-full sm:w-auto`} style={selectChevronStyle}>
             <option value="">Order status</option>
             <option value="DRAFT">Draft</option>
             <option value="CONFIRMED">Confirmed</option>
@@ -623,14 +734,14 @@ function ReportsContent() {
             <option value="DELIVERED">Delivered</option>
             <option value="CANCELLED">Cancelled</option>
           </select>
-          <input value={locationId} onChange={(e) => setLocationId(e.target.value)} placeholder="Location (optional)" className={filterControlClass} />
+          <input value={locationId} onChange={(e) => setLocationId(e.target.value)} placeholder="Location (optional)" className={`${inputControlClass} w-full sm:w-auto`} />
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3 dark:border-slate-800">
+        <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4 dark:border-slate-800">
           <input
             value={presetName}
             onChange={(e) => setPresetName(e.target.value)}
             placeholder="Preset name"
-            className={filterControlClass}
+            className={`${inputControlClass} w-full sm:w-auto`}
           />
           <button type="button" onClick={savePreset} className={subtleButtonClass}>
             Save preset
@@ -646,7 +757,57 @@ function ReportsContent() {
         </div>
       </Card>
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="relative mb-12 flex items-center gap-2 md:hidden">
+        {mobilePrimaryTabs.map((key) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={`shrink-0 rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${tab === key ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950' : 'border border-slate-300 text-slate-600'}`}
+          >
+            {key}
+          </button>
+        ))}
+        {mobileExtraTabs.length > 0 ? (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setMobileMoreOpen((v) => !v)}
+              className={`inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-semibold ${
+                mobileExtraTabs.includes(tab) || mobileMoreOpen
+                  ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950'
+                  : 'border border-slate-300 bg-white text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200'
+              }`}
+            >
+              <span className="text-[11px]">•••</span>
+              <span>More</span>
+            </button>
+            {mobileMoreOpen ? (
+              <div className="absolute right-0 top-11 z-30 min-w-[160px] rounded-2xl border border-slate-200 bg-white p-1 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                {mobileExtraTabs.map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setTab(key)
+                      setMobileMoreOpen(false)
+                    }}
+                    className={`block w-full rounded-xl px-3 py-2 text-left text-sm ${
+                      tab === key
+                        ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950'
+                        : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    {mobileTabLabel(key)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mb-4 hidden flex-wrap gap-2 md:flex">
         {availableTabs.map((key) => (
           <button
             key={key}
@@ -661,7 +822,12 @@ function ReportsContent() {
 
       {error ? <Card className="mb-4 text-sm text-rose-600">{error}</Card> : null}
 
-      {catalog.isLoading || report.isLoading ? <PageLoader /> : (
+      {catalog.isLoading || report.isLoading ? (
+        <Card>
+          <div className="mb-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{tab}</div>
+          <LoadingReportPanel tab={tab} />
+        </Card>
+      ) : (
         <Card>
           <div className="mb-4 text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{tab}</div>
           <ReportTabPanel tab={tab} data={report.data} />
@@ -678,3 +844,4 @@ export default function ReportsPage() {
     </Suspense>
   )
 }
+

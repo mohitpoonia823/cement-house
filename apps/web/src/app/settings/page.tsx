@@ -136,6 +136,7 @@ export default function SettingsPage() {
   const deleteStaff = useDeleteStaff()
 
   const [alert, setAlert] = useState<{ tone: AlertTone; message: string } | null>(null)
+  const [trialNoticeDismissed, setTrialNoticeDismissed] = useState(false)
   const [bizEdit, setBizEdit] = useState(false)
   const [bizName, setBizName] = useState('')
   const [bizCity, setBizCity] = useState('')
@@ -294,6 +295,29 @@ export default function SettingsPage() {
       })
     }
   }, [data, login, token, user])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!trialBannerMessage) {
+      setTrialNoticeDismissed(false)
+      return
+    }
+    const hideUntilRaw = window.localStorage.getItem('settings_trial_notice_hide_until')
+    const hideUntil = hideUntilRaw ? Number(hideUntilRaw) : 0
+    setTrialNoticeDismissed(Number.isFinite(hideUntil) && hideUntil > Date.now())
+  }, [trialBannerMessage])
+
+  function hideTrialNotice(hours: number) {
+    if (typeof window === 'undefined') return
+    if (hours <= 0) {
+      window.localStorage.removeItem('settings_trial_notice_hide_until')
+      setTrialNoticeDismissed(false)
+      return
+    }
+    const until = Date.now() + hours * 60 * 60 * 1000
+    window.localStorage.setItem('settings_trial_notice_hide_until', String(until))
+    setTrialNoticeDismissed(true)
+  }
 
   const updateBiz = useMutation({
     mutationFn: (payload: any) => api.patch('/api/settings/business', payload).then((r) => r.data.data),
@@ -526,31 +550,100 @@ export default function SettingsPage() {
   }
 
   if (isLoading) {
-    return <AppShell><div className="text-sm text-slate-500">{language === 'hi' ? 'सेटिंग्स लोड हो रही हैं...' : language === 'hinglish' ? 'Settings load ho rahi hain...' : 'Loading settings...'}</div></AppShell>
+    return (
+      <AppShell>
+        <SectionHeader
+          eyebrow={language === 'hi' ? 'वर्कस्पेस एडमिनिस्ट्रेशन' : 'Workspace administration'}
+          title={language === 'hi' ? 'सेटिंग्स' : 'Settings'}
+          description={language === 'hi' ? 'बिज़नेस प्रोफाइल, रिमाइंडर और सब्सक्रिप्शन सेटअप लोड हो रहा है।' : language === 'hinglish' ? 'Business profile, reminders aur subscription setup load ho raha hai.' : 'Loading business profile, reminders, and subscription setup.'}
+        />
+        <div className="max-w-6xl space-y-4">
+          <Card className="rounded-[20px] p-3.5 md:rounded-[24px] md:p-5">
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              {language === 'hi' ? 'सब्सक्रिप्शन और रिन्यूअल' : 'Subscription & renewal'}
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <InfoTile label={language === 'hi' ? 'वर्तमान एक्सेस' : 'Current access'} value="—" hint="Loading..." />
+              <InfoTile label={language === 'hi' ? 'बिलिंग साइकिल' : 'Billing cycle'} value="—" hint="Loading..." />
+              <InfoTile label={language === 'hi' ? 'स्टेटस' : 'Status'} value="—" hint="Loading..." />
+            </div>
+          </Card>
+          <Card className="rounded-[20px] p-3.5 md:rounded-[24px] md:p-5">
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              {language === 'hi' ? 'वर्कस्पेस प्रोफाइल' : 'Workspace profile'}
+            </div>
+            <div className="mt-3 space-y-2.5">
+              <div className="rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/45">
+                <div className="text-[11px] uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">{language === 'hi' ? 'बिज़नेस' : 'Business'}</div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">—</div>
+                <div className="text-xs text-slate-500">Loading...</div>
+              </div>
+              <div className="rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/45">
+                <div className="text-[11px] uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">{language === 'hi' ? 'प्रोफाइल' : 'Profile'}</div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">—</div>
+                <div className="text-xs text-slate-500">Loading...</div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </AppShell>
+    )
   }
 
-  const settingsCardCls = 'rounded-[24px] p-4 md:p-5'
+  const settingsCardCls = 'rounded-[20px] p-3.5 md:rounded-[24px] md:p-5'
 
   return (
     <AppShell>
       <SectionHeader
-        eyebrow={language === 'hi' ? 'वर्कस्पेस एडमिनिस्ट्रेशन' : 'Workspace administration'}
-        title={language === 'hi' ? 'सेटिंग्स' : 'Settings'}
-        description={language === 'hi' ? 'बिज़नेस प्रोफाइल, रिमाइंडर, ओनर प्रोफाइल और सब्सक्रिप्शन मैनेज करें।' : language === 'hinglish' ? 'Business profile, reminders, owner profile aur subscription manage karo.' : 'Manage business identity, reminders, owner profile, subscription access, and renewal setup.'}
+        eyebrow={language === 'hi' ? 'à¤µà¤°à¥à¤•à¤¸à¥à¤ªà¥‡à¤¸ à¤à¤¡à¤®à¤¿à¤¨à¤¿à¤¸à¥à¤Ÿà¥à¤°à¥‡à¤¶à¤¨' : 'Workspace administration'}
+        title={language === 'hi' ? 'à¤¸à¥‡à¤Ÿà¤¿à¤‚à¤—à¥à¤¸' : 'Settings'}
+        description={language === 'hi' ? 'à¤¬à¤¿à¤œà¤¼à¤¨à¥‡à¤¸ à¤ªà¥à¤°à¥‹à¤«à¤¾à¤‡à¤², à¤°à¤¿à¤®à¤¾à¤‡à¤‚à¤¡à¤°, à¤“à¤¨à¤° à¤ªà¥à¤°à¥‹à¤«à¤¾à¤‡à¤² à¤”à¤° à¤¸à¤¬à¥à¤¸à¤•à¥à¤°à¤¿à¤ªà¥à¤¶à¤¨ à¤®à¥ˆà¤¨à¥‡à¤œ à¤•à¤°à¥‡à¤‚à¥¤' : language === 'hinglish' ? 'Business profile, reminders, owner profile aur subscription manage karo.' : 'Manage business identity, reminders, owner profile, subscription access, and renewal setup.'}
       />
 
-      {trialBannerMessage ? <AlertBanner tone="warning" message={trialBannerMessage} className="mb-5 max-w-6xl" /> : null}
+      {trialBannerMessage && !trialNoticeDismissed ? (
+        <div className="mb-4 max-w-6xl rounded-2xl border border-amber-200/80 bg-amber-50/95 px-3 py-2.5 text-amber-900 shadow-sm dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-100">
+          <div className="flex items-start justify-between gap-2">
+            <div className="text-xs leading-5">{trialBannerMessage}</div>
+            <button
+              type="button"
+              onClick={() => hideTrialNotice(24)}
+              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-amber-800 transition-colors hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40"
+              aria-label="Dismiss trial notice"
+            >
+              ×
+            </button>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => hideTrialNotice(12)}
+              className="rounded-full border border-amber-300/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-800 transition-colors hover:bg-amber-100 dark:border-amber-400/40 dark:text-amber-200 dark:hover:bg-amber-900/40"
+            >
+              {language === 'hi' ? 'बाद में' : language === 'hinglish' ? 'Later' : 'Later'}
+            </button>
+            {paidPlanForCheckout ? (
+              <button
+                type="button"
+                onClick={() => openCheckout(paidPlanForCheckout.name, 'MONTHLY')}
+                className="rounded-full bg-amber-600 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white transition-colors hover:bg-amber-700"
+              >
+                {language === 'hi' ? 'सब्सक्राइब करें' : language === 'hinglish' ? 'Subscribe' : 'Subscribe'}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
-      <div className="max-w-6xl space-y-4">
+      <div className="max-w-6xl space-y-4 pb-24 md:pb-6">
         <Card className={settingsCardCls}>
           <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Subscription & renewal', 'सब्सक्रिप्शन और रिन्यूअल')}</div>
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Subscription & renewal', 'à¤¸à¤¬à¥à¤¸à¤•à¥à¤°à¤¿à¤ªà¥à¤¶à¤¨ à¤”à¤° à¤°à¤¿à¤¨à¥à¤¯à¥‚à¤…à¤²')}</div>
               <div className="mt-1.5 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
-                {data?.subscription?.inTrial ? t('Free trial access', 'मुफ्त ट्रायल एक्सेस') : t('Paid subscription access', 'पेड सब्सक्रिप्शन एक्सेस')}
+                {data?.subscription?.inTrial ? t('Free trial access', 'à¤®à¥à¤«à¥à¤¤ à¤Ÿà¥à¤°à¤¾à¤¯à¤² à¤à¤•à¥à¤¸à¥‡à¤¸') : t('Paid subscription access', 'à¤ªà¥‡à¤¡ à¤¸à¤¬à¥à¤¸à¤•à¥à¤°à¤¿à¤ªà¥à¤¶à¤¨ à¤à¤•à¥à¤¸à¥‡à¤¸')}
               </div>
               <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                {data?.subscription?.accessReason || t('Your workspace keeps a saved card ready for quick renewal.', 'आपके वर्कस्पेस में जल्दी रिन्यूअल के लिए कार्ड सेव रहता है।')}
+                {data?.subscription?.accessReason || t('Your workspace keeps a saved card ready for quick renewal.', 'à¤†à¤ªà¤•à¥‡ à¤µà¤°à¥à¤•à¤¸à¥à¤ªà¥‡à¤¸ à¤®à¥‡à¤‚ à¤œà¤²à¥à¤¦à¥€ à¤°à¤¿à¤¨à¥à¤¯à¥‚à¤…à¤² à¤•à¥‡ à¤²à¤¿à¤ à¤•à¤¾à¤°à¥à¤¡ à¤¸à¥‡à¤µ à¤°à¤¹à¤¤à¤¾ à¤¹à¥ˆà¥¤')}
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -560,14 +653,14 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (window.confirm(t('Cancel auto-renewal for the current subscription? Access will continue until the current end date.', 'क्या मौजूदा सब्सक्रिप्शन का ऑटो-रिन्यूअल बंद करना है? एक्सेस मौजूदा एंड डेट तक जारी रहेगा।'))) {
+                    if (window.confirm(t('Cancel auto-renewal for the current subscription? Access will continue until the current end date.', 'à¤•à¥à¤¯à¤¾ à¤®à¥Œà¤œà¥‚à¤¦à¤¾ à¤¸à¤¬à¥à¤¸à¤•à¥à¤°à¤¿à¤ªà¥à¤¶à¤¨ à¤•à¤¾ à¤‘à¤Ÿà¥‹-à¤°à¤¿à¤¨à¥à¤¯à¥‚à¤…à¤² à¤¬à¤‚à¤¦ à¤•à¤°à¤¨à¤¾ à¤¹à¥ˆ? à¤à¤•à¥à¤¸à¥‡à¤¸ à¤®à¥Œà¤œà¥‚à¤¦à¤¾ à¤à¤‚à¤¡ à¤¡à¥‡à¤Ÿ à¤¤à¤• à¤œà¤¾à¤°à¥€ à¤°à¤¹à¥‡à¤—à¤¾à¥¤'))) {
                       cancelSubscription.mutate()
                     }
                   }}
                   disabled={cancelSubscription.isPending}
                   className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-700 hover:bg-rose-100 disabled:opacity-60 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200"
                 >
-                  {cancelSubscription.isPending ? t('Cancelling...', 'रद्द किया जा रहा है...') : t('Cancel subscription', 'सब्सक्रिप्शन रद्द करें')}
+                  {cancelSubscription.isPending ? t('Cancelling...', 'à¤°à¤¦à¥à¤¦ à¤•à¤¿à¤¯à¤¾ à¤œà¤¾ à¤°à¤¹à¤¾ à¤¹à¥ˆ...') : t('Cancel subscription', 'à¤¸à¤¬à¥à¤¸à¤•à¥à¤°à¤¿à¤ªà¥à¤¶à¤¨ à¤°à¤¦à¥à¤¦ à¤•à¤°à¥‡à¤‚')}
                 </button>
               ) : null}
             </div>
@@ -583,15 +676,6 @@ export default function SettingsPage() {
                 data?.subscription?.daysRemaining !== undefined
                   ? `${data.subscription.daysRemaining} day${data.subscription.daysRemaining === 1 ? '' : 's'} remaining`
                   : 'No active window'
-              }
-            />
-            <InfoTile
-              label="Payment method"
-              value={data?.subscription?.paymentMethod ? `${data.subscription.paymentMethod.brand} **** ${data.subscription.paymentMethod.last4}` : 'Choose in Razorpay'}
-              hint={
-                data?.subscription?.paymentMethod
-                  ? `Cardholder ${data.subscription.paymentMethod.cardholderName}`
-                  : 'Select a payment method directly in Razorpay checkout'
               }
             />
             <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/60">
@@ -628,44 +712,15 @@ export default function SettingsPage() {
               )}
             </div>
           </div>
-          {subscriptionUsage?.subscription?.plan ? (
-            <div className="mt-3 grid gap-2 sm:grid-cols-3 xl:grid-cols-6">
-              <InfoTile label="Plan" value={subscriptionUsage.subscription.plan.name} hint={subscriptionUsage.subscription.status} />
-              <InfoTile
-                label="Users"
-                value={`${subscriptionUsage.usage.users}`}
-                hint={`Limit ${subscriptionUsage.subscription.plan.limits?.maxUsers ?? 'Unlimited'}`}
-              />
-              <InfoTile
-                label="Products"
-                value={`${subscriptionUsage.usage.products}`}
-                hint={`Limit ${subscriptionUsage.subscription.plan.limits?.maxProducts ?? 'Unlimited'}`}
-              />
-              <InfoTile
-                label="Customers"
-                value={`${subscriptionUsage.usage.customers}`}
-                hint={`Limit ${subscriptionUsage.subscription.plan.limits?.maxCustomers ?? 'Unlimited'}`}
-              />
-              <InfoTile
-                label="Orders (month)"
-                value={`${subscriptionUsage.usage.ordersThisMonth}`}
-                hint={`Limit ${subscriptionUsage.subscription.plan.limits?.maxOrdersPerMonth ?? 'Unlimited'}`}
-              />
-              <InfoTile
-                label="Invoices (month)"
-                value={`${subscriptionUsage.usage.invoicesThisMonth}`}
-                hint={`Limit ${subscriptionUsage.subscription.plan.limits?.maxInvoicesPerMonth ?? 'Unlimited'}`}
-              />
-            </div>
-          ) : null}
+          
 
         </Card>
 
         {accessLocked ? (
           <Card className={settingsCardCls}>
-            <div className="text-lg font-semibold text-slate-950 dark:text-white">{t('Workspace locked for billing', 'बिलिंग के कारण वर्कस्पेस लॉक है')}</div>
+            <div className="text-lg font-semibold text-slate-950 dark:text-white">{t('Workspace locked for billing', 'à¤¬à¤¿à¤²à¤¿à¤‚à¤— à¤•à¥‡ à¤•à¤¾à¤°à¤£ à¤µà¤°à¥à¤•à¤¸à¥à¤ªà¥‡à¤¸ à¤²à¥‰à¤• à¤¹à¥ˆ')}</div>
             <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-              {t('Renew a subscription above to unlock business management, reminders, staff operations, and the rest of the workspace.', 'ऊपर से सब्सक्रिप्शन रिन्यू करें ताकि बिज़नेस मैनेजमेंट, रिमाइंडर, स्टाफ ऑपरेशन और बाकी वर्कस्पेस अनलॉक हो जाए।')}
+              {t('Renew a subscription above to unlock business management, reminders, staff operations, and the rest of the workspace.', 'à¤Šà¤ªà¤° à¤¸à¥‡ à¤¸à¤¬à¥à¤¸à¤•à¥à¤°à¤¿à¤ªà¥à¤¶à¤¨ à¤°à¤¿à¤¨à¥à¤¯à¥‚ à¤•à¤°à¥‡à¤‚ à¤¤à¤¾à¤•à¤¿ à¤¬à¤¿à¤œà¤¼à¤¨à¥‡à¤¸ à¤®à¥ˆà¤¨à¥‡à¤œà¤®à¥‡à¤‚à¤Ÿ, à¤°à¤¿à¤®à¤¾à¤‡à¤‚à¤¡à¤°, à¤¸à¥à¤Ÿà¤¾à¤« à¤‘à¤ªà¤°à¥‡à¤¶à¤¨ à¤”à¤° à¤¬à¤¾à¤•à¥€ à¤µà¤°à¥à¤•à¤¸à¥à¤ªà¥‡à¤¸ à¤…à¤¨à¤²à¥‰à¤• à¤¹à¥‹ à¤œà¤¾à¤à¥¤')}
             </div>
           </Card>
         ) : (
@@ -673,8 +728,8 @@ export default function SettingsPage() {
             <div className="grid items-start gap-4 xl:grid-cols-2">
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Business info', 'बिज़नेस जानकारी')}</div>
-                  {!bizEdit && user?.role === 'OWNER' ? <button onClick={() => setBizEdit(true)} className={editBtnCls}>{t('Edit', 'संपादित करें')}</button> : null}
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Business info', 'à¤¬à¤¿à¤œà¤¼à¤¨à¥‡à¤¸ à¤œà¤¾à¤¨à¤•à¤¾à¤°à¥€')}</div>
+                  {!bizEdit && user?.role === 'OWNER' ? <button onClick={() => setBizEdit(true)} className={editBtnCls}>{t('Edit', 'à¤¸à¤‚à¤ªà¤¾à¤¦à¤¿à¤¤ à¤•à¤°à¥‡à¤‚')}</button> : null}
                 </div>
                 {bizEdit ? (
                   <form
@@ -734,8 +789,8 @@ export default function SettingsPage() {
                       <Field label="Customer label (optional)"><input value={labelCustomer} onChange={(e) => setLabelCustomer(e.target.value)} placeholder="Customer" className={inputCls} /></Field>
                     </div>
                     <div className="flex gap-2">
-                      <button type="submit" disabled={updateBiz.isPending} className={saveBtnCls}>{updateBiz.isPending ? t('Saving...', 'सेव हो रहा है...') : t('Save changes', 'बदलाव सेव करें')}</button>
-                      <button type="button" onClick={() => setBizEdit(false)} className={cancelBtnCls}>{t('Cancel', 'रद्द करें')}</button>
+                      <button type="submit" disabled={updateBiz.isPending} className={saveBtnCls}>{updateBiz.isPending ? t('Saving...', 'à¤¸à¥‡à¤µ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...') : t('Save changes', 'à¤¬à¤¦à¤²à¤¾à¤µ à¤¸à¥‡à¤µ à¤•à¤°à¥‡à¤‚')}</button>
+                      <button type="button" onClick={() => setBizEdit(false)} className={cancelBtnCls}>{t('Cancel', 'à¤°à¤¦à¥à¤¦ à¤•à¤°à¥‡à¤‚')}</button>
                     </div>
                   </form>
                 ) : (
@@ -757,8 +812,8 @@ export default function SettingsPage() {
 
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Your profile', 'आपकी प्रोफाइल')}</div>
-                  {!profEdit ? <button onClick={() => setProfEdit(true)} className={editBtnCls}>{t('Edit', 'संपादित करें')}</button> : null}
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Your profile', 'à¤†à¤ªà¤•à¥€ à¤ªà¥à¤°à¥‹à¤«à¤¾à¤‡à¤²')}</div>
+                  {!profEdit ? <button onClick={() => setProfEdit(true)} className={editBtnCls}>{t('Edit', 'à¤¸à¤‚à¤ªà¤¾à¤¦à¤¿à¤¤ à¤•à¤°à¥‡à¤‚')}</button> : null}
                 </div>
                 {profEdit ? (
                   <form
@@ -777,8 +832,8 @@ export default function SettingsPage() {
                     <Field label="Phone *"><input value={profPhone} onChange={(e) => setProfPhone(e.target.value)} maxLength={10} className={inputCls} /></Field>
                     <Field label="Email"><input type="email" value={profEmail} onChange={(e) => setProfEmail(e.target.value)} className={inputCls} /></Field>
                     <div className="flex gap-2">
-                      <button type="submit" disabled={updateProf.isPending} className={saveBtnCls}>{updateProf.isPending ? t('Saving...', 'सेव हो रहा है...') : t('Save profile', 'प्रोफाइल सेव करें')}</button>
-                      <button type="button" onClick={() => setProfEdit(false)} className={cancelBtnCls}>{t('Cancel', 'रद्द करें')}</button>
+                      <button type="submit" disabled={updateProf.isPending} className={saveBtnCls}>{updateProf.isPending ? t('Saving...', 'à¤¸à¥‡à¤µ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...') : t('Save profile', 'à¤ªà¥à¤°à¥‹à¤«à¤¾à¤‡à¤² à¤¸à¥‡à¤µ à¤•à¤°à¥‡à¤‚')}</button>
+                      <button type="button" onClick={() => setProfEdit(false)} className={cancelBtnCls}>{t('Cancel', 'à¤°à¤¦à¥à¤¦ à¤•à¤°à¥‡à¤‚')}</button>
                     </div>
                   </form>
                 ) : (
@@ -798,11 +853,11 @@ export default function SettingsPage() {
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
                   <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    {t('Modules & features', 'मॉड्यूल और फीचर्स')}
+                    {t('Modules & features', 'à¤®à¥‰à¤¡à¥à¤¯à¥‚à¤² à¤”à¤° à¤«à¥€à¤šà¤°à¥à¤¸')}
                   </div>
                   {!modulesEdit ? (
                     <button onClick={() => setModulesEdit(true)} className={editBtnCls}>
-                      {t('Edit', 'संपादित करें')}
+                      {t('Edit', 'à¤¸à¤‚à¤ªà¤¾à¤¦à¤¿à¤¤ à¤•à¤°à¥‡à¤‚')}
                     </button>
                   ) : null}
                 </div>
@@ -895,20 +950,20 @@ export default function SettingsPage() {
                     {customDependencyHints.length > 0 ? (
                       <div className="rounded-xl border border-amber-300/60 bg-amber-50/90 p-3 text-xs text-amber-800 dark:border-amber-400/30 dark:bg-amber-950/25 dark:text-amber-200">
                         {customDependencyHints.map((hint) => (
-                          <div key={hint}>• {hint}</div>
+                          <div key={hint}>â€¢ {hint}</div>
                         ))}
                       </div>
                     ) : (
                       <div className="rounded-xl border border-emerald-300/60 bg-emerald-50/90 p-3 text-xs text-emerald-800 dark:border-emerald-400/30 dark:bg-emerald-950/25 dark:text-emerald-200">
-                        • Setup looks good.
+                        â€¢ Setup looks good.
                       </div>
                     )}
                     <div className="flex gap-2">
                       <button type="submit" disabled={updateModulesConfig.isPending} className={saveBtnCls}>
-                        {updateModulesConfig.isPending ? t('Saving...', 'सेव हो रहा है...') : t('Save modules', 'मॉड्यूल सेव करें')}
+                        {updateModulesConfig.isPending ? t('Saving...', 'à¤¸à¥‡à¤µ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...') : t('Save modules', 'à¤®à¥‰à¤¡à¥à¤¯à¥‚à¤² à¤¸à¥‡à¤µ à¤•à¤°à¥‡à¤‚')}
                       </button>
                       <button type="button" onClick={() => setModulesEdit(false)} className={cancelBtnCls}>
-                        {t('Cancel', 'रद्द करें')}
+                        {t('Cancel', 'à¤°à¤¦à¥à¤¦ à¤•à¤°à¥‡à¤‚')}
                       </button>
                     </div>
                   </form>
@@ -933,17 +988,17 @@ export default function SettingsPage() {
             <div className="grid items-start gap-4 xl:grid-cols-2">
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Locations', 'लोकेशन्स')}</div>
-                  <Link href="/settings/locations" className={editBtnCls}>{t('Manage', 'मैनेज करें')}</Link>
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Locations', 'à¤²à¥‹à¤•à¥‡à¤¶à¤¨à¥à¤¸')}</div>
+                  <Link href="/settings/locations" className={editBtnCls}>{t('Manage', 'à¤®à¥ˆà¤¨à¥‡à¤œ à¤•à¤°à¥‡à¤‚')}</Link>
                 </div>
                 {locationsLoading ? (
-                  <div className="text-sm text-slate-500 dark:text-slate-400">{t('Loading...', 'लोड हो रहा है...')}</div>
+                  <div className="text-sm text-slate-500 dark:text-slate-400">{t('Loading...', 'à¤²à¥‹à¤¡ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...')}</div>
                 ) : (
                   <DetailsList
                     items={[
-                      [t('Total locations', 'कुल लोकेशन्स'), String((locations ?? []).length)],
-                      [t('Active locations', 'सक्रिय लोकेशन्स'), String((locations ?? []).filter((loc: any) => loc.isActive).length)],
-                      [t('Default location', 'डिफ़ॉल्ट लोकेशन'), (locations ?? []).find((loc: any) => loc.isDefault)?.name ?? t('Not set', 'सेट नहीं')],
+                      [t('Total locations', 'à¤•à¥à¤² à¤²à¥‹à¤•à¥‡à¤¶à¤¨à¥à¤¸'), String((locations ?? []).length)],
+                      [t('Active locations', 'à¤¸à¤•à¥à¤°à¤¿à¤¯ à¤²à¥‹à¤•à¥‡à¤¶à¤¨à¥à¤¸'), String((locations ?? []).filter((loc: any) => loc.isActive).length)],
+                      [t('Default location', 'à¤¡à¤¿à¤«à¤¼à¥‰à¤²à¥à¤Ÿ à¤²à¥‹à¤•à¥‡à¤¶à¤¨'), (locations ?? []).find((loc: any) => loc.isDefault)?.name ?? t('Not set', 'à¤¸à¥‡à¤Ÿ à¤¨à¤¹à¥€à¤‚')],
                     ]}
                   />
                 )}
@@ -951,8 +1006,8 @@ export default function SettingsPage() {
 
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Security', 'सिक्योरिटी')}</div>
-                  {!showPw ? <button onClick={() => setShowPw(true)} className={editBtnCls}>{t('Change password', 'पासवर्ड बदलें')}</button> : null}
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Security', 'à¤¸à¤¿à¤•à¥à¤¯à¥‹à¤°à¤¿à¤Ÿà¥€')}</div>
+                  {!showPw ? <button onClick={() => setShowPw(true)} className={editBtnCls}>{t('Change password', 'à¤ªà¤¾à¤¸à¤µà¤°à¥à¤¡ à¤¬à¤¦à¤²à¥‡à¤‚')}</button> : null}
                 </div>
                 {showPw ? (
                   <form
@@ -965,19 +1020,19 @@ export default function SettingsPage() {
                     <Field label="Current password *"><input type="password" value={curPw} onChange={(e) => setCurPw(e.target.value)} className={inputCls} /></Field>
                     <Field label="New password *"><input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} className={inputCls} /></Field>
                     <div className="flex gap-2">
-                      <button type="submit" disabled={changePw.isPending} className={saveBtnCls}>{changePw.isPending ? t('Changing...', 'बदला जा रहा है...') : t('Change password', 'पासवर्ड बदलें')}</button>
-                      <button type="button" onClick={() => setShowPw(false)} className={cancelBtnCls}>{t('Cancel', 'रद्द करें')}</button>
+                      <button type="submit" disabled={changePw.isPending} className={saveBtnCls}>{changePw.isPending ? t('Changing...', 'à¤¬à¤¦à¤²à¤¾ à¤œà¤¾ à¤°à¤¹à¤¾ à¤¹à¥ˆ...') : t('Change password', 'à¤ªà¤¾à¤¸à¤µà¤°à¥à¤¡ à¤¬à¤¦à¤²à¥‡à¤‚')}</button>
+                      <button type="button" onClick={() => setShowPw(false)} className={cancelBtnCls}>{t('Cancel', 'à¤°à¤¦à¥à¤¦ à¤•à¤°à¥‡à¤‚')}</button>
                     </div>
                   </form>
                 ) : (
-                  <div className="text-sm text-slate-500 dark:text-slate-400">{t('Update your password to keep owner access secure.', 'ओनर एक्सेस सुरक्षित रखने के लिए पासवर्ड अपडेट करें।')}</div>
+                  <div className="text-sm text-slate-500 dark:text-slate-400">{t('Update your password to keep owner access secure.', 'à¤“à¤¨à¤° à¤à¤•à¥à¤¸à¥‡à¤¸ à¤¸à¥à¤°à¤•à¥à¤·à¤¿à¤¤ à¤°à¤–à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤ªà¤¾à¤¸à¤µà¤°à¥à¤¡ à¤…à¤ªà¤¡à¥‡à¤Ÿ à¤•à¤°à¥‡à¤‚à¥¤')}</div>
                 )}
               </Card>
 
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Reminder rules', 'रिमाइंडर नियम')}</div>
-                  {!remEdit ? <button onClick={() => setRemEdit(true)} className={editBtnCls}>{t('Edit', 'संपादित करें')}</button> : null}
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Reminder rules', 'à¤°à¤¿à¤®à¤¾à¤‡à¤‚à¤¡à¤° à¤¨à¤¿à¤¯à¤®')}</div>
+                  {!remEdit ? <button onClick={() => setRemEdit(true)} className={editBtnCls}>{t('Edit', 'à¤¸à¤‚à¤ªà¤¾à¤¦à¤¿à¤¤ à¤•à¤°à¥‡à¤‚')}</button> : null}
                 </div>
                 {remEdit ? (
                   <form
@@ -989,7 +1044,7 @@ export default function SettingsPage() {
                   >
                     <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
                       <input type="checkbox" checked={remEnabled} onChange={(e) => setRemEnabled(e.target.checked)} />
-                      {t('Enable automated payment reminders', 'ऑटोमेटेड पेमेंट रिमाइंडर सक्षम करें')}
+                      {t('Enable automated payment reminders', 'à¤‘à¤Ÿà¥‹à¤®à¥‡à¤Ÿà¥‡à¤¡ à¤ªà¥‡à¤®à¥‡à¤‚à¤Ÿ à¤°à¤¿à¤®à¤¾à¤‡à¤‚à¤¡à¤° à¤¸à¤•à¥à¤·à¤® à¤•à¤°à¥‡à¤‚')}
                     </label>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <Field label="Soft"><input type="number" value={remSoft} onChange={(e) => setRemSoft(Number(e.target.value))} className={inputCls} /></Field>
@@ -997,8 +1052,8 @@ export default function SettingsPage() {
                       <Field label="Firm"><input type="number" value={remFirm} onChange={(e) => setRemFirm(Number(e.target.value))} className={inputCls} /></Field>
                     </div>
                     <div className="flex gap-2">
-                      <button type="submit" disabled={updateRem.isPending} className={saveBtnCls}>{updateRem.isPending ? t('Saving...', 'सेव हो रहा है...') : t('Save rules', 'नियम सेव करें')}</button>
-                      <button type="button" onClick={() => setRemEdit(false)} className={cancelBtnCls}>{t('Cancel', 'रद्द करें')}</button>
+                      <button type="submit" disabled={updateRem.isPending} className={saveBtnCls}>{updateRem.isPending ? t('Saving...', 'à¤¸à¥‡à¤µ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...') : t('Save rules', 'à¤¨à¤¿à¤¯à¤® à¤¸à¥‡à¤µ à¤•à¤°à¥‡à¤‚')}</button>
+                      <button type="button" onClick={() => setRemEdit(false)} className={cancelBtnCls}>{t('Cancel', 'à¤°à¤¦à¥à¤¦ à¤•à¤°à¥‡à¤‚')}</button>
                     </div>
                   </form>
                 ) : (
@@ -1017,7 +1072,7 @@ export default function SettingsPage() {
             {user?.role === 'OWNER' ? (
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Staff / Munim settings', 'स्टाफ / मुनीम सेटिंग्स')}</div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Staff / Munim settings', 'à¤¸à¥à¤Ÿà¤¾à¤« / à¤®à¥à¤¨à¥€à¤® à¤¸à¥‡à¤Ÿà¤¿à¤‚à¤—à¥à¤¸')}</div>
                   {!staffFormOpen ? (
                     <button
                       onClick={() => {
@@ -1031,7 +1086,7 @@ export default function SettingsPage() {
                       }}
                       className={editBtnCls}
                     >
-                      {t('+ Add Munim', '+ मुनीम जोड़ें')}
+                      {t('+ Add Munim', '+ à¤®à¥à¤¨à¥€à¤® à¤œà¥‹à¤¡à¤¼à¥‡à¤‚')}
                     </button>
                   ) : null}
                 </div>
@@ -1045,7 +1100,7 @@ export default function SettingsPage() {
                     <Field label="Gmail"><input type="email" value={staffEmail} onChange={(e) => setStaffEmail(e.target.value)} placeholder="munim@gmail.com" className={inputCls} /></Field>
                     {!staffEditId ? <Field label="Password *"><input type="password" value={staffPassword} onChange={(e) => setStaffPassword(e.target.value)} className={inputCls} /></Field> : null}
                     <div>
-                      <div className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">{t('Permissions', 'अनुमतियां')}</div>
+                      <div className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">{t('Permissions', 'à¤…à¤¨à¥à¤®à¤¤à¤¿à¤¯à¤¾à¤‚')}</div>
                       <div className="flex flex-wrap gap-2">
                         {PERMISSION_OPTIONS.map((option) => {
                           const selected = staffPerms.has(option.id)
@@ -1070,17 +1125,52 @@ export default function SettingsPage() {
                     </div>
                     <div className="flex gap-2">
                       <button type="submit" disabled={createStaff.isPending || updateStaff.isPending} className={saveBtnCls}>
-                        {createStaff.isPending || updateStaff.isPending ? t('Saving...', 'सेव हो रहा है...') : t('Save staff', 'स्टाफ सेव करें')}
+                        {createStaff.isPending || updateStaff.isPending ? t('Saving...', 'à¤¸à¥‡à¤µ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...') : t('Save staff', 'à¤¸à¥à¤Ÿà¤¾à¤« à¤¸à¥‡à¤µ à¤•à¤°à¥‡à¤‚')}
                       </button>
-                      <button type="button" onClick={() => setStaffFormOpen(false)} className={cancelBtnCls}>{t('Cancel', 'रद्द करें')}</button>
+                      <button type="button" onClick={() => setStaffFormOpen(false)} className={cancelBtnCls}>{t('Cancel', 'à¤°à¤¦à¥à¤¦ à¤•à¤°à¥‡à¤‚')}</button>
                     </div>
                   </form>
                 ) : null}
 
                 <div className="space-y-3">
-                  {sLoading ? <div className="text-sm text-slate-500">{t('Loading staff...', 'स्टाफ लोड हो रहा है...')}</div> : null}
+                  {sLoading ? <div className="text-sm text-slate-500">{t('Loading staff...', 'à¤¸à¥à¤Ÿà¤¾à¤« à¤²à¥‹à¤¡ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...')}</div> : null}
                   {(staffList ?? []).filter((member: any) => member.isActive).length > 0 ? (
-                    <div className="overflow-x-auto rounded-[18px] border border-slate-200/70 dark:border-slate-800">
+                    <>
+                    <div className="space-y-2.5 md:hidden">
+                      {(staffList ?? []).filter((member: any) => member.isActive).map((member: any) => (
+                        <div key={member.id} className="rounded-2xl border border-slate-200/80 bg-white/85 p-3.5 shadow-sm dark:border-slate-800 dark:bg-slate-950/60">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{member.name}</div>
+                              <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{member.phone}</div>
+                              <div className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">{member.email || '-'}</div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-3 text-xs">
+                              <button onClick={() => openStaffEdit(member)} className={editBtnCls} type="button">Edit</button>
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`Remove ${member.name}?`)) {
+                                    deleteStaff.mutate(member.id, {
+                                      onSuccess: () => setAlert({ tone: 'success', message: 'Staff member removed successfully.' }),
+                                      onError: (error) => setAlert({ tone: 'danger', message: getAlertMessage(error, 'Failed to remove staff member.') }),
+                                    })
+                                  }
+                                }}
+                                className="font-medium text-rose-600"
+                                type="button"
+                              >
+                                {t('Remove', 'à¤¹à¤Ÿà¤¾à¤à¤‚')}
+                              </button>
+                            </div>
+                          </div>
+                          <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/80 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900/65 dark:text-slate-300">
+                            <span className="font-medium text-slate-700 dark:text-slate-200">{t('Permissions', 'à¤…à¤¨à¥à¤®à¤¤à¤¿à¤¯à¤¾à¤‚')}:</span>{' '}
+                            {member.permissions?.length > 0 ? member.permissions.join(', ') : 'No permissions'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="hidden overflow-x-auto rounded-[18px] border border-slate-200/70 md:block dark:border-slate-800">
                       <table className="w-full min-w-[640px] table-fixed text-sm">
                         <thead className="bg-slate-50/85 dark:bg-slate-900/70">
                           <tr className="border-b border-slate-300/85 dark:border-slate-700/90">
@@ -1115,7 +1205,7 @@ export default function SettingsPage() {
                                     className="font-medium text-rose-600 hover:underline"
                                     type="button"
                                   >
-                                    {t('Remove', 'हटाएं')}
+                                    {t('Remove', 'à¤¹à¤Ÿà¤¾à¤à¤‚')}
                                   </button>
                                 </div>
                               </td>
@@ -1124,9 +1214,10 @@ export default function SettingsPage() {
                         </tbody>
                       </table>
                     </div>
+                    </>
                   ) : null}
                   {(staffList ?? []).filter((member: any) => member.isActive).length === 0 && !staffFormOpen ? (
-                    <div className="text-sm text-slate-500 dark:text-slate-400">{t('No munim accounts added yet.', 'अभी कोई मुनीम अकाउंट नहीं जोड़ा गया।')}</div>
+                    <div className="text-sm text-slate-500 dark:text-slate-400">{t('No munim accounts added yet.', 'à¤…à¤­à¥€ à¤•à¥‹à¤ˆ à¤®à¥à¤¨à¥€à¤® à¤…à¤•à¤¾à¤‰à¤‚à¤Ÿ à¤¨à¤¹à¥€à¤‚ à¤œà¥‹à¤¡à¤¼à¤¾ à¤—à¤¯à¤¾à¥¤')}</div>
                   ) : null}
                 </div>
               </Card>
@@ -1140,41 +1231,41 @@ export default function SettingsPage() {
           <div className="w-full max-w-2xl rounded-[30px] border border-white/60 bg-white p-6 shadow-[0_30px_90px_rgba(15,23,42,0.22)] dark:border-white/10 dark:bg-slate-950">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-500 dark:text-slate-400">{t('Confirm subscription', 'सब्सक्रिप्शन पुष्टि')}</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-500 dark:text-slate-400">{t('Confirm subscription', 'à¤¸à¤¬à¥à¤¸à¤•à¥à¤°à¤¿à¤ªà¥à¤¶à¤¨ à¤ªà¥à¤·à¥à¤Ÿà¤¿')}</div>
                 <div className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
-                  {selectedInterval === 'YEARLY' ? t('Activate yearly plan', 'ईयरली प्लान सक्रिय करें') : t('Activate monthly plan', 'मंथली प्लान सक्रिय करें')}
+                  {selectedInterval === 'YEARLY' ? t('Activate yearly plan', 'à¤ˆà¤¯à¤°à¤²à¥€ à¤ªà¥à¤²à¤¾à¤¨ à¤¸à¤•à¥à¤°à¤¿à¤¯ à¤•à¤°à¥‡à¤‚') : t('Activate monthly plan', 'à¤®à¤‚à¤¥à¤²à¥€ à¤ªà¥à¤²à¤¾à¤¨ à¤¸à¤•à¥à¤°à¤¿à¤¯ à¤•à¤°à¥‡à¤‚')}
                 </div>
                 <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                  {t('Confirm to open Razorpay secure checkout and complete payment with your preferred method.', 'Razorpay secure checkout खोलने और अपनी पसंद से भुगतान पूरा करने के लिए पुष्टि करें।')}
+                  {t('Confirm to open Razorpay secure checkout and complete payment with your preferred method.', 'Razorpay secure checkout à¤–à¥‹à¤²à¤¨à¥‡ à¤”à¤° à¤…à¤ªà¤¨à¥€ à¤ªà¤¸à¤‚à¤¦ à¤¸à¥‡ à¤­à¥à¤—à¤¤à¤¾à¤¨ à¤ªà¥‚à¤°à¤¾ à¤•à¤°à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤ªà¥à¤·à¥à¤Ÿà¤¿ à¤•à¤°à¥‡à¤‚à¥¤')}
                 </div>
                 <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  {selectedPlanName} · {selectedInterval}
+                  {selectedPlanName} Â· {selectedInterval}
                 </div>
               </div>
               <button type="button" onClick={() => setCheckoutOpen(false)} className={cancelBtnCls}>
-                {t('Close', 'बंद करें')}
+                {t('Close', 'à¤¬à¤‚à¤¦ à¤•à¤°à¥‡à¤‚')}
               </button>
             </div>
 
             <div className="mt-5 grid gap-4">
               <div className="rounded-[24px] border border-slate-200/70 bg-slate-50/80 p-5 dark:border-slate-800 dark:bg-slate-900/60">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{t('Payment summary', 'भुगतान सारांश')}</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{t('Payment summary', 'à¤­à¥à¤—à¤¤à¤¾à¤¨ à¤¸à¤¾à¤°à¤¾à¤‚à¤¶')}</div>
                 <div className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">{selectedPlanAmount}</div>
                 <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                  {selectedInterval === 'YEARLY' ? t('365-day access window', '365 दिन का एक्सेस') : t('30-day access window', '30 दिन का एक्सेस')}
+                  {selectedInterval === 'YEARLY' ? t('365-day access window', '365 à¤¦à¤¿à¤¨ à¤•à¤¾ à¤à¤•à¥à¤¸à¥‡à¤¸') : t('30-day access window', '30 à¤¦à¤¿à¤¨ à¤•à¤¾ à¤à¤•à¥à¤¸à¥‡à¤¸')}
                 </div>
               </div>
 
               <div className="rounded-[24px] border border-slate-200/70 bg-white/90 p-5 dark:border-slate-800 dark:bg-slate-950/65">
-                <div className="text-sm font-semibold text-slate-950 dark:text-white">{t('Pay with Razorpay', 'Razorpay से भुगतान करें')}</div>
+                <div className="text-sm font-semibold text-slate-950 dark:text-white">{t('Pay with Razorpay', 'Razorpay à¤¸à¥‡ à¤­à¥à¤—à¤¤à¤¾à¤¨ à¤•à¤°à¥‡à¤‚')}</div>
                 <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  {t('After confirmation, Razorpay opens secure checkout where users can choose card, UPI, netbanking, wallet, or supported methods.', 'पुष्टि के बाद Razorpay का secure checkout खुलेगा जहां card, UPI, netbanking, wallet आदि चुने जा सकते हैं।')}
+                  {t('After confirmation, Razorpay opens secure checkout where users can choose card, UPI, netbanking, wallet, or supported methods.', 'à¤ªà¥à¤·à¥à¤Ÿà¤¿ à¤•à¥‡ à¤¬à¤¾à¤¦ Razorpay à¤•à¤¾ secure checkout à¤–à¥à¤²à¥‡à¤—à¤¾ à¤œà¤¹à¤¾à¤‚ card, UPI, netbanking, wallet à¤†à¤¦à¤¿ à¤šà¥à¤¨à¥‡ à¤œà¤¾ à¤¸à¤•à¤¤à¥‡ à¤¹à¥ˆà¤‚à¥¤')}
                 </div>
               </div>
 
               <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
                 <button type="button" onClick={() => setCheckoutOpen(false)} className={cancelBtnCls}>
-                  {t('Cancel', 'रद्द करें')}
+                  {t('Cancel', 'à¤°à¤¦à¥à¤¦ à¤•à¤°à¥‡à¤‚')}
                 </button>
                   <button
                     type="button"
@@ -1182,7 +1273,7 @@ export default function SettingsPage() {
                     disabled={isConfirmingPayment}
                     className={saveBtnCls}
                   >
-                  {isConfirmingPayment ? t('Opening Razorpay...', 'Razorpay खुल रहा है...') : t('Continue to Razorpay', 'Razorpay पर जारी रखें')}
+                  {isConfirmingPayment ? t('Opening Razorpay...', 'Razorpay à¤–à¥à¤² à¤°à¤¹à¤¾ à¤¹à¥ˆ...') : t('Continue to Razorpay', 'Razorpay à¤ªà¤° à¤œà¤¾à¤°à¥€ à¤°à¤–à¥‡à¤‚')}
                 </button>
               </div>
             </div>
@@ -1256,7 +1347,7 @@ function ToastStack({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <div className="mb-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">{label}</div>
+      <div className="mb-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-400">{label}</div>
       {children}
     </label>
   )
@@ -1264,11 +1355,13 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function DetailsList({ items }: { items: Array<[string, React.ReactNode]> }) {
   return (
-    <div className="space-y-2 text-sm">
+    <div className="space-y-2.5 text-sm">
       {items.map(([label, value]) => (
-        <div key={label} className="flex justify-between gap-3">
-          <span className="text-slate-500 dark:text-slate-400">{label}</span>
-          <span className="text-right font-medium text-slate-900 dark:text-slate-100">{value || '-'}</span>
+        <div key={label} className="rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/45 md:rounded-none md:border-0 md:bg-transparent md:px-0 md:py-0">
+          <div className="flex flex-col gap-0.5 md:flex-row md:items-center md:justify-between md:gap-3">
+            <span className="text-[11px] uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400 md:text-sm md:normal-case md:tracking-normal">{label}</span>
+            <span className="text-left text-sm font-semibold text-slate-900 dark:text-slate-100 md:text-right md:font-medium">{value || '-'}</span>
+          </div>
         </div>
       ))}
     </div>
@@ -1277,10 +1370,10 @@ function DetailsList({ items }: { items: Array<[string, React.ReactNode]> }) {
 
 function InfoTile({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
-    <div className="rounded-[18px] border border-slate-200/70 bg-white/75 p-4 dark:border-slate-800 dark:bg-slate-950/55">
+    <div className="rounded-[16px] border border-slate-200/70 bg-white/80 p-3.5 dark:border-slate-800 dark:bg-slate-950/55 md:rounded-[18px] md:p-4">
       <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{label}</div>
-      <div className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{value}</div>
-      <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">{hint}</div>
+      <div className="mt-1.5 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{value}</div>
+      <div className="mt-1.5 text-xs text-slate-500 dark:text-slate-400 md:text-sm">{hint}</div>
     </div>
   )
 }
@@ -1308,7 +1401,7 @@ function PlanOption({
 }) {
   const isDisabled = Boolean(disabled || subscribed || busy)
   return (
-    <div className="rounded-[18px] border border-slate-200/70 bg-white/80 p-3.5 dark:border-slate-800 dark:bg-slate-950/55">
+    <div className="rounded-[16px] border border-slate-200/70 bg-white/85 p-3.5 dark:border-slate-800 dark:bg-slate-950/55 md:rounded-[18px]">
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{title}</div>
         {statusLabel ? (
@@ -1323,13 +1416,13 @@ function PlanOption({
           </span>
         ) : null}
       </div>
-      <div className="mt-1.5 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{amount}</div>
+      <div className="mt-1.5 text-[28px] font-semibold tracking-tight text-slate-950 dark:text-white md:text-2xl">{amount}</div>
       <div className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">{sub}</div>
       <button
         onClick={onClick}
         disabled={isDisabled}
         type="button"
-        className={`mt-3 w-full rounded-full px-4 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60 ${
+        className={`mt-3 w-full rounded-full px-4 py-2 text-xs font-semibold transition-colors disabled:opacity-60 ${
           subscribed
             ? 'bg-emerald-600 text-white hover:bg-emerald-600'
             : disabled
@@ -1344,9 +1437,10 @@ function PlanOption({
 }
 
 const inputCls =
-  'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100'
+  'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 md:rounded-2xl md:px-4 md:py-3'
 const saveBtnCls =
   'rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400'
 const cancelBtnCls =
   'rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800'
 const editBtnCls = 'text-xs font-semibold text-sky-600 hover:underline dark:text-sky-400'
+

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import { AppShell } from '@/components/layout/AppShell'
 import { Card, MetricCard, MetricGrid, SectionHeader } from '@/components/ui/Card'
 import { PageLoader } from '@/components/ui/Spinner'
@@ -40,6 +40,7 @@ function KhataContent() {
 
   const filtered = (summary ?? []).filter((c: any) => c.customerName.toLowerCase().includes(search.toLowerCase()))
   const selected = (summary ?? []).find((c: any) => c.customerId === selectedId)
+  const initialLoading = sLoading && !summary
 
   async function handlePay(e: React.FormEvent) {
     e.preventDefault()
@@ -84,22 +85,42 @@ function KhataContent() {
 
   return (
     <AppShell>
+      <div className="mb-4 rounded-2xl border border-slate-200/80 bg-white/70 p-4 shadow-sm backdrop-blur-sm md:hidden dark:border-slate-700 dark:bg-slate-900/70">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
+          {t('Collection analytics', 'कलेक्शन एनालिटिक्स', 'Collection analytics')}
+        </div>
+        <h1 className="mt-1 text-2xl font-semibold leading-tight text-slate-950 dark:text-white">
+          {language === 'hi' ? 'खाता और कलेक्शन' : language === 'hinglish' ? 'Khata and collections' : 'Khata and collections'}
+        </h1>
+        <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
+          {language === 'hi' ? 'सही पार्टियों से कलेक्शन फोकस करें, साफ बैलेंस व्यू और तेज पेमेंट एंट्री के साथ।' : language === 'hinglish' ? 'Right parties par collection focus karo with clear balance view.' : 'Focus collections with clear balance view and fast payment capture.'}
+        </p>
+      </div>
+
+      <div className="hidden md:block">
       <SectionHeader
         eyebrow={t('Collection analytics', 'कलेक्शन एनालिटिक्स')}
         title={language === 'hi' ? 'खाता और कलेक्शन' : language === 'hinglish' ? 'Khata and collections' : 'Khata and collections'}
         description={language === 'hi' ? 'सही पार्टियों से कलेक्शन फोकस करें, साफ बैलेंस व्यू और तेज पेमेंट एंट्री के साथ।' : language === 'hinglish' ? 'Right parties par collection focus karo with clear balance view.' : 'Focus collections on the right parties with a clear balance view, searchable ledger, and fast payment capture.'}
       />
+      </div>
 
-      <MetricGrid className="mb-6">
-        <MetricCard label={t('Customers with dues', 'बकाया वाले ग्राहक')} value={String((summary ?? []).filter((c: any) => c.balance > 0).length)} hint={t('Accounts needing follow-up', 'जिन खातों को फॉलो-अप चाहिए')} tone="warning" />
-        <MetricCard label={t('Open balance', 'ओपन बैलेंस')} value={fmt((summary ?? []).reduce((sum: number, c: any) => sum + Math.max(0, Number(c.balance)), 0))} hint={t('Net receivables across the ledger', 'लेजर में कुल प्राप्तियां')} tone="danger" />
-        <MetricCard label={t('Search results', 'सर्च परिणाम')} value={String(filtered.length)} hint={t('Filtered customer list', 'फिल्टर की गई ग्राहक सूची')} />
-        <MetricCard label={t('Selected account', 'चयनित खाता')} value={selected?.customerName ?? t('None', 'कोई नहीं')} hint={selected ? `${t('Current balance', 'वर्तमान बैलेंस')} ${fmt(Math.abs(selected.balance ?? 0))}` : t('Pick a party to review entries', 'एंट्री देखने के लिए पार्टी चुनें')} tone="brand" />
+      <MetricGrid className="mb-6 hidden md:grid">
+        <MetricCard label={t('Customers with dues', 'बकाया वाले ग्राहक')} value={initialLoading ? '—' : String((summary ?? []).filter((c: any) => c.balance > 0).length)} hint={initialLoading ? 'Loading...' : t('Accounts needing follow-up', 'जिन खातों को फॉलो-अप चाहिए')} tone="warning" />
+        <MetricCard label={t('Open balance', 'ओपन बैलेंस')} value={initialLoading ? '—' : fmt((summary ?? []).reduce((sum: number, c: any) => sum + Math.max(0, Number(c.balance)), 0))} hint={initialLoading ? 'Loading...' : t('Net receivables across the ledger', 'लेजर में कुल प्राप्तियां')} tone="danger" />
+        <MetricCard label={t('Search results', 'सर्च परिणाम')} value={initialLoading ? '—' : String(filtered.length)} hint={initialLoading ? 'Loading...' : t('Filtered customer list', 'फिल्टर की गई ग्राहक सूची')} />
+        <MetricCard label={t('Selected account', 'चयनित खाता')} value={initialLoading ? '—' : (selected?.customerName ?? t('None', 'कोई नहीं'))} hint={selected ? `${t('Current balance', 'वर्तमान बैलेंस')} ${fmt(Math.abs(selected.balance ?? 0))}` : t('Pick a party to review entries', 'एंट्री देखने के लिए पार्टी चुनें')} tone="brand" />
       </MetricGrid>
+      <div className="mb-4 grid grid-cols-2 gap-3 md:hidden">
+        <MetricCard label={t('Customers with dues', 'बकाया वाले ग्राहक')} value={initialLoading ? '—' : String((summary ?? []).filter((c: any) => c.balance > 0).length)} hint={initialLoading ? 'Loading...' : t('Accounts needing follow-up', 'जिन खातों को फॉलो-अप चाहिए')} tone="warning" />
+        <MetricCard label={t('Open balance', 'ओपन बैलेंस')} value={initialLoading ? '—' : fmt((summary ?? []).reduce((sum: number, c: any) => sum + Math.max(0, Number(c.balance)), 0))} hint={initialLoading ? 'Loading...' : t('Net receivables across the ledger', 'लेजर में कुल प्राप्तियां')} tone="danger" />
+        <MetricCard label={t('Search results', 'सर्च परिणाम')} value={initialLoading ? '—' : String(filtered.length)} hint={initialLoading ? 'Loading...' : t('Filtered customer list', 'फिल्टर की गई ग्राहक सूची')} />
+        <MetricCard label={t('Selected account', 'चयनित खाता')} value={initialLoading ? '—' : (selected?.customerName ?? t('None', 'कोई नहीं'))} hint={selected ? `${t('Current balance', 'वर्तमान बैलेंस')} ${fmt(Math.abs(selected.balance ?? 0))}` : t('Pick a party to review entries', 'एंट्री देखने के लिए पार्टी चुनें')} tone="brand" />
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
         <div className="lg:sticky lg:top-28 lg:self-start">
-          <Card className="flex min-h-[520px] flex-col">
+          <Card className="flex min-h-0 flex-col md:min-h-[520px]">
             <div className="mb-4">
               <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
                 {language === 'hi' ? 'पार्टी लेजर' : 'Party ledger'}
@@ -116,7 +137,14 @@ function KhataContent() {
 
             <div className="flex-1 overflow-y-auto">
               {sLoading ? (
-                <PageLoader />
+                <div className="space-y-2">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="rounded-2xl border border-slate-200/80 bg-white/70 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/50">
+                      <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">—</div>
+                      <div className="mt-1 text-xs text-slate-500">Loading...</div>
+                    </div>
+                  ))}
+                </div>
               ) : filtered.length === 0 ? (
                 <EmptyState title={t('No dues', 'कोई बकाया नहीं')} sub={t('All accounts are clear', 'सभी खाते क्लियर हैं')} />
               ) : (
@@ -155,11 +183,11 @@ function KhataContent() {
 
         <div className="min-w-0">
           {!selectedId ? (
-            <Card className="flex min-h-[520px] items-center justify-center">
+            <Card className="flex min-h-[240px] items-center justify-center md:min-h-[520px]">
               <EmptyState title={t('Select a party', 'एक पार्टी चुनें')} sub={t('Choose a customer from the left to view their khata', 'खाता देखने के लिए बाएं से ग्राहक चुनें')} />
             </Card>
           ) : (
-            <Card className="flex min-h-[520px] flex-col">
+            <Card className="flex min-h-0 flex-col md:min-h-[520px]">
               <div className="mb-4 flex flex-col gap-3 border-b border-stone-100 pb-3 dark:border-stone-800 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="font-medium text-stone-900 dark:text-stone-100">{selected?.customerName}</div>
@@ -168,16 +196,16 @@ function KhataContent() {
                     {fmt(Math.abs(selected?.balance ?? 0))}
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap md:min-w-[280px]">
                   <button
                     onClick={() => setShowPayForm(true)}
-                    className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
+                    className="w-full rounded-xl bg-green-600 px-3 py-2 text-xs font-medium text-white hover:bg-green-700 sm:w-auto"
                   >
                     {t('+ Record payment', '+ भुगतान दर्ज करें')}
                   </button>
                   <button
                     disabled={isDownloadingStatement}
-                    className="rounded-md border border-stone-200 px-3 py-1.5 text-xs hover:bg-stone-50 dark:border-stone-700 dark:hover:bg-stone-800"
+                    className="w-full rounded-xl border border-stone-200 px-3 py-2 text-xs hover:bg-stone-50 dark:border-stone-700 dark:hover:bg-stone-800 sm:w-auto"
                     onClick={handleStatementDownload}
                   >
                     {isDownloadingStatement ? t('Downloading...', 'डाउनलोड हो रहा है...') : t('Download statement CSV', 'स्टेटमेंट CSV डाउनलोड करें')}
@@ -242,10 +270,46 @@ function KhataContent() {
               )}
 
               {lLoading ? (
-                <PageLoader />
+                <div className="space-y-2">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="rounded-2xl border border-slate-200/90 bg-white/85 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
+                      <div className="flex items-center justify-between">
+                        <div className="text-[11px] text-slate-500">Loading...</div>
+                        <div className="text-[10px] text-slate-500">—</div>
+                      </div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">—</div>
+                      <div className="mt-1 text-xs text-slate-500">Loading...</div>
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <div className="flex-1 overflow-y-auto">
-                  <div className="overflow-x-auto">
+                  <div className="space-y-2 md:hidden">
+                    {(ledger?.entries ?? []).map((e: any) => (
+                      <div key={e.id} className="rounded-2xl border border-slate-200/90 bg-white/85 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">{fmtDate(e.createdAt)}</div>
+                          <div className={`rounded-full px-2 py-1 text-[10px] font-semibold ${e.type === 'DEBIT' ? 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'}`}>
+                            {e.type === 'DEBIT' ? fmt(Number(e.amount)) : e.type === 'CREDIT' ? fmt(Number(e.amount)) : '-'}
+                          </div>
+                        </div>
+                        <div className="mt-1 text-[12px] font-medium text-slate-800 dark:text-slate-100">
+                          {e.notes ?? (e.order ? `Order ${e.order.orderNumber}` : e.type)}
+                          {e.reference ? <span className="text-slate-400 dark:text-slate-500"> - {e.reference}</span> : null}
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                          {t('Balance', 'बैलेंस')}: {e.runningBalance > 0 ? `-${fmt(e.runningBalance)}` : t('Clear', 'क्लियर')}
+                        </div>
+                      </div>
+                    ))}
+                    {ledger?.currentBalance > 0 ? (
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-800/60">
+                        <span className="text-slate-600 dark:text-slate-300">{t('Current outstanding', 'वर्तमान बकाया')}:</span>{' '}
+                        <span className="font-semibold text-red-600 dark:text-red-400">{fmt(ledger.currentBalance)}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="hidden overflow-x-auto md:block">
                     <table className="w-full min-w-[700px] text-xs">
                     <thead className="sticky top-0 bg-white dark:bg-slate-900">
                       <tr className="border-b border-stone-100 dark:border-stone-800">
@@ -297,3 +361,5 @@ function KhataContent() {
     </AppShell>
   )
 }
+
+

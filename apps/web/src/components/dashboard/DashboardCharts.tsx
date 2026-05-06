@@ -84,16 +84,17 @@ export function RevenueRhythmChart({ data, selectedLabel }: RevenueRhythmChartPr
 interface DonutBreakdownProps {
   title: string
   data: Array<{ name: string; value: number }>
+  compact?: boolean
 }
 
-export function DonutBreakdown({ title, data }: DonutBreakdownProps) {
+export function DonutBreakdown({ title, data, compact = false }: DonutBreakdownProps) {
   return (
     <div>
-      <div className="mb-3 text-sm font-semibold text-slate-950 dark:text-white">{title}</div>
-      <div className="h-44">
+      <div className={compact ? 'mb-2 text-xs font-semibold text-slate-950 dark:text-white' : 'mb-3 text-sm font-semibold text-slate-950 dark:text-white'}>{title}</div>
+      <div className={compact ? 'h-36' : 'h-44'}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie data={data} dataKey="value" innerRadius={42} outerRadius={66} paddingAngle={3}>
+            <Pie data={data} dataKey="value" innerRadius={compact ? 34 : 42} outerRadius={compact ? 54 : 66} paddingAngle={3}>
               {data.map((entry, index) => (
                 <Cell key={entry.name} fill={palette[index % palette.length]} />
               ))}
@@ -102,11 +103,11 @@ export function DonutBreakdown({ title, data }: DonutBreakdownProps) {
           </PieChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-2 space-y-2">
+      <div className={compact ? 'mt-1 space-y-1.5' : 'mt-2 space-y-2'}>
         {data.map((entry, index) => (
-          <div key={entry.name} className="flex items-center justify-between text-xs">
+          <div key={entry.name} className={compact ? 'flex items-center justify-between text-[11px]' : 'flex items-center justify-between text-xs'}>
             <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: palette[index % palette.length] }} />
+              <span className={compact ? 'h-2 w-2 rounded-full' : 'h-2.5 w-2.5 rounded-full'} style={{ backgroundColor: palette[index % palette.length] }} />
               {entry.name}
             </div>
             <span className="font-semibold text-slate-950 dark:text-white">{entry.value}</span>
