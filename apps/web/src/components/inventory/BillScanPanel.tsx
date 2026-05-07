@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { PageLoader } from '@/components/ui/Spinner'
@@ -160,6 +160,8 @@ export function BillScanPanel({
   const [warnings, setWarnings] = useState<string[]>([])
   const [edits, setEdits] = useState<Record<string, LineEdit>>({})
   const [error, setError] = useState('')
+  const cameraInputRef = useRef<HTMLInputElement | null>(null)
+  const galleryInputRef = useRef<HTMLInputElement | null>(null)
 
   const materialsById = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials])
   const allUnits = useMemo(() => (units?.length ? units : fallbackUnits), [units])
@@ -204,6 +206,10 @@ export function BillScanPanel({
     } catch (err: any) {
       setError(err.response?.data?.error ?? err.message ?? t('Bill scan failed', 'बिल स्कैन विफल हुआ'))
     }
+  }
+
+  function resetInputValue(input: HTMLInputElement | null) {
+    if (input) input.value = ''
   }
 
   async function handleCommit() {
@@ -251,33 +257,64 @@ export function BillScanPanel({
 
   return (
     <Card className="mb-4">
-      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <div className="mb-4">
         <div>
           <div className="text-xs font-medium uppercase tracking-wide text-stone-500">{t('Purchase bill import', 'खरीद बिल आयात')}</div>
           <div className="mt-1 text-sm text-stone-600 dark:text-slate-300">
             {t('Upload the seller bill, review scanned items, then commit stock in one batch.', 'विक्रेता का बिल अपलोड करें, स्कैन आइटम जांचें, फिर एक साथ स्टॉक में जोड़ें।')}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="self-start rounded-lg border border-stone-200 px-3 py-1.5 text-xs hover:bg-stone-50 dark:border-slate-700 dark:hover:bg-slate-800"
-        >
-          {t('Close', 'बंद करें')}
-        </button>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
         <div className="space-y-3">
-          <label className="flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-4 text-center transition-colors hover:bg-white dark:border-slate-700 dark:bg-slate-950/30 dark:hover:bg-slate-900">
+          <div className="grid grid-cols-2 gap-2 sm:hidden">
+            <label className="flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-slate-50/70 px-3 py-3 text-center transition-colors hover:bg-white dark:border-slate-700 dark:bg-slate-950/30 dark:hover:bg-slate-900">
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                capture="environment"
+                className="sr-only"
+                onChange={(event) => {
+                  handleFile(event.target.files?.[0])
+                  resetInputValue(cameraInputRef.current)
+                }}
+              />
+              <span aria-hidden className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300">
+                <svg viewBox="0 0 24 24" className="h-4.5 w-4.5 fill-current"><path d="M9 4.5A2.5 2.5 0 0 0 6.76 6H4.5A2.5 2.5 0 0 0 2 8.5v9A2.5 2.5 0 0 0 4.5 20h15a2.5 2.5 0 0 0 2.5-2.5v-9A2.5 2.5 0 0 0 19.5 6h-2.26A2.5 2.5 0 0 0 15 4.5H9Zm3 12.25a4.25 4.25 0 1 1 0-8.5 4.25 4.25 0 0 1 0 8.5Zm0-1.75a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/></svg>
+              </span>
+              <span className="text-xs font-medium text-slate-900 dark:text-white">{t('Open camera', 'कैमरा खोलें', 'Camera kholo')}</span>
+            </label>
+            <label className="flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-slate-50/70 px-3 py-3 text-center transition-colors hover:bg-white dark:border-slate-700 dark:bg-slate-950/30 dark:hover:bg-slate-900">
+              <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="sr-only"
+                onChange={(event) => {
+                  handleFile(event.target.files?.[0])
+                  resetInputValue(galleryInputRef.current)
+                }}
+              />
+              <span aria-hidden className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-sky-100 text-sky-600 dark:bg-sky-900/40 dark:text-sky-300">
+                <svg viewBox="0 0 24 24" className="h-4.5 w-4.5 fill-current"><path d="M5 3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5Zm12.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM6 17.5l3.5-4.5 2.7 3.4 2-2.4L18 17.5H6Z"/></svg>
+              </span>
+              <span className="text-xs font-medium text-slate-900 dark:text-white">{t('Gallery', 'गैलरी', 'Gallery')}</span>
+            </label>
+          </div>
+
+          <label className="hidden min-h-40 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-4 text-center transition-colors hover:bg-white dark:border-slate-700 dark:bg-slate-950/30 dark:hover:bg-slate-900 sm:flex">
             <input
               type="file"
               accept="image/png,image/jpeg,image/webp"
-              capture="environment"
               className="sr-only"
               onChange={(event) => handleFile(event.target.files?.[0])}
             />
-            <span className="text-sm font-medium text-slate-900 dark:text-white">{t('Upload bill image', 'बिल इमेज अपलोड करें')}</span>
+            <span aria-hidden className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-sky-100 text-sky-600 dark:bg-sky-900/40 dark:text-sky-300">
+              <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current"><path d="M5 3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5Zm12.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM6 17.5l3.5-4.5 2.7 3.4 2-2.4L18 17.5H6Z"/></svg>
+            </span>
+            <span className="mt-2 text-sm font-medium text-slate-900 dark:text-white">{t('Upload bill image', 'बिल इमेज अपलोड करें')}</span>
             <span className="mt-1 text-xs text-slate-500 dark:text-slate-400">JPG, PNG, or WEBP</span>
           </label>
           {preview && (
