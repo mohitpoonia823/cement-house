@@ -264,24 +264,39 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[linear-gradient(180deg,#f7fafc_0%,#eef5f7_52%,#edf3f8_100%)] px-4 py-10 dark:bg-[linear-gradient(180deg,#020617_0%,#0f172a_56%,#111827_100%)]">
+    <div className="relative flex min-h-screen items-start justify-center overflow-hidden bg-[linear-gradient(180deg,#f7fafc_0%,#eef5f7_52%,#edf3f8_100%)] px-4 py-6 sm:items-center sm:py-10 dark:bg-[linear-gradient(180deg,#020617_0%,#0f172a_56%,#111827_100%)]">
       <div className="pointer-events-none absolute inset-0 opacity-70">
         <div className="absolute left-[10%] top-[14%] h-52 w-52 rounded-full bg-amber-100/60 blur-3xl dark:bg-amber-500/10" />
         <div className="absolute bottom-[8%] right-[12%] h-60 w-60 rounded-full bg-sky-200/55 blur-3xl dark:bg-sky-500/12" />
       </div>
 
-      <div className="relative grid w-full max-w-6xl gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
+      <div className="relative grid w-full max-w-6xl gap-6 sm:gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-start lg:gap-10">
         <div className="max-w-xl">
-          <div className="mb-3 flex items-center gap-3">
-            <div className="inline-flex items-center rounded-full border border-slate-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
-              {t('brand.cementHouse')}
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => router.back()}
+                aria-label="Go back"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 18l-6-6 6-6" />
+                </svg>
+              </button>
+              <Link
+                href="/"
+                className="inline-flex items-center rounded-full border border-slate-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600 shadow-sm backdrop-blur transition hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"
+              >
+                {t('brand.cementHouse')}
+              </Link>
             </div>
             <LanguageSelect />
           </div>
-          <div className="text-4xl font-semibold tracking-tight text-slate-950 dark:text-white">
+          <div className="text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl dark:text-white">
             {tr('Start your free trial', 'अपना मुफ्त ट्रायल शुरू करें', 'Apna free trial start karo')}
           </div>
-          <div className="mt-3 text-base text-slate-600 dark:text-slate-300">
+          <div className="mt-3 max-w-[40ch] text-[15px] leading-6 text-slate-600 sm:text-base dark:text-slate-300">
             {tr(
               'Create the owner account and launch your free-trial workspace in seconds.',
               'ओनर अकाउंट बनाएं और कुछ सेकंड में अपना फ्री-ट्रायल वर्कस्पेस शुरू करें।',
@@ -289,12 +304,12 @@ export default function RegisterPage() {
             )}
           </div>
 
-          <div className="mt-8 rounded-[32px] border border-white/70 bg-white/82 p-6 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur dark:border-white/10 dark:bg-slate-950/72">
+          <div className="mt-6 rounded-[28px] border border-white/70 bg-white/82 p-5 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur sm:mt-8 sm:rounded-[32px] sm:p-6 dark:border-white/10 dark:bg-slate-950/72">
             <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{tr('Trial summary', 'ट्रायल सारांश', 'Trial summary')}</div>
-            <div className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">
+            <div className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl dark:text-white">
               {config ? `${config.trialDays} ${tr('days free', 'दिन मुफ्त', 'din free')}` : tr('Free trial', 'मुफ्त ट्रायल', 'Free trial')}
             </div>
-            <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            <div className="mt-2 text-[13px] leading-5 text-slate-600 sm:text-sm dark:text-slate-300">
               {tr(
                 'After the trial ends, the workspace locks automatically and the owner is redirected to subscription renewal.',
                 'ट्रायल खत्म होने के बाद वर्कस्पेस अपने आप लॉक हो जाएगा और ओनर को सब्सक्रिप्शन रिन्यूअल पर भेजा जाएगा।',
@@ -305,14 +320,14 @@ export default function RegisterPage() {
               <PlanTile title={tr('Monthly', 'मंथली', 'Monthly')} price={fmt(config?.monthlyPrice ?? 0)} sub={tr('Good for ongoing local trading operations', 'लगातार स्थानीय ट्रेडिंग ऑपरेशंस के लिए बेहतर', 'Ongoing local trading operations ke liye sahi')} />
               <PlanTile title={tr('Yearly', 'ईयरली', 'Yearly')} price={fmt(config?.yearlyPrice ?? 0)} sub={tr('Best value for full-season teams', 'पूरे सीजन के लिए सबसे बेहतर वैल्यू', 'Full-season teams ke liye best value')} />
             </div>
-            <div className="mt-4 text-xs text-slate-500 dark:text-slate-400">
+            <div className="mt-4 text-[11px] leading-5 text-slate-500 sm:text-xs dark:text-slate-400">
               {tr('Paid renewal and subscription checkout are handled directly via Razorpay.', 'पेड रिन्यूअल और सब्सक्रिप्शन चेकआउट सीधे Razorpay से होता है।', 'Paid renewal aur subscription checkout direct Razorpay se hota hai.')}
             </div>
           </div>
         </div>
 
-        <div className="rounded-[28px] border border-white/70 bg-white/86 p-6 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur dark:border-white/10 dark:bg-slate-950/72 dark:shadow-[0_24px_60px_rgba(2,6,23,0.40)]">
-          <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="rounded-[24px] border border-white/70 bg-white/86 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur sm:rounded-[28px] sm:p-6 dark:border-white/10 dark:bg-slate-950/72 dark:shadow-[0_24px_60px_rgba(2,6,23,0.40)]">
+          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{tr('Business details', 'बिज़नेस डिटेल्स', 'Business details')}</div>
               <div className="mt-3">
@@ -327,13 +342,13 @@ export default function RegisterPage() {
                         key={preset.key}
                         type="button"
                         onClick={() => applyRecommendedPreset(preset.key)}
-                        className={`rounded-2xl border px-3 py-2 text-left transition ${
+                        className={`rounded-2xl border px-3 py-2.5 text-left transition ${
                           active
-                            ? 'border-sky-500 bg-sky-50 text-slate-900 dark:border-sky-400 dark:bg-sky-500/10 dark:text-sky-100'
-                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'
+                            ? 'border-sky-500 bg-sky-50 text-slate-900 ring-2 ring-sky-200 dark:border-sky-400 dark:bg-sky-500/10 dark:text-sky-100 dark:ring-sky-900/50'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'
                         }`}
                       >
-                        <div className="text-sm font-semibold">{preset.title}</div>
+                        <div className="text-[15px] font-semibold leading-5">{preset.title}</div>
                         <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{preset.subtitle}</div>
                       </button>
                     )
@@ -529,21 +544,23 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {error && <div className="rounded-2xl bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950/40">{error}</div>}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-2xl bg-slate-950 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
-            >
-              {loading
-                ? tr('Creating trial workspace...', 'ट्रायल वर्कस्पेस बनाया जा रहा है...', 'Trial workspace create ho raha hai...')
-                : config
-                  ? `${tr('Start', 'शुरू करें', 'Start')} ${config.trialDays}-${tr('day free trial', 'दिन का फ्री ट्रायल', 'day free trial')}`
-                  : tr('Start free trial', 'फ्री ट्रायल शुरू करें', 'Free trial start karo')}
-            </button>
+            <div className="sticky bottom-2 z-10 -mx-1 rounded-2xl border border-slate-200/90 bg-white px-3 pb-[calc(env(safe-area-inset-bottom)+0.65rem)] pt-3 shadow-[0_10px_24px_rgba(15,23,42,0.08)] sm:static sm:bottom-auto sm:mx-0 sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none dark:border-slate-800 dark:bg-slate-950 sm:dark:bg-transparent">
+              {error && <div className="mb-3 rounded-2xl bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950/40">{error}</div>}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full rounded-2xl bg-slate-950 py-3.5 text-base font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
+              >
+                {loading
+                  ? tr('Creating trial workspace...', 'ट्रायल वर्कस्पेस बनाया जा रहा है...', 'Trial workspace create ho raha hai...')
+                  : config
+                    ? `${tr('Start', 'शुरू करें', 'Start')} ${config.trialDays}-${tr('day free trial', 'दिन का फ्री ट्रायल', 'day free trial')}`
+                    : tr('Start free trial', 'फ्री ट्रायल शुरू करें', 'Free trial start karo')}
+              </button>
+            </div>
           </form>
 
-          <div className="mt-5 text-center text-sm text-slate-600 dark:text-slate-300">
+          <div className="mt-6 text-center text-sm text-slate-600 dark:text-slate-300">
             {tr('Already have an account?', 'पहले से अकाउंट है?', 'Already account hai?')}{' '}
             <Link href="/auth/login" className="font-semibold text-sky-600 hover:underline dark:text-sky-400">
               {t('auth.signIn')}
@@ -564,7 +581,7 @@ export default function RegisterPage() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <div className="mb-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">{label}</div>
+      <div className="mb-1.5 text-[12px] font-medium text-slate-600 dark:text-slate-400">{label}</div>
       {children}
     </label>
   )
@@ -581,5 +598,5 @@ function PlanTile({ title, price, sub }: { title: string; price: string; sub: st
 }
 
 const inputCls =
-  'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500'
+  'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-[15px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500'
 

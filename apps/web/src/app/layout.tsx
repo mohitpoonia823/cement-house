@@ -5,13 +5,13 @@ import { PWARegister } from '@/components/PWARegister'
 import { PWAStatus } from '@/components/PWAStatus'
 
 export const metadata: Metadata = {
-  title: 'Business Hub - Management Platform',
+  title: 'NexaHub - Business Management Platform',
   description: 'Multi-business management platform',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Business Hub',
+    title: 'NexaHub',
   },
 }
 
@@ -42,7 +42,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             `,
           }}
         />
-        <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+        <link rel="icon" href="/icons/nexahub-logo.jpeg" type="image/jpeg" />
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
       </head>
       <body>

@@ -1,4 +1,4 @@
-// Service Worker - Business Hub PWA
+// Service Worker - NexaHub PWA
 const STATIC_CACHE = 'business-hub-static-v3'
 const API_CACHE = 'business-hub-api-v3'
 const OFFLINE_API_ALLOWLIST = ['/api/reports/dashboard', '/api/inventory', '/api/inventory/stock-by-location']

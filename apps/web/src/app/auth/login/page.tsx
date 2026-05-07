@@ -4,18 +4,8 @@ import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import Link from 'next/link'
-import { fmt } from '@/lib/utils'
 import { useI18n } from '@/lib/i18n'
 import { LanguageSelect } from '@/components/common/LanguageSelect'
-
-interface RegistrationConfig {
-  trialDays: number
-  monthlyPrice: number
-  yearlyPrice: number
-  currency: string
-  trialRequiresCard: boolean
-  updatedAt?: string | null
-}
 
 export default function LoginPage() {
   const [phone, setPhone] = useState('')
@@ -24,7 +14,6 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [loading, setLoading] = useState(false)
-  const [config, setConfig] = useState<RegistrationConfig | null>(null)
   const { t, language } = useI18n()
   const { login } = useAuthStore()
   const router = useRouter()
@@ -35,12 +24,6 @@ export default function LoginPage() {
       sessionStorage.removeItem('auth_logout_reason')
       setInfo(reason)
     }
-    api.get('/api/auth/registration-config', {
-      params: { t: Date.now() },
-      headers: { 'Cache-Control': 'no-cache' },
-    })
-      .then((res) => setConfig(res.data.data))
-      .catch(() => undefined)
   }, [])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -51,193 +34,148 @@ export default function LoginPage() {
     try {
       const res = await api.post('/api/auth/login', { phone, password })
       if (res.data.data.user.accessLocked && res.data.data.user.role !== 'OWNER') {
-        setInfo(res.data.data.user.accessReason ?? (language === 'hi' ? 'वर्कस्पेस एक्सेस लॉक है। ओनर के सब्सक्रिप्शन रिन्यू करने तक प्रतीक्षा करें।' : language === 'hinglish' ? 'Workspace access lock hai. Owner subscription renew kare tab tak wait karo.' : 'Workspace access is locked until the owner renews the subscription.'))
+        setInfo(
+          res.data.data.user.accessReason ??
+            (language === 'hi'
+              ? 'Workspace access is locked until the owner renews the subscription.'
+              : language === 'hinglish'
+              ? 'Workspace access lock hai. Owner subscription renew kare tab tak wait karo.'
+              : 'Workspace access is locked until the owner renews the subscription.')
+        )
         return
       }
       login(res.data.data.token, res.data.data.user)
-      if (res.data.data.user.role === 'SUPER_ADMIN') {
-        router.replace('/super-admin')
-      } else if (res.data.data.user.accessLocked) {
-        router.replace('/settings?subscription=required')
-      } else {
-        router.replace('/dashboard')
-      }
+      if (res.data.data.user.role === 'SUPER_ADMIN') router.replace('/super-admin')
+      else if (res.data.data.user.accessLocked) router.replace('/settings?subscription=required')
+      else router.replace('/dashboard')
     } catch (err: any) {
-      setError(err.response?.data?.error ?? (language === 'hi' ? 'लॉगिन विफल। क्रेडेंशियल जांचें।' : language === 'hinglish' ? 'Login fail hua. Credentials check karo.' : 'Login failed. Check credentials.'))
+      setError(
+        err.response?.data?.error ??
+          (language === 'hi'
+            ? 'Login failed. Check credentials.'
+            : language === 'hinglish'
+            ? 'Login fail hua. Credentials check karo.'
+            : 'Login failed. Check credentials.')
+      )
     } finally {
       setLoading(false)
     }
   }
 
-  const languageText = language === 'hi' ? {
-    startFreeTrial: 'मुफ़्त ट्रायल शुरू करें',
-    daysFree: 'दिन मुफ्त',
-    trialText: 'ओनर और बिज़नेस डिटेल से शुरू करें, फिर Razorpay checkout से कभी भी paid plan एक्टिवेट करें।',
-    startTrialBtn: 'फ्री ट्रायल शुरू करें',
-    renewalReady: 'रिन्यूअल तैयार',
-    lockAtExpiry: 'एक्सपायरी पर वर्कस्पेस लॉक हो जाएगा',
-    renewalText: 'ट्रायल या प्लान खत्म होते ही ओनर को subscription पेज पर भेजा जाता है, डेटा सुरक्षित रहता है।',
-    securePayments: 'सुरक्षित भुगतान सीधे Razorpay checkout में होते हैं।',
-    platformLine: 'बिज़नेस मैनेजमेंट प्लेटफ़ॉर्म',
-    phonePlaceholder: '9876543210',
-    passwordPlaceholder: 'अपना पासवर्ड दर्ज करें',
-    loginFailed: 'लॉगिन विफल। क्रेडेंशियल जांचें।',
-    accessLocked: 'वर्कस्पेस एक्सेस लॉक है। सब्सक्रिप्शन रिन्यू होने तक प्रतीक्षा करें।',
-  } : language === 'hinglish' ? {
-    startFreeTrial: 'Free trial start karo',
-    daysFree: 'din free',
-    trialText: 'Owner aur business details se start karo, phir Razorpay checkout se kabhi bhi paid plan activate karo.',
-    startTrialBtn: 'Free trial start karo',
-    renewalReady: 'Renewal ready',
-    lockAtExpiry: 'Expiry pe workspace lock hoga',
-    renewalText: 'Trial ya plan khatam hote hi owner ko subscription area me bheja jata hai, data safe rehta hai.',
-    securePayments: 'Secure payment direct Razorpay checkout me hota hai.',
-    platformLine: 'Business management platform',
-    phonePlaceholder: '9876543210',
-    passwordPlaceholder: 'Apna password daalo',
-    loginFailed: 'Login fail hua. Credentials check karo.',
-    accessLocked: 'Workspace access lock hai. Subscription renew hone tak wait karo.',
-  } : {
-    startFreeTrial: 'Start free trial',
-    daysFree: 'days free',
-    trialText: 'Start with owner and business details, then activate paid plans anytime with Razorpay checkout.',
-    startTrialBtn: 'Start a free trial',
-    renewalReady: 'Renewal ready',
-    lockAtExpiry: 'Workspace locks at expiry',
-    renewalText: 'Owners are redirected to the subscription area as soon as trial or plan access ends, while data stays intact.',
-    securePayments: 'Secure payments are handled directly in Razorpay checkout.',
-    platformLine: 'Business management platform',
-    phonePlaceholder: '9876543210',
-    passwordPlaceholder: 'Enter your password',
-    loginFailed: 'Login failed. Check credentials.',
-    accessLocked: 'Workspace access is locked until the owner renews the subscription.',
-  }
+  const phonePlaceholder = '9876543210'
+  const passwordPlaceholder = language === 'hi' ? 'Enter your password' : language === 'hinglish' ? 'Apna password daalo' : 'Enter your password'
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[linear-gradient(180deg,#f7fafc_0%,#eef5f7_52%,#edf3f8_100%)] px-4 py-10 dark:bg-[linear-gradient(180deg,#020617_0%,#0f172a_56%,#111827_100%)]">
       <div className="pointer-events-none absolute inset-0 opacity-70">
-        <div className="absolute left-[12%] top-[12%] h-48 w-48 rounded-full bg-emerald-200/45 blur-3xl dark:bg-emerald-500/12" />
+        <div className="absolute left-[14%] top-[12%] h-48 w-48 rounded-full bg-emerald-200/45 blur-3xl dark:bg-emerald-500/12" />
         <div className="absolute bottom-[10%] right-[14%] h-56 w-56 rounded-full bg-sky-200/55 blur-3xl dark:bg-sky-500/12" />
       </div>
 
-      <div className="relative grid w-full max-w-6xl gap-10 lg:grid-cols-[0.9fr_0.7fr] lg:items-center">
-        <div className="max-w-xl">
-          <div className="mb-4 flex items-center gap-3">
-            <div className="inline-flex items-center rounded-full border border-slate-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+      <div className="relative w-full max-w-md">
+        <div className="mb-5 flex items-center justify-between sm:mb-6">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => router.back()}
+              aria-label="Go back"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+            <Link
+              href="/"
+              className="inline-flex items-center rounded-full border border-slate-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600 shadow-sm backdrop-blur transition hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"
+            >
               {t('brand.cementHouse')}
-            </div>
-            <LanguageSelect />
+            </Link>
           </div>
-          <h1 className="text-4xl font-semibold tracking-tight text-slate-950 dark:text-white">{t('auth.welcomeBack')}</h1>
-          <p className="mt-3 max-w-lg text-base text-slate-600 dark:text-slate-300">
-            {t('auth.subtitle')}
-          </p>
-
-          <div className="mt-8 grid gap-4 md:grid-cols-2">
-            <div className="rounded-[28px] border border-white/70 bg-white/86 p-5 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur dark:border-white/10 dark:bg-slate-950/72">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{languageText.startFreeTrial}</div>
-              <div className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
-                {config ? `${config.trialDays} ${languageText.daysFree}` : languageText.startFreeTrial}
-              </div>
-              <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                {languageText.trialText}
-              </div>
-              <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-900/70">
-                  Monthly {fmt(config?.monthlyPrice ?? 0)}
-                </span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-900/70">
-                  Yearly {fmt(config?.yearlyPrice ?? 0)}
-                </span>
-              </div>
-              <Link
-                href="/auth/register"
-                className="mt-5 inline-flex rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
-              >
-                {languageText.startTrialBtn}
-              </Link>
-            </div>
-
-            <div className="rounded-[28px] border border-white/70 bg-white/82 p-5 shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/90">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-300">{languageText.renewalReady}</div>
-              <div className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 dark:text-slate-100">{languageText.lockAtExpiry}</div>
-              <div className="mt-2 text-sm text-slate-600 dark:text-slate-200">
-                {languageText.renewalText}
-              </div>
-              <div className="mt-4 text-xs text-slate-500 dark:text-slate-300">
-                {languageText.securePayments}
-              </div>
-            </div>
-          </div>
+          <LanguageSelect />
         </div>
 
-        <div className="w-full max-w-sm justify-self-center">
-          <div className="rounded-[28px] border border-white/70 bg-white/86 p-6 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur dark:border-white/10 dark:bg-slate-950/72 dark:shadow-[0_24px_60px_rgba(2,6,23,0.40)]">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {info && <div className="rounded-2xl bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-200">{info}</div>}
-              <div>
-                <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">{t('auth.phone')}</label>
-                <input
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder={languageText.phonePlaceholder}
-                  maxLength={10}
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
-                  required
-                />
-              </div>
-              <div>
-                <div className="mb-1.5 flex items-center justify-between">
-                  <label className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">{t('auth.password')}</label>
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((prev) => !prev)}
-                    className="text-xs font-semibold text-sky-600 hover:underline dark:text-sky-400"
+        <div className="rounded-[24px] border border-white/70 bg-white/86 p-5 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur sm:rounded-[28px] sm:p-6 dark:border-white/10 dark:bg-slate-950/72 dark:shadow-[0_24px_60px_rgba(2,6,23,0.40)]">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">{t('auth.signIn')}</div>
+            {info && <div className="rounded-2xl bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-200">{info}</div>}
+            <div>
+              <label className="mb-2 block text-[12px] font-medium uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{t('auth.phone')}</label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder={phonePlaceholder}
+                maxLength={10}
+                className="w-full min-h-11 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[15px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                required
+              />
+            </div>
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="text-[12px] font-medium uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{t('auth.password')}</label>
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-label={showPassword ? t('auth.hide') : t('auth.show')}
+                  title={showPassword ? t('auth.hide') : t('auth.show')}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-full text-sky-600 transition-colors hover:bg-sky-50 hover:text-sky-700 dark:text-sky-400 dark:hover:bg-sky-900/20 dark:hover:text-sky-300"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className={`h-4 w-4 transition-all duration-200 ${showPassword ? 'scale-100 opacity-100' : 'scale-95 opacity-90'}`}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   >
-                    {showPassword ? t('auth.hide') : t('auth.show')}
-                  </button>
-                </div>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={languageText.passwordPlaceholder}
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
-                  required
-                />
-                <div className="mt-2 text-right">
-                  <Link href="/auth/forgot-password" className="text-xs font-semibold text-sky-600 hover:underline dark:text-sky-400">
-                    {t('auth.forgotPassword')}
-                  </Link>
-                </div>
+                    {showPassword ? (
+                      <>
+                        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </>
+                    ) : (
+                      <>
+                        <path d="M3 3l18 18" />
+                        <path d="M10.58 10.58A2 2 0 0 0 12 14a2 2 0 0 0 1.42-.58" />
+                        <path d="M9.88 5.09A10.94 10.94 0 0 1 12 5c6.5 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+                        <path d="M6.61 6.61A12.24 12.24 0 0 0 2 12s3.5 7 10 7a9.8 9.8 0 0 0 5.39-1.61" />
+                      </>
+                    )}
+                  </svg>
+                </button>
               </div>
-              {error && <div className="rounded-2xl bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950/40">{error}</div>}
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full rounded-2xl bg-slate-950 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
-              >
-                {loading ? t('auth.signingIn') : t('auth.signIn')}
-              </button>
-            </form>
-          </div>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={passwordPlaceholder}
+                className="w-full min-h-11 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[15px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                required
+              />
+              <div className="mt-2 text-right">
+                <Link href="/auth/forgot-password" className="text-[12px] font-semibold text-sky-600 hover:underline dark:text-sky-400">
+                  {t('auth.forgotPassword')}
+                </Link>
+              </div>
+            </div>
+            {error && <div className="rounded-2xl bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950/40">{error}</div>}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full min-h-12 rounded-2xl bg-slate-950 py-3 text-base font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
+            >
+              {loading ? t('auth.signingIn') : t('auth.signIn')}
+            </button>
+          </form>
+        </div>
 
-          <div className="mt-5 text-center text-sm text-slate-600 dark:text-slate-300">
-            {t('auth.newHere')}{' '}
-            <Link href="/auth/register" className="font-semibold text-sky-600 hover:underline dark:text-sky-400">
-              {t('auth.createAccount')}
-            </Link>
-          </div>
-          <div className="mt-2 text-center text-sm text-slate-600 dark:text-slate-300">
-            {t('auth.platformSetup')}{' '}
-            <Link href="/auth/admin-setup" className="font-semibold text-emerald-700 hover:underline dark:text-emerald-300">
-              {t('auth.createSuperAdmin')}
-            </Link>
-          </div>
-          <div className="mt-2 text-center text-xs uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
-            {languageText.platformLine}
-          </div>
+        <div className="mt-5 text-center text-sm text-slate-600 dark:text-slate-300">
+          {t('auth.newHere')}{' '}
+          <Link href="/auth/register" className="font-semibold text-sky-600 hover:underline dark:text-sky-400">
+            {t('auth.createAccount')}
+          </Link>
         </div>
       </div>
     </div>

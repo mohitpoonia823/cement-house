@@ -86,7 +86,7 @@ export function PWARegister() {
       return {
         title: 'Install app on Android',
         description: canPromptInstall
-          ? 'Tap Install App to add Business Hub on your home screen.'
+          ? 'Tap Install App to add NexaHub on your home screen.'
           : 'Use browser menu and tap Install app or Add to Home screen.',
         actionLabel: 'Install App',
       }
@@ -102,14 +102,14 @@ export function PWARegister() {
       return {
         title: 'Install desktop app',
         description: canPromptInstall
-          ? 'Install Business Hub as a desktop app for faster access.'
+          ? 'Install NexaHub as a desktop app for faster access.'
           : 'Use browser menu and choose Install app.',
         actionLabel: 'Install Desktop App',
       }
     }
     return {
       title: 'Install app',
-      description: 'Use your browser menu to install Business Hub.',
+      description: 'Use your browser menu to install NexaHub.',
       actionLabel: '',
     }
   }, [installTarget, canPromptInstall])

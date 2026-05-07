@@ -51,9 +51,8 @@ export function Topbar() {
   const [trialBannerDismissed, setTrialBannerDismissed] = useState(false)
   const locale = language === 'hi' ? 'hi-IN' : 'en-IN'
   const today = new Date().toLocaleDateString(locale, {
-    weekday: 'long',
     day: 'numeric',
-    month: 'long',
+    month: 'short',
     year: 'numeric',
   })
   const trialDaysRemaining = user?.subscriptionEndsAt ? Math.max(0, Math.ceil((new Date(user.subscriptionEndsAt).getTime() - Date.now()) / 86_400_000)) : 0
@@ -196,10 +195,10 @@ export function Topbar() {
 
   const installTooltip =
     installTarget === 'desktop'
-      ? 'Install Business Hub as a desktop app for faster access.'
+      ? 'Install NexaHub as a desktop app for faster access.'
       : installTarget === 'ios'
       ? 'Tap Share and choose Add to Home Screen.'
-      : 'Install Business Hub for faster access.'
+      : 'Install NexaHub for faster access.'
   return (
     <header className="sticky top-0 z-20 shrink-0 px-4 pb-4 pt-4 md:px-6">
       {showTopTrialBanner ? (
@@ -262,6 +261,12 @@ export function Topbar() {
           <div className="mt-1 flex flex-wrap items-center gap-3">
             <span className="text-xl font-semibold tracking-tight text-slate-950 dark:text-white">{t(titleKey)}</span>
             <span className="text-sm text-slate-500 dark:text-slate-300">{today}</span>
+            <img
+              src="/icons/nexahub-logo.jpeg"
+              alt="NexaHub"
+              className="ml-auto h-10 w-10 rounded-lg object-cover shadow-sm sm:hidden"
+              loading="eager"
+            />
             {showTrialPill ? (
               <button
                 type="button"

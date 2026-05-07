@@ -1,7 +1,7 @@
 {
-  "name": "Business Hub",
-  "short_name": "BizHub",
-  "description": "Business Hub - Multi-business management platform",
+  "name": "NexaHub",
+  "short_name": "NexaHub",
+  "description": "NexaHub - Multi-business management platform",
   "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",

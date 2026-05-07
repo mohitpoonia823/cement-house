@@ -105,6 +105,7 @@ function OrdersContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [status, setStatus] = useState<(typeof STATUSES)[number]>('ALL')
+  const [dateSort, setDateSort] = useState<{ field: 'orderDate' | 'deliveryDate'; dir: 'asc' | 'desc' } | null>(null)
   const [showNewOrderModal, setShowNewOrderModal] = useState(false)
   const mobilePrimaryStatuses = useMemo(() => ['ALL', 'CONFIRMED', 'DISPATCHED'] as (typeof STATUSES)[number][], [])
   const mobileExtraStatuses = useMemo(() => STATUSES.filter((s) => !mobilePrimaryStatuses.includes(s)), [mobilePrimaryStatuses])
@@ -123,6 +124,19 @@ function OrdersContent() {
   const bulkDelete = useBulkDeleteOrders()
   const updateStatus = useUpdateOrderStatus()
   const orders = data?.items ?? []
+  const sortedOrders = useMemo(() => {
+    if (!dateSort) return orders
+    const toTs = (value: any) => {
+      if (!value) return Number.POSITIVE_INFINITY
+      const ts = new Date(value).getTime()
+      return Number.isFinite(ts) ? ts : Number.POSITIVE_INFINITY
+    }
+    return [...orders].sort((a: any, b: any) => {
+      const av = dateSort.field === 'orderDate' ? toTs(a.orderDate ?? a.createdAt) : toTs(a.deliveryDate)
+      const bv = dateSort.field === 'orderDate' ? toTs(b.orderDate ?? b.createdAt) : toTs(b.deliveryDate)
+      return dateSort.dir === 'asc' ? av - bv : bv - av
+    })
+  }, [orders, dateSort])
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [alert, setAlert] = useState<{ tone: 'success' | 'danger'; message: string } | null>(null)
@@ -135,7 +149,7 @@ function OrdersContent() {
   }>({ open: false, mode: 'single' })
   const [cancelConfirm, setCancelConfirm] = useState<{ open: boolean; id?: string; orderNumber?: string }>({ open: false })
   const allSelected = orders.length > 0 && selected.size === orders.length
-  const selectedOrders = useMemo(() => orders.filter((o: any) => selected.has(o.id)), [orders, selected])
+  const selectedOrders = useMemo(() => sortedOrders.filter((o: any) => selected.has(o.id)), [sortedOrders, selected])
   const initialLoading = isLoading && !data
   const bookedValue = useMemo(() => orders.reduce((sum: number, o: any) => sum + Number(o.totalAmount), 0), [orders])
   const collectedValue = useMemo(() => orders.reduce((sum: number, o: any) => sum + Number(o.amountPaid), 0), [orders])
@@ -171,8 +185,20 @@ function OrdersContent() {
     if (allSelected) {
       setSelected(new Set())
     } else {
-      setSelected(new Set(orders.map((o: any) => o.id)))
+      setSelected(new Set(sortedOrders.map((o: any) => o.id)))
     }
+  }
+
+  function toggleDateSort(field: 'orderDate' | 'deliveryDate') {
+    setDateSort((current) => {
+      if (!current || current.field !== field) return { field, dir: 'asc' }
+      return { field, dir: current.dir === 'asc' ? 'desc' : 'asc' }
+    })
+  }
+
+  function sortIndicator(field: 'orderDate' | 'deliveryDate') {
+    if (!dateSort || dateSort.field !== field) return '↕'
+    return dateSort.dir === 'asc' ? '↑' : '↓'
   }
 
   function handleDelete(id: string, orderNumber: string, status: string) {
@@ -491,7 +517,7 @@ function OrdersContent() {
         ) : (
           <>
           <div className="space-y-3 md:hidden">
-            {orders.map((o: any) => {
+            {sortedOrders.map((o: any) => {
               const due = Number(o.totalAmount) - Number(o.amountPaid)
               const isSelected = selected.has(o.id)
               return (
@@ -565,7 +591,32 @@ function OrdersContent() {
                       className="cursor-pointer rounded border-stone-300 text-blue-600 focus:ring-blue-500"
                     />
                   </th>
-                  {[tr.columns.orderNo, tr.columns.orderDate, tr.columns.deliveryDate, tr.columns.customer, tr.columns.items, tr.columns.amount, tr.columns.paid, tr.columns.due, tr.columns.status, tr.columns.actions].map((h) => (
+                  <th className="py-3 pr-3 text-left font-normal uppercase tracking-[0.18em] text-slate-400 dark:text-slate-300">
+                    {tr.columns.orderNo}
+                  </th>
+                  <th className="py-3 pr-3 text-left font-normal uppercase tracking-[0.18em] text-slate-400 dark:text-slate-300">
+                    <button
+                      type="button"
+                      onClick={() => toggleDateSort('orderDate')}
+                      className="inline-flex items-center gap-1 text-inherit hover:text-slate-600 dark:hover:text-slate-100"
+                      aria-label={`Sort by ${tr.columns.orderDate}`}
+                    >
+                      <span>{tr.columns.orderDate}</span>
+                      <span className="text-[10px]">{sortIndicator('orderDate')}</span>
+                    </button>
+                  </th>
+                  <th className="py-3 pr-3 text-left font-normal uppercase tracking-[0.18em] text-slate-400 dark:text-slate-300">
+                    <button
+                      type="button"
+                      onClick={() => toggleDateSort('deliveryDate')}
+                      className="inline-flex items-center gap-1 text-inherit hover:text-slate-600 dark:hover:text-slate-100"
+                      aria-label={`Sort by ${tr.columns.deliveryDate}`}
+                    >
+                      <span>{tr.columns.deliveryDate}</span>
+                      <span className="text-[10px]">{sortIndicator('deliveryDate')}</span>
+                    </button>
+                  </th>
+                  {[tr.columns.customer, tr.columns.items, tr.columns.amount, tr.columns.paid, tr.columns.due, tr.columns.status, tr.columns.actions].map((h) => (
                     <th key={h} className="py-3 pr-3 text-left font-normal uppercase tracking-[0.18em] text-slate-400 dark:text-slate-300">
                       {h}
                     </th>
@@ -573,7 +624,7 @@ function OrdersContent() {
                 </tr>
               </thead>
               <tbody>
-                {orders.map((o: any) => {
+                {sortedOrders.map((o: any) => {
                   const due = Number(o.totalAmount) - Number(o.amountPaid)
                   const isSelected = selected.has(o.id)
                   return (

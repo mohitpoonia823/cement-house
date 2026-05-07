@@ -66,3 +66,41 @@ a {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+@media (prefers-reduced-motion: no-preference) {
+  .eye-blink-trigger:hover .eye-icon {
+    animation: eyeBlink 560ms ease-in-out 1;
+  }
+  .eye-blink-trigger:hover .eye-pupil {
+    animation: eyePupil 560ms ease-in-out 1;
+  }
+}
+
+.eye-icon {
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+@keyframes eyeBlink {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  45%,
+  55% {
+    transform: scaleY(0.12);
+  }
+}
+
+@keyframes eyePupil {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  42%,
+  58% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+}
