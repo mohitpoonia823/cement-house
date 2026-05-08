@@ -63,10 +63,11 @@ export function useBulkDeleteMaterials() {
   })
 }
 
-export function useLocations() {
+export function useLocations(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['locations'],
     queryFn: () => api.get('/api/locations').then((r) => r.data.data),
+    enabled: options?.enabled ?? true,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     retry: 1,

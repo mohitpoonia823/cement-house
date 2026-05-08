@@ -201,7 +201,7 @@ export default function ImportedBillsPage() {
             <div className="text-sm font-medium text-stone-700 dark:text-slate-200">{t('No scanned bills yet.', 'अभी तक कोई स्कैन बिल नहीं है।', 'Abhi tak koi scanned bill nahi hai.')}</div>
             <div className="mt-1 text-xs text-stone-500 dark:text-slate-400">{t('Scan or upload purchase bills to build this list.', 'इस सूची को बनाने के लिए खरीद बिल स्कैन या अपलोड करें।', 'Is list ko banane ke liye purchase bills scan ya upload karo.')}</div>
             <div className="mt-4 flex items-center justify-center gap-2">
-              <Link href="/inventory" className="rounded-full bg-slate-950 px-3 py-1.5 text-[11px] font-semibold text-white dark:bg-sky-500 dark:text-slate-950">
+              <Link href="/inventory?scanBill=1#scan-bill" className="rounded-full bg-slate-950 px-3 py-1.5 text-[11px] font-semibold text-white dark:bg-sky-500 dark:text-slate-950">
                 {t('Scan bill', 'बिल स्कैन करें', 'Bill scan karo')}
               </Link>
               <Link href="/inventory" className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200">

@@ -73,7 +73,7 @@ export function useSupportUnreadCount(enabled = true) {
     queryFn: () => api.get('/api/support/notifications/unread-count').then((res) => Number(res.data.data?.count ?? 0)),
     enabled,
     staleTime: 60_000,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
     retry: 1,
   })
 }

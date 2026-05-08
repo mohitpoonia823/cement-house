@@ -1,5 +1,5 @@
-﻿'use client'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+'use client'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppShell } from '@/components/layout/AppShell'
 import { Badge } from '@/components/ui/Badge'
 import { Card, SectionHeader } from '@/components/ui/Card'
@@ -36,10 +36,10 @@ function getCustomDependencyHints(enabledModules: string[], featureFlags: Record
   return hints
 }
 
-function useSettings() {
+function useSettingsBootstrap() {
   return useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.get('/api/settings').then((r) => r.data.data),
+    queryKey: ['settings-bootstrap'],
+    queryFn: () => api.get('/api/settings/bootstrap').then((r) => r.data.data),
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     retry: 1,
@@ -67,6 +67,16 @@ type ActivePlan = {
 }
 type AlertTone = 'success' | 'warning' | 'danger' | 'info'
 type ToastItem = { id: number; tone: AlertTone; message: string }
+type SubscriptionTimelineItem = {
+  status: 'PENDING' | 'SUCCESS' | 'FAILED'
+  interval: BillingInterval
+  createdAt: string
+  queued?: boolean
+  queuedStartAt?: string | null
+  queuedEndAt?: string | null
+  plannedStartAt?: string | null
+  plannedEndAt?: string | null
+}
 
 declare global {
   interface Window {
@@ -110,27 +120,22 @@ export default function SettingsPage() {
   const t = (en: string, hi: string, hinglish?: string) => (language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en)
   const { user, login, token } = useAuthStore()
   const qc = useQueryClient()
-  const { data, isLoading } = useSettings()
-  const { data: locations, isLoading: locationsLoading } = useLocations()
-  const { data: plansData } = useQuery<ActivePlan[]>({
-    queryKey: ['subscription-plans'],
-    queryFn: () => api.get('/api/settings/plans').then((r) => r.data.data),
-    staleTime: 60_000,
-    refetchOnWindowFocus: false,
-    retry: 1,
-    enabled: user?.role === 'OWNER',
-  })
-  const { data: subscriptionUsage } = useQuery({
-    queryKey: ['subscription-usage'],
-    queryFn: () => api.get('/api/settings/subscription/usage').then((r) => r.data.data),
-    staleTime: 20_000,
-    refetchOnWindowFocus: false,
-    retry: 1,
-    enabled: user?.role === 'OWNER',
-  })
+  const { data: bootstrapData, isLoading } = useSettingsBootstrap()
+  const data = bootstrapData?.settings
+  const plansData = bootstrapData?.plans as ActivePlan[] | undefined
+  const subscriptionUsage = bootstrapData?.subscriptionUsage
+  const [shouldLoadLocations, setShouldLoadLocations] = useState(false)
+  const [shouldLoadStaff, setShouldLoadStaff] = useState(false)
+  const locationsCardRef = useRef<HTMLDivElement | null>(null)
+  const staffCardRef = useRef<HTMLDivElement | null>(null)
   const accessLocked = Boolean(data?.subscription?.accessLocked)
+  const { data: locations, isLoading: locationsLoading } = useLocations({
+    enabled: user?.role === 'OWNER' && !accessLocked && shouldLoadLocations,
+  })
 
-  const { data: staffList, isLoading: sLoading } = useStaff({ enabled: user?.role === 'OWNER' && !accessLocked })
+  const { data: staffList, isLoading: sLoading } = useStaff({
+    enabled: user?.role === 'OWNER' && !accessLocked && shouldLoadStaff,
+  })
   const createStaff = useCreateStaff()
   const updateStaff = useUpdateStaff()
   const deleteStaff = useDeleteStaff()
@@ -208,6 +213,46 @@ export default function SettingsPage() {
   }
 
   const currentPlanName = (subscriptionUsage?.subscription?.plan?.name ?? null) as PlanName | null
+  const paymentTimeline = useMemo<SubscriptionTimelineItem[]>(
+    () => (Array.isArray((subscriptionUsage as any)?.paymentTimeline) ? (subscriptionUsage as any).paymentTimeline : []),
+    [subscriptionUsage],
+  )
+  const pendingWebhookGraceMs = 20 * 60 * 1000
+  const nextQueuedPlan = useMemo<SubscriptionTimelineItem | null>(() => {
+    const now = Date.now()
+    const parseMs = (value?: string | null) => {
+      if (!value) return NaN
+      const ms = new Date(value).getTime()
+      return Number.isFinite(ms) ? ms : NaN
+    }
+    const currentEndMs = parseMs(data?.subscription?.endsAt ?? null)
+    const activationAnchorMs = Number.isFinite(currentEndMs) ? Math.max(now, currentEndMs) : now
+
+    const queuedSuccess = paymentTimeline.find((item) => {
+      const activationStart = item.queuedStartAt ?? item.plannedStartAt ?? null
+      if (!(item.status === 'SUCCESS' && item.queued && activationStart)) return false
+      const startMs = parseMs(activationStart)
+      return Number.isFinite(startMs) && startMs > activationAnchorMs
+    })
+    if (queuedSuccess) return queuedSuccess
+
+    const freshPending = paymentTimeline.find((item) => {
+      if (item.status !== 'PENDING') return false
+      const activationStart = item.queuedStartAt ?? item.plannedStartAt ?? null
+      const startMs = parseMs(activationStart)
+      if (Number.isFinite(startMs) && startMs <= activationAnchorMs) return false
+      const createdMs = parseMs(item.createdAt)
+      if (!Number.isFinite(createdMs)) return false
+      return now - createdMs <= pendingWebhookGraceMs
+    })
+    return freshPending ?? null
+  }, [paymentTimeline, data?.subscription?.endsAt])
+  const shouldShowPendingWebhook = useMemo(() => {
+    if (!nextQueuedPlan || nextQueuedPlan.status !== 'PENDING') return false
+    const now = Date.now()
+    const createdMs = new Date(nextQueuedPlan.createdAt).getTime()
+    return Number.isFinite(createdMs) && now - createdMs <= pendingWebhookGraceMs
+  }, [nextQueuedPlan])
   const paidPlanForCheckout = useMemo(
     () =>
       (plansData ?? []).find((plan) => plan.name === 'BASIC')
@@ -252,6 +297,34 @@ export default function SettingsPage() {
     }
     setLogoutReason('')
   }, [data, logoutReason])
+
+  useEffect(() => {
+    if (user?.role !== 'OWNER' || accessLocked) return
+    const refs = [
+      { ref: locationsCardRef, setLoaded: setShouldLoadLocations },
+      { ref: staffCardRef, setLoaded: setShouldLoadStaff },
+    ]
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue
+          const match = refs.find((item) => item.ref.current === entry.target)
+          if (!match) continue
+          match.setLoaded(true)
+          observer.unobserve(entry.target)
+        }
+      },
+      { rootMargin: '200px 0px 200px 0px' },
+    )
+    for (const item of refs) {
+      if (item.ref.current) observer.observe(item.ref.current)
+    }
+    return () => observer.disconnect()
+  }, [user?.role, accessLocked])
+
+  useEffect(() => {
+    if (staffFormOpen) setShouldLoadStaff(true)
+  }, [staffFormOpen])
 
   useEffect(() => {
     if (!data) return
@@ -322,7 +395,7 @@ export default function SettingsPage() {
   const updateBiz = useMutation({
     mutationFn: (payload: any) => api.patch('/api/settings/business', payload).then((r) => r.data.data),
     onSuccess: (biz) => {
-      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['settings-bootstrap'] })
       setBizEdit(false)
       if (token && user) {
         login(token, {
@@ -341,7 +414,7 @@ export default function SettingsPage() {
   const updateProf = useMutation({
     mutationFn: (payload: any) => api.patch('/api/settings/profile', payload).then((r) => r.data.data),
     onSuccess: (nextUser) => {
-      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['settings-bootstrap'] })
       setProfEdit(false)
       if (token && user) login(token, { ...user, name: nextUser.name })
       setAlert({ tone: 'success', message: 'Profile updated successfully.' })
@@ -363,7 +436,7 @@ export default function SettingsPage() {
   const updateRem = useMutation({
     mutationFn: (payload: any) => api.patch('/api/settings/reminders', payload).then((r) => r.data.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['settings-bootstrap'] })
       setRemEdit(false)
       setAlert({ tone: 'success', message: 'Reminder rules updated successfully.' })
     },
@@ -373,7 +446,7 @@ export default function SettingsPage() {
   const updateModulesConfig = useMutation({
     mutationFn: (payload: any) => api.patch('/api/settings/business/modules-config', payload).then((r) => r.data.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['settings-bootstrap'] })
       setModulesEdit(false)
       setAlert({ tone: 'success', message: 'Modules and features updated successfully.' })
     },
@@ -398,7 +471,7 @@ export default function SettingsPage() {
       if (result?.session?.token && result?.session?.user) {
         login(result.session.token, result.session.user)
       }
-      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['settings-bootstrap'] })
       setAlert({
         tone: 'info',
         message: result?.message ?? 'Subscription cancelled. Current cycle remains active until access end date.',
@@ -484,7 +557,7 @@ export default function SettingsPage() {
       if (verifiedResult?.session?.token && verifiedResult?.session?.user) {
         login(verifiedResult.session.token, verifiedResult.session.user)
       }
-      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['settings-bootstrap'] })
       setCheckoutOpen(false)
       const intervalLabel = verifiedResult.interval === 'YEARLY' ? 'yearly' : 'monthly'
       setAlert({
@@ -676,6 +749,23 @@ export default function SettingsPage() {
                 data?.subscription?.daysRemaining !== undefined
                   ? `${data.subscription.daysRemaining} day${data.subscription.daysRemaining === 1 ? '' : 's'} remaining`
                   : 'No active window'
+              }
+            />
+            <InfoTile
+              label="Next activation"
+              value={
+                (nextQueuedPlan?.queuedStartAt ?? nextQueuedPlan?.plannedStartAt)
+                  ? fmtDate((nextQueuedPlan?.queuedStartAt ?? nextQueuedPlan?.plannedStartAt) as string)
+                  : shouldShowPendingWebhook
+                    ? 'Pending webhook'
+                    : 'No queued plan'
+              }
+              hint={
+                (nextQueuedPlan?.queuedStartAt ?? nextQueuedPlan?.plannedStartAt) && (nextQueuedPlan?.queuedEndAt ?? nextQueuedPlan?.plannedEndAt)
+                  ? `${nextQueuedPlan?.interval === 'YEARLY' ? 'Yearly' : 'Monthly'} window: ${fmtDate((nextQueuedPlan?.queuedStartAt ?? nextQueuedPlan?.plannedStartAt) as string)} -> ${fmtDate((nextQueuedPlan?.queuedEndAt ?? nextQueuedPlan?.plannedEndAt) as string)}`
+                  : shouldShowPendingWebhook
+                    ? `Payment captured for ${nextQueuedPlan?.interval === 'YEARLY' ? 'yearly' : 'monthly'} plan. Activation will follow after webhook.`
+                    : 'Buy another plan to schedule next window'
               }
             />
             <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/60">
@@ -986,12 +1076,15 @@ export default function SettingsPage() {
             ) : null}
 
             <div className="grid items-start gap-4 xl:grid-cols-2">
+              <div ref={locationsCardRef}>
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
                   <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Locations', 'à¤²à¥‹à¤•à¥‡à¤¶à¤¨à¥à¤¸')}</div>
                   <Link href="/settings/locations" className={editBtnCls}>{t('Manage', 'à¤®à¥ˆà¤¨à¥‡à¤œ à¤•à¤°à¥‡à¤‚')}</Link>
                 </div>
-                {locationsLoading ? (
+                {!shouldLoadLocations ? (
+                  <div className="text-sm text-slate-500 dark:text-slate-400">Scroll to load locations snapshot...</div>
+                ) : locationsLoading ? (
                   <div className="text-sm text-slate-500 dark:text-slate-400">{t('Loading...', 'à¤²à¥‹à¤¡ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...')}</div>
                 ) : (
                   <DetailsList
@@ -1003,6 +1096,7 @@ export default function SettingsPage() {
                   />
                 )}
               </Card>
+              </div>
 
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
@@ -1070,6 +1164,7 @@ export default function SettingsPage() {
             </div>
 
             {user?.role === 'OWNER' ? (
+              <div ref={staffCardRef}>
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
                   <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('Staff / Munim settings', 'à¤¸à¥à¤Ÿà¤¾à¤« / à¤®à¥à¤¨à¥€à¤® à¤¸à¥‡à¤Ÿà¤¿à¤‚à¤—à¥à¤¸')}</div>
@@ -1133,7 +1228,8 @@ export default function SettingsPage() {
                 ) : null}
 
                 <div className="space-y-3">
-                  {sLoading ? <div className="text-sm text-slate-500">{t('Loading staff...', 'à¤¸à¥à¤Ÿà¤¾à¤« à¤²à¥‹à¤¡ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...')}</div> : null}
+                  {!shouldLoadStaff ? <div className="text-sm text-slate-500">Scroll to load staff list...</div> : null}
+                  {shouldLoadStaff && sLoading ? <div className="text-sm text-slate-500">{t('Loading staff...', 'à¤¸à¥à¤Ÿà¤¾à¤« à¤²à¥‹à¤¡ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...')}</div> : null}
                   {(staffList ?? []).filter((member: any) => member.isActive).length > 0 ? (
                     <>
                     <div className="space-y-2.5 md:hidden">
@@ -1221,6 +1317,7 @@ export default function SettingsPage() {
                   ) : null}
                 </div>
               </Card>
+              </div>
             ) : null}
           </>
         )}
@@ -1443,4 +1540,3 @@ const saveBtnCls =
 const cancelBtnCls =
   'rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800'
 const editBtnCls = 'text-xs font-semibold text-sky-600 hover:underline dark:text-sky-400'
-

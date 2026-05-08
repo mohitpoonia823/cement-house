@@ -22,12 +22,18 @@ import {
 const SETTINGS_CACHE_TTL_MS = 10_000
 const SETTINGS_SUBSCRIPTION_CACHE_TTL_MS = 10_000
 const SETTINGS_STAFF_CACHE_TTL_MS = 10_000
+const SETTINGS_SUBSCRIPTION_USAGE_CACHE_TTL_MS = 10_000
+const SETTINGS_BOOTSTRAP_CACHE_TTL_MS = 10_000
 const settingsCache = new Map<string, { expiresAt: number; value: any }>()
 const settingsInFlight = new Map<string, Promise<any>>()
 const settingsSubscriptionCache = new Map<string, { expiresAt: number; value: any }>()
 const settingsSubscriptionInFlight = new Map<string, Promise<any>>()
 const settingsStaffCache = new Map<string, { expiresAt: number; value: any }>()
 const settingsStaffInFlight = new Map<string, Promise<any>>()
+const settingsSubscriptionUsageCache = new Map<string, { expiresAt: number; value: any }>()
+const settingsSubscriptionUsageInFlight = new Map<string, Promise<any>>()
+const settingsBootstrapCache = new Map<string, { expiresAt: number; value: any }>()
+const settingsBootstrapInFlight = new Map<string, Promise<any>>()
 
 function clearSettingsCacheByPrefix(prefix: string) {
   for (const key of settingsCache.keys()) if (key.startsWith(prefix)) settingsCache.delete(key)
@@ -36,6 +42,10 @@ function clearSettingsCacheByPrefix(prefix: string) {
   for (const key of settingsSubscriptionInFlight.keys()) if (key.startsWith(prefix)) settingsSubscriptionInFlight.delete(key)
   for (const key of settingsStaffCache.keys()) if (key.startsWith(prefix)) settingsStaffCache.delete(key)
   for (const key of settingsStaffInFlight.keys()) if (key.startsWith(prefix)) settingsStaffInFlight.delete(key)
+  for (const key of settingsSubscriptionUsageCache.keys()) if (key.startsWith(prefix)) settingsSubscriptionUsageCache.delete(key)
+  for (const key of settingsSubscriptionUsageInFlight.keys()) if (key.startsWith(prefix)) settingsSubscriptionUsageInFlight.delete(key)
+  for (const key of settingsBootstrapCache.keys()) if (key.startsWith(prefix)) settingsBootstrapCache.delete(key)
+  for (const key of settingsBootstrapInFlight.keys()) if (key.startsWith(prefix)) settingsBootstrapInFlight.delete(key)
 }
 
 function invalidateSettingsCaches(businessId: string, userId?: string) {
@@ -185,13 +195,130 @@ function getRazorpayConfig() {
   }
 }
 
-function isActivePaidCycle(business: { subscriptionEndsAt: Date | null; subscriptionInterval: 'MONTHLY' | 'YEARLY' | null }) {
-  if (!business.subscriptionInterval || !business.subscriptionEndsAt) return false
-  return new Date(business.subscriptionEndsAt).getTime() > Date.now()
+function shouldAutoActivateOnVerifyInTest() {
+  const value = String(process.env.RAZORPAY_TEST_AUTO_ACTIVATE ?? '').trim().toLowerCase()
+  return value === '1' || value === 'true' || value === 'yes'
 }
 
 export async function settingsRoutes(app: FastifyInstance) {
+  app.get('/bootstrap', async (req, reply) => {
+    const routeStart = Date.now()
+    const bizId = getBizId(req)
+    const userId = (req.user as { id: string }).id
+    const isOwner = (req.user as { role?: string }).role === 'OWNER'
+    const cacheKey = `${bizId}:${userId}:bootstrap`
+    const now = Date.now()
+    const cached = settingsBootstrapCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) {
+      req.log.info({ route: '/api/settings/bootstrap', bizId, userId, cache: 'hit', totalMs: Date.now() - routeStart }, 'settings bootstrap cache hit')
+      return { success: true, data: cached.value }
+    }
+
+    const inFlight = settingsBootstrapInFlight.get(cacheKey)
+    if (inFlight) {
+      const data = await inFlight
+      req.log.info({ route: '/api/settings/bootstrap', bizId, userId, cache: 'dedupe-hit', totalMs: Date.now() - routeStart }, 'settings bootstrap in-flight dedupe hit')
+      return { success: true, data }
+    }
+
+    const compute = (async () => {
+      const dbStart = Date.now()
+      const [platform, business, authUser, paymentMethod, plans, subscriptionCtx, timeline] = await Promise.all([
+        ensurePlatformSettings(),
+        settingsRepository.getSettingsBusinessById(bizId),
+        settingsRepository.getSettingsUserById(userId),
+        settingsRepository.getDefaultPaymentMethodByBusiness(bizId),
+        isOwner ? subscriptionsRepository.listActivePlans() : Promise.resolve([]),
+        getSubscriptionAccessContext(bizId),
+        subscriptionsRepository.listSubscriptionPaymentTimelineByBusiness(bizId),
+      ])
+      const dbMs = Date.now() - dbStart
+
+      if (!business || !authUser) return null
+
+      const accessBusiness: BusinessWithBilling = {
+        id: business.id,
+        name: business.name,
+        subscriptionStatus: business.subscriptionStatus,
+        subscriptionEndsAt: business.subscriptionEndsAt,
+        trialStartedAt: business.trialStartedAt,
+        trialDaysOverride: business.trialDaysOverride,
+        subscriptionInterval: business.subscriptionInterval,
+        monthlySubscriptionAmount: business.monthlySubscriptionAmount,
+        yearlySubscriptionAmount: business.yearlySubscriptionAmount,
+        isActive: business.isActive,
+        suspendedReason: business.suspendedReason,
+      }
+      const access = computeBusinessAccess(accessBusiness, platform)
+
+      const payload = {
+        settings: {
+          business,
+          user: authUser,
+          platformBilling: {
+            trialDays: platform.trialDays,
+            monthlyPrice: Number(platform.monthlyPrice),
+            yearlyPrice: Number(platform.yearlyPrice),
+            currency: platform.currency,
+            trialRequiresCard: platform.trialRequiresCard,
+          },
+          subscription: {
+            status: access.effectiveStatus,
+            accessLocked: access.accessLocked,
+            accessReason: access.reason,
+            endsAt: access.endsAtIso,
+            daysRemaining: access.daysRemaining,
+            interval: access.subscriptionInterval,
+            inTrial: access.inTrial,
+            monthlyPrice: access.pricing.monthlyPrice,
+            yearlyPrice: access.pricing.yearlyPrice,
+            paymentMethod: maskPaymentMethod(paymentMethod),
+          },
+        },
+        plans,
+        subscriptionUsage: {
+          subscription: subscriptionCtx.subscription
+            ? {
+                id: subscriptionCtx.subscription.id,
+                status: subscriptionCtx.subscription.status,
+                startDate: subscriptionCtx.subscription.startDate,
+                endDate: subscriptionCtx.subscription.endDate,
+                trialEndDate: subscriptionCtx.subscription.trialEndDate,
+                autoRenew: subscriptionCtx.subscription.autoRenew,
+                plan: {
+                  id: subscriptionCtx.subscription.planId,
+                  name: subscriptionCtx.subscription.planName,
+                  priceMonthly: subscriptionCtx.subscription.priceMonthly,
+                  priceYearly: subscriptionCtx.subscription.priceYearly,
+                  features: subscriptionCtx.subscription.planFeatures,
+                  limits: subscriptionCtx.subscription.limits,
+                },
+              }
+            : null,
+          usage: subscriptionCtx.usage,
+          paymentTimeline: timeline.map((entry) => ({
+            ...entry,
+            queuedStartAt: entry.queuedStartAt?.toISOString?.() ?? null,
+            queuedEndAt: entry.queuedEndAt?.toISOString?.() ?? null,
+            plannedStartAt: entry.plannedStartAt?.toISOString?.() ?? null,
+            plannedEndAt: entry.plannedEndAt?.toISOString?.() ?? null,
+          })),
+        },
+        counts: null,
+      }
+      settingsBootstrapCache.set(cacheKey, { expiresAt: Date.now() + SETTINGS_BOOTSTRAP_CACHE_TTL_MS, value: payload })
+      req.log.info({ route: '/api/settings/bootstrap', bizId, userId, cache: 'miss', dbMs, totalMs: Date.now() - routeStart }, 'settings bootstrap payload built')
+      return payload
+    })().finally(() => settingsBootstrapInFlight.delete(cacheKey))
+
+    settingsBootstrapInFlight.set(cacheKey, compute)
+    const data = await compute
+    if (!data) return reply.status(404).send({ success: false, error: 'Workspace not found' })
+    return { success: true, data }
+  })
+
   app.get('/', async (req) => {
+    const routeStart = Date.now()
     const bizId = getBizId(req)
     const userId = (req.user as { id: string }).id
     const cacheKey = `${bizId}:${userId}:settings`
@@ -203,12 +330,14 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (inFlight) return { success: true, data: await inFlight }
 
     const compute = (async () => {
+      const dbStart = Date.now()
       const [platform, business, user, paymentMethod] = await Promise.all([
         ensurePlatformSettings(),
         settingsRepository.getSettingsBusinessById(bizId),
         settingsRepository.getSettingsUserById(userId),
         settingsRepository.getDefaultPaymentMethodByBusiness(bizId),
       ])
+      const dbMs = Date.now() - dbStart
 
       if (!business || !user) return null
 
@@ -227,7 +356,7 @@ export async function settingsRoutes(app: FastifyInstance) {
       }
       const access = computeBusinessAccess(accessBusiness, platform)
 
-      return {
+      const payload = {
         business,
         user,
         platformBilling: {
@@ -250,6 +379,8 @@ export async function settingsRoutes(app: FastifyInstance) {
           paymentMethod: maskPaymentMethod(paymentMethod),
         },
       }
+      req.log.info({ route: '/api/settings', bizId, userId, dbMs, totalMs: Date.now() - routeStart }, 'settings payload built')
+      return payload
     })().finally(() => settingsInFlight.delete(cacheKey))
 
     settingsInFlight.set(cacheKey, compute)
@@ -260,6 +391,7 @@ export async function settingsRoutes(app: FastifyInstance) {
   })
 
   app.get('/subscription', async (req, reply) => {
+    const routeStart = Date.now()
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
     const cacheKey = `${bizId}:subscription`
@@ -270,6 +402,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (inFlight) return { success: true, data: await inFlight }
 
     const compute = (async () => {
+      const dbStart = Date.now()
       const [platform, business, paymentMethod, transactions, subscriptionCtx] = await Promise.all([
         ensurePlatformSettings(),
         settingsRepository.getSettingsBusinessById(bizId),
@@ -277,6 +410,7 @@ export async function settingsRoutes(app: FastifyInstance) {
         settingsRepository.getRecentPaymentTransactionsByBusiness(bizId, 8),
         getSubscriptionAccessContext(bizId),
       ])
+      const dbMs = Date.now() - dbStart
 
       if (!business) return null
 
@@ -295,7 +429,7 @@ export async function settingsRoutes(app: FastifyInstance) {
       }
       const access = computeBusinessAccess(accessBusiness, platform)
 
-      return {
+      const payload = {
         status: access.effectiveStatus,
         accessLocked: access.accessLocked,
         accessReason: access.reason,
@@ -331,6 +465,8 @@ export async function settingsRoutes(app: FastifyInstance) {
           : null,
         usageV2: subscriptionCtx.usage,
       }
+      req.log.info({ route: '/api/settings/subscription', bizId, dbMs, totalMs: Date.now() - routeStart }, 'subscription payload built')
+      return payload
     })().finally(() => settingsSubscriptionInFlight.delete(cacheKey))
 
     settingsSubscriptionInFlight.set(cacheKey, compute)
@@ -347,12 +483,30 @@ export async function settingsRoutes(app: FastifyInstance) {
   })
 
   app.get('/subscription/usage', async (req, reply) => {
+    const routeStart = Date.now()
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
-    const { subscription, usage } = await getSubscriptionAccessContext(bizId)
-    return {
-      success: true,
-      data: {
+    const cacheKey = `${bizId}:subscription-usage`
+    const now = Date.now()
+    const cached = settingsSubscriptionUsageCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) {
+      req.log.info({ route: '/api/settings/subscription/usage', bizId, cache: 'hit', totalMs: Date.now() - routeStart }, 'subscription usage cache hit')
+      return { success: true, data: cached.value }
+    }
+    const inFlight = settingsSubscriptionUsageInFlight.get(cacheKey)
+    if (inFlight) {
+      const data = await inFlight
+      req.log.info({ route: '/api/settings/subscription/usage', bizId, cache: 'dedupe-hit', totalMs: Date.now() - routeStart }, 'subscription usage in-flight dedupe hit')
+      return { success: true, data }
+    }
+    const compute = (async () => {
+      const dbStart = Date.now()
+      const [{ subscription, usage }, timeline] = await Promise.all([
+        getSubscriptionAccessContext(bizId),
+        subscriptionsRepository.listSubscriptionPaymentTimelineByBusiness(bizId),
+      ])
+      const dbMs = Date.now() - dbStart
+      const payload = {
         subscription: subscription
           ? {
               id: subscription.id,
@@ -372,11 +526,25 @@ export async function settingsRoutes(app: FastifyInstance) {
             }
           : null,
         usage,
-      },
-    }
+        paymentTimeline: timeline.map((entry) => ({
+          ...entry,
+          queuedStartAt: entry.queuedStartAt?.toISOString?.() ?? null,
+          queuedEndAt: entry.queuedEndAt?.toISOString?.() ?? null,
+          plannedStartAt: entry.plannedStartAt?.toISOString?.() ?? null,
+          plannedEndAt: entry.plannedEndAt?.toISOString?.() ?? null,
+        })),
+      }
+      settingsSubscriptionUsageCache.set(cacheKey, { expiresAt: Date.now() + SETTINGS_SUBSCRIPTION_USAGE_CACHE_TTL_MS, value: payload })
+      req.log.info({ route: '/api/settings/subscription/usage', bizId, cache: 'miss', dbMs, totalMs: Date.now() - routeStart }, 'subscription usage payload built')
+      return payload
+    })().finally(() => settingsSubscriptionUsageInFlight.delete(cacheKey))
+    settingsSubscriptionUsageInFlight.set(cacheKey, compute)
+    const data = await compute
+    return { success: true, data }
   })
 
   app.post('/subscription/checkout/initiate', async (req, reply) => {
+    const routeStart = Date.now()
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
     const body = SubscriptionCheckoutInitiateSchema.safeParse(req.body)
@@ -393,19 +561,36 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     const business = await settingsRepository.getSettingsBusinessById(bizId)
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
-    const hasActiveCycle = isActivePaidCycle(business)
-    if (hasActiveCycle && business.subscriptionInterval === 'YEARLY' && body.data.interval === 'MONTHLY') {
-      const activeUntil = business.subscriptionEndsAt?.toISOString?.() ?? 'the current yearly end date'
-      return reply.status(409).send({
-        success: false,
-        error: `Yearly plan is already active until ${activeUntil}. Monthly downgrade is available only after the yearly cycle ends.`,
-      })
-    }
 
     const paymentMethod = await settingsRepository.getDefaultPaymentMethodByBusiness(bizId)
 
     const plan = await subscriptionsRepository.getPlanByName(body.data.planName)
     if (!plan) return reply.status(400).send({ success: false, error: 'Selected plan is not active' })
+
+    const pending = await subscriptionsRepository.getLatestPendingSubscriptionPaymentByBusiness(bizId)
+    if (pending) {
+      const pendingAgeMs = Date.now() - new Date(pending.createdAt).getTime()
+      const pendingLockMs = 20 * 60 * 1000
+      if (Number.isFinite(pendingAgeMs) && pendingAgeMs <= pendingLockMs) {
+        const pendingWindow =
+          pending.plannedStartAt && pending.plannedEndAt
+            ? ` Planned window: ${pending.plannedStartAt.toISOString()} to ${pending.plannedEndAt.toISOString()}.`
+            : ''
+        return reply.status(409).send({
+          success: false,
+          error: `A subscription payment is already being processed. Please wait for confirmation before starting another checkout.${pendingWindow}`,
+          data: {
+            code: 'PAYMENT_PENDING',
+            pendingOrderId: pending.razorpayOrderId,
+            pendingInterval: pending.interval,
+            pendingCreatedAt: pending.createdAt.toISOString(),
+            pendingPlannedStartAt: pending.plannedStartAt?.toISOString?.() ?? null,
+            pendingPlannedEndAt: pending.plannedEndAt?.toISOString?.() ?? null,
+          },
+        })
+      }
+    }
+
     const amount = body.data.interval === 'YEARLY' ? Number(plan.priceYearly) : Number(plan.priceMonthly)
     const amountInPaise = Math.round(Number(amount) * 100)
     if (!Number.isFinite(amountInPaise) || amountInPaise <= 0) {
@@ -413,6 +598,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     }
 
     const receipt = `sub_${bizId.slice(0, 10)}_${Date.now()}`
+    const externalStart = Date.now()
     const orderResponse = await fetch('https://api.razorpay.com/v1/orders', {
       method: 'POST',
       headers: {
@@ -432,12 +618,19 @@ export async function settingsRoutes(app: FastifyInstance) {
     })
 
     const orderPayload: any = await orderResponse.json().catch(() => ({}))
+    const externalMs = Date.now() - externalStart
     if (!orderResponse.ok || !orderPayload?.id) {
       return reply.status(502).send({
         success: false,
         error: orderPayload?.error?.description ?? 'Unable to create Razorpay order. Try again.',
       })
     }
+
+    const now = new Date()
+    const plannedStartAt = await subscriptionsRepository.getNextSubscriptionWindowStart(bizId, now)
+    const plannedEndAt = new Date(plannedStartAt)
+    plannedEndAt.setDate(plannedEndAt.getDate() + (body.data.interval === 'YEARLY' ? 365 : 30))
+    const queued = plannedStartAt.getTime() > now.getTime()
 
     const transaction = await settingsRepository.createPendingPaymentTransaction({
       businessId: bizId,
@@ -451,6 +644,9 @@ export async function settingsRoutes(app: FastifyInstance) {
         receipt,
         razorpayOrderId: orderPayload.id,
         planName: body.data.planName,
+        plannedStartAt: plannedStartAt.toISOString(),
+        plannedEndAt: plannedEndAt.toISOString(),
+        queued,
       },
     })
     await subscriptionsRepository.createPendingSubscriptionPayment({
@@ -459,8 +655,15 @@ export async function settingsRoutes(app: FastifyInstance) {
       interval: body.data.interval,
       amount,
       razorpayOrderId: orderPayload.id,
-      metadata: { transactionId: transaction.id, planName: body.data.planName },
+      metadata: {
+        transactionId: transaction.id,
+        planName: body.data.planName,
+        plannedStartAt: plannedStartAt.toISOString(),
+        plannedEndAt: plannedEndAt.toISOString(),
+        queued,
+      },
     })
+    req.log.info({ route: '/api/settings/subscription/checkout/initiate', bizId, externalMs, totalMs: Date.now() - routeStart }, 'checkout initiated')
 
     return {
       success: true,
@@ -488,6 +691,7 @@ export async function settingsRoutes(app: FastifyInstance) {
   })
 
   app.post('/subscription/checkout/verify', async (req, reply) => {
+    const routeStart = Date.now()
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
     const body = SubscriptionCheckoutVerifySchema.safeParse(req.body)
@@ -526,10 +730,84 @@ export async function settingsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: 'Order reference mismatch' })
     }
 
+    // In local/test mode we can simulate webhook capture from checkout verify.
+    // Keep production on webhook as source of truth.
+    if (shouldAutoActivateOnVerifyInTest()) {
+      const syntheticEventId = `checkout-verify:${body.data.razorpayOrderId}:${body.data.razorpayPaymentId}`
+      await subscriptionsRepository.processRazorpayWebhookEvent({
+        eventId: syntheticEventId,
+        eventType: 'payment.captured',
+        razorpayOrderId: body.data.razorpayOrderId,
+        razorpayPaymentId: body.data.razorpayPaymentId,
+        payload: {
+          source: 'checkout.verify.fallback',
+          transactionId: body.data.transactionId,
+          interval: body.data.interval,
+        } as any,
+      })
+
+      const [settings, updatedBusiness, refreshedUser] = await Promise.all([
+        ensurePlatformSettings(),
+        settingsRepository.getSettingsBusinessById(bizId),
+        settingsRepository.getSettingsSessionUserById((req.user as any).id),
+      ])
+      if (!updatedBusiness || !refreshedUser) {
+        return reply.status(404).send({ success: false, error: 'Business or user not found after activation' })
+      }
+      const access = computeBusinessAccess(updatedBusiness, settings)
+      const authUser = buildSettingsAuthUser({
+        id: refreshedUser.id,
+        name: refreshedUser.name,
+        role: refreshedUser.role,
+        businessId: refreshedUser.businessId,
+        permissions: refreshedUser.permissions,
+        business: refreshedUser.businessId
+          ? {
+              name: refreshedUser.businessName,
+              city: refreshedUser.businessCity,
+              businessType: refreshedUser.businessType,
+              customLabels: refreshedUser.customLabels,
+              enabledModules: refreshedUser.enabledModules,
+              featureFlags: refreshedUser.featureFlags,
+              defaultSettings: refreshedUser.defaultSettings,
+              subscriptionStatus: refreshedUser.subscriptionStatus,
+              subscriptionEndsAt: refreshedUser.subscriptionEndsAt,
+              subscriptionInterval: refreshedUser.subscriptionInterval,
+              monthlySubscriptionAmount: refreshedUser.monthlySubscriptionAmount,
+              yearlySubscriptionAmount: refreshedUser.yearlySubscriptionAmount,
+              trialStartedAt: refreshedUser.trialStartedAt,
+              trialDaysOverride: refreshedUser.trialDaysOverride,
+            }
+          : undefined,
+        accessLocked: access.accessLocked,
+        accessReason: access.reason,
+      })
+      const token = app.jwt.sign(authUser, { expiresIn: '7d' })
+      invalidateSettingsCaches(bizId, (req.user as any).id)
+      return {
+        success: true,
+        data: {
+          id: transaction.id,
+          amount: Number(transaction.amount),
+          currency: transaction.currency,
+          interval: transaction.interval,
+          paidAt: new Date().toISOString(),
+          pendingWebhook: false,
+          endsAt: access.endsAtIso,
+          status: access.effectiveStatus,
+          message: 'Payment verified and plan activated in test fallback mode.',
+          session: {
+            token,
+            user: authUser,
+          },
+        },
+      }
+    }
+
     invalidateSettingsCaches(bizId, (req.user as any).id)
     // Source of truth is webhook capture/failure event.
     // This endpoint only confirms checkout signature from client callback.
-
+    req.log.info({ route: '/api/settings/subscription/checkout/verify', bizId, activation: 'pending-webhook', totalMs: Date.now() - routeStart }, 'checkout verified')
     return {
       success: true,
       data: {

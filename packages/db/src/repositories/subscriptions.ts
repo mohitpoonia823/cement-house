@@ -48,6 +48,34 @@ export interface SubscriptionWithPlanRow {
   limits: PlanLimitRow | null
 }
 
+export interface SubscriptionPaymentTimelineRow {
+  id: string
+  status: PaymentStatusV2
+  interval: BillingIntervalV2
+  amount: number
+  planName: PlanName
+  createdAt: Date
+  updatedAt: Date
+  paidAt: Date | null
+  razorpayOrderId: string
+  razorpayPaymentId: string | null
+  subscriptionId: string | null
+  queuedStartAt: Date | null
+  queuedEndAt: Date | null
+  plannedStartAt: Date | null
+  plannedEndAt: Date | null
+  queued: boolean
+}
+
+export interface PendingSubscriptionPaymentRow {
+  id: string
+  interval: BillingIntervalV2
+  createdAt: Date
+  razorpayOrderId: string
+  plannedStartAt: Date | null
+  plannedEndAt: Date | null
+}
+
 export async function listActivePlans() {
   const rows = await prisma.$queryRaw<Array<{
     id: string
@@ -117,6 +145,7 @@ export async function getPlanByName(name: PlanName) {
 }
 
 export async function getCurrentSubscriptionByBusiness(businessId: string) {
+  await activateDueQueuedSubscriptionPayment(businessId)
   const rows = await prisma.$queryRaw<Array<{
     id: string
     businessId: string
@@ -292,6 +321,75 @@ export async function createPendingSubscriptionPayment(input: {
   return id
 }
 
+export async function getNextSubscriptionWindowStart(businessId: string, now = new Date()) {
+  const rows = await prisma.$queryRaw<Array<{ nextStartAt: Date | null }>>`
+    WITH candidates AS (
+      SELECT b."subscriptionEndsAt" AS end_at
+      FROM businesses b
+      WHERE b.id = ${businessId}
+        AND b."subscriptionInterval" IS NOT NULL
+        AND b."subscriptionEndsAt" IS NOT NULL
+        AND b."subscriptionEndsAt" > ${now}
+      UNION ALL
+      SELECT (sp.metadata->>'plannedEndAt')::timestamptz AS end_at
+      FROM subscription_payments sp
+      WHERE sp."businessId" = ${businessId}
+        AND sp.status IN ('PENDING', 'SUCCESS')
+        AND sp.metadata ? 'plannedEndAt'
+        AND (sp.metadata->>'plannedEndAt')::timestamptz > ${now}
+      UNION ALL
+      SELECT (sp.metadata->>'queuedEndAt')::timestamptz AS end_at
+      FROM subscription_payments sp
+      WHERE sp."businessId" = ${businessId}
+        AND sp.status = 'SUCCESS'
+        AND COALESCE((sp.metadata->>'queued')::boolean, false) = true
+        AND sp.metadata ? 'queuedEndAt'
+        AND (sp.metadata->>'queuedEndAt')::timestamptz > ${now}
+    )
+    SELECT MAX(end_at) AS "nextStartAt"
+    FROM candidates
+  `
+  const next = rows[0]?.nextStartAt
+  return next ? new Date(next) : now
+}
+
+export async function getLatestPendingSubscriptionPaymentByBusiness(businessId: string) {
+  const rows = await prisma.$queryRaw<Array<{
+    id: string
+    interval: BillingIntervalV2
+    createdAt: Date
+    razorpayOrderId: string
+    metadata: Record<string, unknown> | null
+  }>>`
+    SELECT
+      sp.id,
+      sp.interval::text AS interval,
+      sp."createdAt" AS "createdAt",
+      sp."razorpayOrderId" AS "razorpayOrderId",
+      sp.metadata
+    FROM subscription_payments sp
+    WHERE sp."businessId" = ${businessId}
+      AND sp.status = 'PENDING'
+    ORDER BY sp."createdAt" DESC
+    LIMIT 1
+  `
+  const row = rows[0]
+  if (!row) return null
+  const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : null
+  const plannedStartAtRaw = meta?.plannedStartAt
+  const plannedEndAtRaw = meta?.plannedEndAt
+  const plannedStartAt = typeof plannedStartAtRaw === 'string' ? new Date(plannedStartAtRaw) : null
+  const plannedEndAt = typeof plannedEndAtRaw === 'string' ? new Date(plannedEndAtRaw) : null
+  return {
+    id: row.id,
+    interval: row.interval,
+    createdAt: row.createdAt,
+    razorpayOrderId: row.razorpayOrderId,
+    plannedStartAt,
+    plannedEndAt,
+  } satisfies PendingSubscriptionPaymentRow
+}
+
 function toLegacyPlan(planName: PlanName): 'STARTER' | 'PRO' | 'ENTERPRISE' {
   if (planName === 'ENTERPRISE') return 'ENTERPRISE'
   if (planName === 'PRO') return 'PRO'
@@ -345,6 +443,7 @@ export async function processRazorpayWebhookEvent(input: {
       planName: PlanName
       priceMonthly: number
       priceYearly: number
+      metadata: Record<string, unknown> | null
     }>>`
       SELECT
         sp.id,
@@ -354,7 +453,8 @@ export async function processRazorpayWebhookEvent(input: {
         sp.status::text AS status,
         p.name::text AS "planName",
         p."priceMonthly"::double precision AS "priceMonthly",
-        p."priceYearly"::double precision AS "priceYearly"
+        p."priceYearly"::double precision AS "priceYearly",
+        sp.metadata
       FROM subscription_payments sp
       INNER JOIN plans p ON p.id = sp."planId"
       WHERE sp."razorpayOrderId" = ${input.razorpayOrderId}
@@ -393,13 +493,166 @@ export async function processRazorpayWebhookEvent(input: {
     }
 
     const now = new Date()
-    const endDate = new Date(now)
-    endDate.setDate(endDate.getDate() + (payment.interval === 'YEARLY' ? 365 : 30))
+    const businesses = await tx.$queryRaw<Array<{ subscriptionEndsAt: Date | null; subscriptionInterval: BillingIntervalV2 | null }>>`
+      SELECT "subscriptionEndsAt" AS "subscriptionEndsAt", "subscriptionInterval"::text AS "subscriptionInterval"
+      FROM businesses
+      WHERE id = ${payment.businessId}
+      LIMIT 1
+    `
+    const business = businesses[0]
+    const activePaidCycleEnd = business?.subscriptionInterval && business.subscriptionEndsAt && new Date(business.subscriptionEndsAt).getTime() > now.getTime()
+      ? new Date(business.subscriptionEndsAt)
+      : null
+
+    const paymentMeta = payment.metadata && typeof payment.metadata === 'object' ? payment.metadata : {}
+    const plannedStartRaw = typeof paymentMeta.plannedStartAt === 'string' ? paymentMeta.plannedStartAt : null
+    const plannedEndRaw = typeof paymentMeta.plannedEndAt === 'string' ? paymentMeta.plannedEndAt : null
+    const plannedStart = plannedStartRaw ? new Date(plannedStartRaw) : null
+    const plannedEnd = plannedEndRaw ? new Date(plannedEndRaw) : null
+
+    let windowStart = plannedStart && Number.isFinite(plannedStart.getTime())
+      ? plannedStart
+      : (activePaidCycleEnd ?? now)
+    if (activePaidCycleEnd && windowStart.getTime() < activePaidCycleEnd.getTime()) {
+      windowStart = activePaidCycleEnd
+    }
+    if (windowStart.getTime() < now.getTime()) {
+      windowStart = now
+    }
+
+    const windowEnd = plannedEnd && Number.isFinite(plannedEnd.getTime()) && plannedEnd.getTime() > windowStart.getTime()
+      ? plannedEnd
+      : (() => {
+          const next = new Date(windowStart)
+          next.setDate(next.getDate() + (payment.interval === 'YEARLY' ? 365 : 30))
+          return next
+        })()
+
+    const shouldQueue = windowStart.getTime() > now.getTime()
+
+    if (shouldQueue) {
+      await tx.$executeRaw`
+        UPDATE subscription_payments
+        SET
+          status = 'SUCCESS',
+          "subscriptionId" = NULL,
+          metadata = COALESCE(metadata, '{}'::jsonb) || ${{
+            queued: true,
+            queuedStartAt: windowStart.toISOString(),
+            queuedEndAt: windowEnd.toISOString(),
+            queuedInterval: payment.interval,
+            queuedPlanName: payment.planName,
+            plannedStartAt: windowStart.toISOString(),
+            plannedEndAt: windowEnd.toISOString(),
+          } as Prisma.JsonObject}::jsonb,
+          "razorpayPaymentId" = COALESCE(${input.razorpayPaymentId}, "razorpayPaymentId"),
+          "updatedAt" = NOW()
+        WHERE id = ${payment.id}
+      `
+    } else {
+      await tx.$executeRaw`
+        UPDATE subscriptions
+        SET status = 'EXPIRED', "updatedAt" = NOW()
+        WHERE "businessId" = ${payment.businessId} AND status IN ('TRIAL', 'ACTIVE')
+      `
+
+      const subscriptionId = randomUUID()
+      await tx.$executeRaw`
+        INSERT INTO subscriptions (
+          id, "businessId", "planId", status, "startDate", "endDate", "trialEndDate", "autoRenew", "createdAt", "updatedAt"
+        )
+        VALUES (
+          ${subscriptionId}, ${payment.businessId}, ${payment.planId}, 'ACTIVE', ${windowStart}, ${windowEnd}, NULL, TRUE, NOW(), NOW()
+        )
+      `
+
+      await tx.$executeRaw`
+        UPDATE subscription_payments
+        SET
+          status = 'SUCCESS',
+          "subscriptionId" = ${subscriptionId},
+          metadata = COALESCE(metadata, '{}'::jsonb) || ${{
+            queued: false,
+            activeStartAt: windowStart.toISOString(),
+            activeEndAt: windowEnd.toISOString(),
+            plannedStartAt: windowStart.toISOString(),
+            plannedEndAt: windowEnd.toISOString(),
+          } as Prisma.JsonObject}::jsonb,
+          "razorpayPaymentId" = COALESCE(${input.razorpayPaymentId}, "razorpayPaymentId"),
+          "updatedAt" = NOW()
+        WHERE id = ${payment.id}
+      `
+
+      await tx.$executeRaw`
+        UPDATE businesses
+        SET
+          "subscriptionPlan" = ${toLegacyPlan(payment.planName)}::"SubscriptionPlan",
+          "subscriptionStatus" = 'ACTIVE'::"SubscriptionStatus",
+          "subscriptionInterval" = ${payment.interval}::"BillingInterval",
+          "subscriptionEndsAt" = ${windowEnd},
+          "monthlySubscriptionAmount" = ${payment.priceMonthly},
+          "yearlySubscriptionAmount" = ${payment.priceYearly},
+          "suspendedReason" = NULL,
+          "updatedAt" = NOW()
+        WHERE id = ${payment.businessId}
+      `
+    }
+
+    await tx.$executeRaw`
+      UPDATE razorpay_webhook_events
+      SET processed = TRUE, "processedAt" = NOW()
+      WHERE "eventId" = ${input.eventId}
+    `
+
+    return { processed: true as const, idempotent: false as const, paymentUpdated: true as const }
+  })
+}
+
+async function activateDueQueuedSubscriptionPayment(businessId: string) {
+  await prisma.$transaction(async (tx) => {
+    const dueQueued = await tx.$queryRaw<Array<{
+      id: string
+      businessId: string
+      planId: string
+      interval: BillingIntervalV2
+      planName: PlanName
+      priceMonthly: number
+      priceYearly: number
+      metadata: Record<string, unknown> | null
+    }>>`
+      SELECT
+        sp.id,
+        sp."businessId" AS "businessId",
+        sp."planId" AS "planId",
+        sp.interval::text AS interval,
+        p.name::text AS "planName",
+        p."priceMonthly"::double precision AS "priceMonthly",
+        p."priceYearly"::double precision AS "priceYearly",
+        sp.metadata
+      FROM subscription_payments sp
+      INNER JOIN plans p ON p.id = sp."planId"
+      WHERE sp."businessId" = ${businessId}
+        AND sp.status = 'SUCCESS'
+        AND sp."subscriptionId" IS NULL
+        AND COALESCE((sp.metadata->>'queued')::boolean, false) = true
+        AND (sp.metadata->>'queuedStartAt')::timestamptz <= NOW()
+      ORDER BY (sp.metadata->>'queuedStartAt')::timestamptz ASC
+      LIMIT 1
+    `
+    const payment = dueQueued[0]
+    if (!payment) return
+
+    const meta = payment.metadata && typeof payment.metadata === 'object' ? payment.metadata : {}
+    const queuedStartAtRaw = typeof meta.queuedStartAt === 'string' ? meta.queuedStartAt : null
+    const queuedEndAtRaw = typeof meta.queuedEndAt === 'string' ? meta.queuedEndAt : null
+    const startAt = queuedStartAtRaw ? new Date(queuedStartAtRaw) : new Date()
+    const endAt = queuedEndAtRaw ? new Date(queuedEndAtRaw) : new Date(startAt)
+    if (!queuedEndAtRaw) endAt.setDate(endAt.getDate() + (payment.interval === 'YEARLY' ? 365 : 30))
 
     await tx.$executeRaw`
       UPDATE subscriptions
       SET status = 'EXPIRED', "updatedAt" = NOW()
-      WHERE "businessId" = ${payment.businessId} AND status IN ('TRIAL', 'ACTIVE')
+      WHERE "businessId" = ${businessId} AND status IN ('TRIAL', 'ACTIVE')
     `
 
     const subscriptionId = randomUUID()
@@ -408,16 +661,20 @@ export async function processRazorpayWebhookEvent(input: {
         id, "businessId", "planId", status, "startDate", "endDate", "trialEndDate", "autoRenew", "createdAt", "updatedAt"
       )
       VALUES (
-        ${subscriptionId}, ${payment.businessId}, ${payment.planId}, 'ACTIVE', ${now}, ${endDate}, NULL, TRUE, NOW(), NOW()
+        ${subscriptionId}, ${businessId}, ${payment.planId}, 'ACTIVE', ${startAt}, ${endAt}, NULL, TRUE, NOW(), NOW()
       )
     `
 
     await tx.$executeRaw`
       UPDATE subscription_payments
       SET
-        status = 'SUCCESS',
         "subscriptionId" = ${subscriptionId},
-        "razorpayPaymentId" = COALESCE(${input.razorpayPaymentId}, "razorpayPaymentId"),
+        metadata = COALESCE(metadata, '{}'::jsonb) || ${{
+          queued: false,
+          appliedAt: new Date().toISOString(),
+          plannedStartAt: startAt.toISOString(),
+          plannedEndAt: endAt.toISOString(),
+        } as Prisma.JsonObject}::jsonb,
         "updatedAt" = NOW()
       WHERE id = ${payment.id}
     `
@@ -428,21 +685,80 @@ export async function processRazorpayWebhookEvent(input: {
         "subscriptionPlan" = ${toLegacyPlan(payment.planName)}::"SubscriptionPlan",
         "subscriptionStatus" = 'ACTIVE'::"SubscriptionStatus",
         "subscriptionInterval" = ${payment.interval}::"BillingInterval",
-        "subscriptionEndsAt" = ${endDate},
+        "subscriptionEndsAt" = ${endAt},
         "monthlySubscriptionAmount" = ${payment.priceMonthly},
         "yearlySubscriptionAmount" = ${payment.priceYearly},
         "suspendedReason" = NULL,
         "updatedAt" = NOW()
-      WHERE id = ${payment.businessId}
+      WHERE id = ${businessId}
     `
+  })
+}
 
-    await tx.$executeRaw`
-      UPDATE razorpay_webhook_events
-      SET processed = TRUE, "processedAt" = NOW()
-      WHERE "eventId" = ${input.eventId}
-    `
+export async function listSubscriptionPaymentTimelineByBusiness(businessId: string) {
+  const rows = await prisma.$queryRaw<Array<{
+    id: string
+    status: PaymentStatusV2
+    interval: BillingIntervalV2
+    amount: number
+    planName: PlanName
+    createdAt: Date
+    updatedAt: Date
+    paidAt: Date | null
+    razorpayOrderId: string
+    razorpayPaymentId: string | null
+    subscriptionId: string | null
+    metadata: Record<string, unknown> | null
+  }>>`
+    SELECT
+      sp.id,
+      sp.status::text AS status,
+      sp.interval::text AS interval,
+      sp.amount::double precision AS amount,
+      p.name::text AS "planName",
+      sp."createdAt" AS "createdAt",
+      sp."updatedAt" AS "updatedAt",
+      NULL::timestamptz AS "paidAt",
+      sp."razorpayOrderId" AS "razorpayOrderId",
+      sp."razorpayPaymentId" AS "razorpayPaymentId",
+      sp."subscriptionId" AS "subscriptionId",
+      sp.metadata
+    FROM subscription_payments sp
+    INNER JOIN plans p ON p.id = sp."planId"
+    WHERE sp."businessId" = ${businessId}
+    ORDER BY sp."createdAt" DESC
+    LIMIT 20
+  `
 
-    return { processed: true as const, idempotent: false as const, paymentUpdated: true as const }
+  return rows.map((row) => {
+    const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : null
+    const queuedStartAtRaw = meta?.queuedStartAt
+    const queuedEndAtRaw = meta?.queuedEndAt
+    const plannedStartAtRaw = meta?.plannedStartAt
+    const plannedEndAtRaw = meta?.plannedEndAt
+    const queuedStartAt = typeof queuedStartAtRaw === 'string' ? new Date(queuedStartAtRaw) : null
+    const queuedEndAt = typeof queuedEndAtRaw === 'string' ? new Date(queuedEndAtRaw) : null
+    const plannedStartAt = typeof plannedStartAtRaw === 'string' ? new Date(plannedStartAtRaw) : null
+    const plannedEndAt = typeof plannedEndAtRaw === 'string' ? new Date(plannedEndAtRaw) : null
+    const queued = meta?.queued === true
+    return {
+      id: row.id,
+      status: row.status,
+      interval: row.interval,
+      amount: row.amount,
+      planName: row.planName,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      paidAt: row.paidAt,
+      razorpayOrderId: row.razorpayOrderId,
+      razorpayPaymentId: row.razorpayPaymentId,
+      subscriptionId: row.subscriptionId,
+      queuedStartAt,
+      queuedEndAt,
+      plannedStartAt,
+      plannedEndAt,
+      queued,
+    } satisfies SubscriptionPaymentTimelineRow
   })
 }
 

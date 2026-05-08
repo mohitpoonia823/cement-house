@@ -28,6 +28,7 @@ export default function SuperAdminBusinessesPage() {
   const [status, setStatus] = useState<'' | 'ACTIVE' | 'SUSPENDED'>('')
   const [drafts, setDrafts] = useState<Record<string, BusinessDraft>>({})
   const [billingDraft, setBillingDraft] = useState({ trialDays: 7, monthlyPrice: 200, yearlyPrice: 2100, currency: 'INR', trialRequiresCard: true })
+  const [extendDaysByBusiness, setExtendDaysByBusiness] = useState<Record<string, number>>({})
 
   const { data, isLoading } = useSuperAdminBusinesses({ page, pageSize: 6, search, status })
   const { data: billingConfig } = useSuperAdminBillingConfig()
@@ -65,6 +66,14 @@ export default function SuperAdminBusinessesPage() {
 
   const updateBillingConfig = useMutation({
     mutationFn: (payload: typeof billingDraft) => api.patch('/api/super-admin/billing-config', payload).then((res) => res.data.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['super-admin'] })
+    },
+  })
+
+  const extendSubscription = useMutation({
+    mutationFn: ({ id, days }: { id: string; days: number }) =>
+      api.post(`/api/super-admin/businesses/${id}/extend-subscription`, { days }).then((res) => res.data.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['super-admin'] })
     },
@@ -220,6 +229,39 @@ export default function SuperAdminBusinessesPage() {
                     className={inputCls}
                   />
                 </Field>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-[220px_auto] sm:items-end">
+                <Field label={business.subscriptionStatus === 'TRIAL' ? 'Extend trial (days)' : 'Extend access (days)'}>
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={extendDaysByBusiness[business.id] ?? 7}
+                    onChange={(e) =>
+                      setExtendDaysByBusiness((current) => ({
+                        ...current,
+                        [business.id]: Math.max(1, Math.min(365, Number(e.target.value) || 1)),
+                      }))
+                    }
+                    className={inputCls}
+                  />
+                </Field>
+                <div className="flex">
+                  <button
+                    type="button"
+                    disabled={extendSubscription.isPending}
+                    onClick={() =>
+                      extendSubscription.mutate({
+                        id: business.id,
+                        days: extendDaysByBusiness[business.id] ?? 7,
+                      })
+                    }
+                    className="h-11 rounded-full border border-emerald-300 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-60 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-200 dark:hover:bg-emerald-900/40"
+                  >
+                    {extendSubscription.isPending ? 'Extending...' : business.subscriptionStatus === 'TRIAL' ? 'Extend trial' : 'Extend access'}
+                  </button>
+                </div>
               </div>
 
               <div className="mt-4 text-xs text-slate-400 dark:text-slate-500">

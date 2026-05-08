@@ -4,7 +4,7 @@ import { supportRepository } from '@cement-house/db'
 import { requireSuperAdmin } from '../../middleware/auth'
 import { getBusinessIdOrThrow } from '../../middleware/tenant'
 
-const SUPPORT_UNREAD_CACHE_TTL_MS = 10_000
+const SUPPORT_UNREAD_CACHE_TTL_MS = 20_000
 const supportUnreadCountCache = new Map<string, { expiresAt: number; count: number }>()
 const supportUnreadCountInFlight = new Map<string, Promise<number>>()
 
@@ -229,19 +229,23 @@ export async function supportRoutes(app: FastifyInstance) {
   })
 
   app.get('/notifications/unread-count', async (req) => {
+    const routeStart = Date.now()
     const userId = (req.user as any).id as string
     const now = Date.now()
     const cached = supportUnreadCountCache.get(userId)
     if (cached && cached.expiresAt > now) {
+      req.log.info({ route: '/api/support/notifications/unread-count', userId, cache: 'hit', totalMs: Date.now() - routeStart }, 'support unread cache hit')
       return { success: true, data: { count: cached.count } }
     }
 
     const inFlight = supportUnreadCountInFlight.get(userId)
     if (inFlight) {
       const count = await inFlight
+      req.log.info({ route: '/api/support/notifications/unread-count', userId, cache: 'dedupe-hit', totalMs: Date.now() - routeStart }, 'support unread in-flight dedupe hit')
       return { success: true, data: { count } }
     }
 
+    const dbStart = Date.now()
     const compute = supportRepository
       .getUnreadNotificationsCount(userId)
       .then((count) => {
@@ -251,6 +255,7 @@ export async function supportRoutes(app: FastifyInstance) {
       .finally(() => supportUnreadCountInFlight.delete(userId))
     supportUnreadCountInFlight.set(userId, compute)
     const count = await compute
+    req.log.info({ route: '/api/support/notifications/unread-count', userId, cache: 'miss', dbMs: Date.now() - dbStart, totalMs: Date.now() - routeStart }, 'support unread payload built')
     return { success: true, data: { count } }
   })
 

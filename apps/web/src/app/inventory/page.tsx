@@ -24,6 +24,7 @@ import { useAuthStore } from '@/store/auth'
 import { businessTerms, businessUnitOptions, splitPreferredUnits } from '@/lib/business-terms'
 import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 
 function useMovements(materialId: string) {
   return useQuery({
@@ -125,6 +126,7 @@ function parseMaterialError(err: any, fallback: string) {
 }
 
 export default function InventoryPage() {
+  const searchParams = useSearchParams()
   const { user } = useAuthStore()
   const { hasModule, hasFeature } = useTenantCapabilities()
   const canUseInventory = hasModule('inventory')
@@ -164,6 +166,7 @@ export default function InventoryPage() {
   const inventoryContentRef = useRef<HTMLDivElement | null>(null)
   const addNewFormRef = useRef<HTMLDivElement | null>(null)
   const addNewNameInputRef = useRef<HTMLInputElement | null>(null)
+  const billScanPanelRef = useRef<HTMLDivElement | null>(null)
 
   // New material form
   const [newForm, setNewForm] = useState({
@@ -185,6 +188,7 @@ export default function InventoryPage() {
   const [transferMaterialId, setTransferMaterialId] = useState('')
   const [transferQty, setTransferQty] = useState('')
   const [transferError, setTransferError] = useState('')
+  const openedFromScanIntent = useRef(false)
 
   // Bulk selection
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -228,6 +232,26 @@ export default function InventoryPage() {
       return { ...prev, unit: unitPreset.defaultUnit }
     })
   }, [unitOptions, unitPreset.defaultUnit])
+
+  useEffect(() => {
+    if (openedFromScanIntent.current) return
+    const hasScanHash = typeof window !== 'undefined' && window.location.hash === '#scan-bill'
+    const shouldOpenScanner = searchParams.get('scanBill') === '1' || hasScanHash
+    if (!shouldOpenScanner) return
+    openedFromScanIntent.current = true
+    setShowBillScan(true)
+    setShowAddNew(false)
+    setTimeout(() => {
+      billScanPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 60)
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      params.delete('scanBill')
+      const nextQuery = params.toString()
+      const nextPath = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`
+      window.history.replaceState({}, '', nextPath)
+    }
+  }, [searchParams])
 
   function toggleOne(id: string) {
     setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -710,15 +734,17 @@ export default function InventoryPage() {
         )}
 
       {showBillScan && (
-        <BillScanPanel
-          materials={list}
-          units={unitOptions}
-          preferredUnits={preferredUnits}
-          materialLabel={terms.material}
-          inventoryLabel={terms.inventory}
-          onClose={() => setShowBillScan(false)}
-          onImported={setBillImportMessage}
-        />
+        <div ref={billScanPanelRef}>
+          <BillScanPanel
+            materials={list}
+            units={unitOptions}
+            preferredUnits={preferredUnits}
+            materialLabel={terms.material}
+            inventoryLabel={terms.inventory}
+            onClose={() => setShowBillScan(false)}
+            onImported={setBillImportMessage}
+          />
+        </div>
       )}
 
       <MetricGrid className="mb-6 hidden md:grid">
@@ -999,7 +1025,7 @@ export default function InventoryPage() {
                 </div>
                 <button onClick={() => setSelectedId(m.id === selectedId ? '' : m.id)}
                   className="w-full text-left p-4 pl-9">
-                  <div className="flex items-start justify-between mb-2">
+                  <div className="mb-2 flex items-start justify-between pr-12">
                     <div className="text-sm font-medium text-stone-800 dark:text-stone-200">{m.name}</div>
                     <div className="flex items-center gap-1.5">
                       <Badge variant={statusBadge(m.stockStatus)}>{m.stockStatus}</Badge>
@@ -1018,7 +1044,7 @@ export default function InventoryPage() {
                   </div>
                   <div className="flex justify-between mt-2 text-[10px] text-stone-400 dark:text-slate-400">
                     <span>Min: {Number(m.minThreshold)} {m.unit}</span>
-                    <span>Buy: {fmt(Number(m.purchasePrice))} Â· Sell: {fmt(Number(m.salePrice))}</span>
+                    <span>Buy: {fmt(Number(m.purchasePrice))} • Sell: {fmt(Number(m.salePrice))}</span>
                   </div>
                   <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-stone-500 dark:text-slate-300">
                     {canBatch && m.batchNumber ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Batch: {m.batchNumber}</span> : null}
@@ -1041,14 +1067,28 @@ export default function InventoryPage() {
                 {/* Delete button */}
                 <button
                   onClick={(e) => { e.stopPropagation(); setSelectedId(m.id); setShowEdit(true); setShowAddNew(false) }}
-                  className="absolute top-3 right-8 text-stone-300 hover:text-emerald-500 transition-colors text-xs z-10"
+                  className="absolute top-2 right-9 inline-flex h-5 w-5 items-center justify-center rounded text-stone-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:text-slate-400 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-300"
                   title="Edit"
+                  aria-label="Edit item"
                 >
-                  âœŽ
+                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                  </svg>
                 </button>
-                <button onClick={(e) => { e.stopPropagation(); handleDelete(m.id, m.name) }}
-                  className="absolute top-3 right-3 text-stone-300 hover:text-red-500 transition-colors text-xs z-10"
-                  title={`Delete ${terms.material.toLowerCase()}`}>âœ•</button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDelete(m.id, m.name) }}
+                  className="absolute top-2 right-2 inline-flex h-5 w-5 items-center justify-center rounded text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:text-slate-400 dark:hover:bg-red-900/20 dark:hover:text-red-300"
+                  title={`Delete ${terms.material.toLowerCase()}`}
+                  aria-label={`Delete ${terms.material.toLowerCase()}`}
+                >
+                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 6h18" />
+                    <path d="M8 6V4h8v2" />
+                    <path d="M19 6l-1 14H6L5 6" />
+                    <path d="M10 11v6M14 11v6" />
+                  </svg>
+                </button>
               </div>
             )
           })
