@@ -34,4 +34,5 @@ WORKDIR /app
 COPY --from=builder /app/ ./
 
 EXPOSE 4000
-CMD ["pnpm", "--filter", "@cement-house/api", "exec", "tsx", "src/index.ts"]
+WORKDIR /app/apps/api
+CMD ["pnpm", "exec", "tsx", "src/index.ts"]
