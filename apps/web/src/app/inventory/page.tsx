@@ -15,7 +15,7 @@ import {
   useCreateStockTransfer,
 } from '@/hooks/useInventory'
 import { fmt }         from '@/lib/utils'
-import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState }    from 'react'
+import { Suspense, type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState }    from 'react'
 import { useQuery }    from '@tanstack/react-query'
 import { api }         from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
@@ -126,6 +126,14 @@ function parseMaterialError(err: any, fallback: string) {
 }
 
 export default function InventoryPage() {
+  return (
+    <Suspense fallback={<AppShell><PageLoader /></AppShell>}>
+      <InventoryContent />
+    </Suspense>
+  )
+}
+
+function InventoryContent() {
   const searchParams = useSearchParams()
   const { user } = useAuthStore()
   const { hasModule, hasFeature } = useTenantCapabilities()
