@@ -1,10 +1,21 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../lib/api'
+import { api, invalidateGetCache } from '../lib/api'
+import { invalidateBusinessData } from '@/lib/query'
+
+function clearBusinessGetCaches() {
+  invalidateGetCache((cacheKey) =>
+    cacheKey.includes('|/api/orders|') ||
+    cacheKey.includes('|/api/inventory|') ||
+    cacheKey.includes('|/api/ledger|') ||
+    cacheKey.includes('|/api/customers|') ||
+    cacheKey.includes('|/api/reports|')
+  )
+}
 
 export function useOrders(filters?: { status?: string; customerId?: string }) {
   return useQuery({
     queryKey: ['orders', filters],
-    queryFn:  () => api.get('/api/orders', { params: filters }).then(r => r.data.data),
+    queryFn: () => api.get('/api/orders', { params: filters }).then((r) => r.data.data),
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     retry: 1,
@@ -14,8 +25,8 @@ export function useOrders(filters?: { status?: string; customerId?: string }) {
 export function useOrder(id: string) {
   return useQuery({
     queryKey: ['orders', id],
-    queryFn:  () => api.get(`/api/orders/${id}`).then(r => r.data.data),
-    enabled:  !!id,
+    queryFn: () => api.get(`/api/orders/${id}`).then((r) => r.data.data),
+    enabled: !!id,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     retry: 1,
@@ -25,12 +36,11 @@ export function useOrder(id: string) {
 export function useCreateOrder() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: any) => api.post('/api/orders', data, { timeout: 60_000 }).then(r => r.data.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['orders'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
-      qc.invalidateQueries({ queryKey: ['inventory'] })
-      qc.invalidateQueries({ queryKey: ['ledger'] })
+    mutationFn: (data: any) => api.post('/api/orders', data, { timeout: 60_000 }).then((r) => r.data.data),
+    onSuccess: async () => {
+      clearBusinessGetCaches()
+      invalidateBusinessData(qc, ['orders', 'dashboard', 'inventory', 'ledger'])
+      await qc.refetchQueries({ queryKey: ['orders'], type: 'active' })
     },
   })
 }
@@ -38,13 +48,10 @@ export function useCreateOrder() {
 export function useDeleteOrder() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => api.delete(`/api/orders/${id}`).then(r => r.data),
+    mutationFn: (id: string) => api.delete(`/api/orders/${id}`).then((r) => r.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['orders'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
-      qc.invalidateQueries({ queryKey: ['inventory'] })
-      qc.invalidateQueries({ queryKey: ['ledger'] })
-      qc.invalidateQueries({ queryKey: ['customers'] })
+      clearBusinessGetCaches()
+      invalidateBusinessData(qc, ['orders', 'dashboard', 'inventory', 'ledger', 'customers'])
     },
   })
 }
@@ -52,13 +59,10 @@ export function useDeleteOrder() {
 export function useBulkDeleteOrders() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (ids: string[]) => api.post('/api/orders/bulk-delete', { ids }).then(r => r.data),
+    mutationFn: (ids: string[]) => api.post('/api/orders/bulk-delete', { ids }).then((r) => r.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['orders'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
-      qc.invalidateQueries({ queryKey: ['inventory'] })
-      qc.invalidateQueries({ queryKey: ['ledger'] })
-      qc.invalidateQueries({ queryKey: ['customers'] })
+      clearBusinessGetCaches()
+      invalidateBusinessData(qc, ['orders', 'dashboard', 'inventory', 'ledger', 'customers'])
     },
   })
 }
@@ -66,28 +70,23 @@ export function useBulkDeleteOrders() {
 export function useCreateSalesReturn() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: any) => api.post('/api/sales-returns', data).then(r => r.data.data),
+    mutationFn: (data: any) => api.post('/api/sales-returns', data).then((r) => r.data.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['orders'] })
-      qc.invalidateQueries({ queryKey: ['inventory'] })
-      qc.invalidateQueries({ queryKey: ['ledger'] })
-      qc.invalidateQueries({ queryKey: ['customers'] })
-      qc.invalidateQueries({ queryKey: ['reports'] })
+      clearBusinessGetCaches()
+      invalidateBusinessData(qc, ['orders', 'inventory', 'ledger', 'customers', 'reports'])
     },
   })
 }
+
 export function useUpdateOrderStatus() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: 'DRAFT' | 'CONFIRMED' | 'DISPATCHED' | 'DELIVERED' | 'CANCELLED' }) =>
       api.patch(`/api/orders/${id}/status`, { status }).then((r) => r.data),
     onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['orders'] })
+      clearBusinessGetCaches()
+      invalidateBusinessData(qc, ['orders', 'dashboard', 'inventory', 'ledger', 'customers'])
       qc.invalidateQueries({ queryKey: ['orders', vars.id] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
-      qc.invalidateQueries({ queryKey: ['inventory'] })
-      qc.invalidateQueries({ queryKey: ['ledger'] })
-      qc.invalidateQueries({ queryKey: ['customers'] })
     },
   })
 }

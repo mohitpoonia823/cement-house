@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { invalidateBusinessData } from '@/lib/query'
 
 export function useDeliveries(filters?: { status?: string; date?: string }) {
   return useQuery({
@@ -39,8 +40,7 @@ export function useCreateDelivery() {
   return useMutation({
     mutationFn: (data: any) => api.post('/api/delivery', data).then(r => r.data.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['deliveries'] })
-      qc.invalidateQueries({ queryKey: ['orders'] })
+      invalidateBusinessData(qc, ['deliveries', 'orders'])
     },
   })
 }
@@ -50,8 +50,7 @@ export function useConfirmDelivery() {
   return useMutation({
     mutationFn: ({ id, ...data }: any) => api.patch(`/api/delivery/${id}/confirm`, data).then(r => r.data.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['deliveries'] })
-      qc.invalidateQueries({ queryKey: ['orders'] })
+      invalidateBusinessData(qc, ['deliveries', 'orders'])
     },
   })
 }

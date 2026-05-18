@@ -3,6 +3,19 @@ import type { FastifyRequest, FastifyReply } from 'fastify'
 import { ensurePlatformSettings, syncBusinessStatusIfNeeded } from '../services/billing'
 const LAST_SEEN_WRITE_COOLDOWN_MS = 5 * 60 * 1000
 const lastSeenWriteByUser = new Map<string, number>()
+const ACCESS_CONTEXT_TTL_MS = 15_000
+const accessContextCache = new Map<string, { expiresAt: number; value: CachedAccessContext }>()
+const accessContextInFlight = new Map<string, Promise<CachedAccessContext>>()
+
+type CachedAccessContext = {
+  accessLocked: boolean
+  accessReason: string
+  effectiveStatus: string | null
+  endsAtIso: string | null
+  monthlyPrice: number
+  yearlyPrice: number
+  rawFeatureFlags: Record<string, unknown>
+}
 
 function requestPath(req: FastifyRequest) {
   return req.url.split('?')[0]
@@ -55,43 +68,12 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
       return reply.status(401).send({ success: false, error: 'Your session is no longer valid. Please sign in again.' })
     }
 
-    if (!isSuperAdmin && user.businessId) {
-      const settings = await ensurePlatformSettings()
-      await subscriptionsRepository.ensureDefaultSubscriptionForBusiness({
-        businessId: user.businessId,
-        trialDays: settings.trialDays,
-      })
-    }
-
     let accessLocked = false
     let accessReason = ''
     let effectiveStatus = user.business?.subscriptionStatus ?? null
-
-    if (!isSuperAdmin && user.business) {
-      const settings = await ensurePlatformSettings()
-      const access = await syncBusinessStatusIfNeeded(prisma, user.business, settings)
-      accessLocked = access.accessLocked
-      accessReason = access.reason
-      effectiveStatus = access.effectiveStatus
-
-      if (accessLocked && !isLockedOwnerRouteAllowed(req, user.role)) {
-        return reply.status(402).send({
-          success: false,
-          code: 'SUBSCRIPTION_REQUIRED',
-          error: accessReason,
-          data: {
-            accessLocked: true,
-            role: user.role,
-            businessId: user.businessId,
-            businessName: user.business.name,
-            subscriptionStatus: access.effectiveStatus,
-            subscriptionEndsAt: access.endsAtIso,
-            monthlyPrice: access.pricing.monthlyPrice,
-            yearlyPrice: access.pricing.yearlyPrice,
-          },
-        })
-      }
-    }
+    let endsAtIso: string | null = user.business?.subscriptionEndsAt?.toISOString?.() ?? null
+    let monthlyPrice = 0
+    let yearlyPrice = 0
 
     const now = new Date()
     const lastSeenAt = user.lastSeenAt ? new Date(user.lastSeenAt) : null
@@ -106,18 +88,84 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
       }).catch(() => undefined)
     }
 
-    const rawFeatureFlags =
+    let rawFeatureFlags =
       user.business?.featureFlags && typeof user.business.featureFlags === 'object' && !Array.isArray(user.business.featureFlags)
         ? { ...(user.business.featureFlags as Record<string, unknown>) }
         : {}
-    if (!isSuperAdmin && user.businessId) {
-      const activeSub = await subscriptionsRepository.getCurrentSubscriptionByBusiness(user.businessId)
-      const planFeatures = (activeSub?.planFeatures ?? {}) as Record<string, unknown>
-      for (const [key, value] of Object.entries(planFeatures)) {
-        if (typeof value === 'boolean' && value === false && rawFeatureFlags[key] === true) {
-          rawFeatureFlags[key] = false
+    if (!isSuperAdmin && user.businessId && user.business) {
+      const cacheKey = `${user.id}:${user.businessId}:${user.role}`
+      const cached = accessContextCache.get(cacheKey)
+      if (cached && cached.expiresAt > Date.now()) {
+        accessLocked = cached.value.accessLocked
+        accessReason = cached.value.accessReason
+        effectiveStatus = cached.value.effectiveStatus
+        endsAtIso = cached.value.endsAtIso
+        monthlyPrice = cached.value.monthlyPrice
+        yearlyPrice = cached.value.yearlyPrice
+        rawFeatureFlags = { ...cached.value.rawFeatureFlags }
+      } else {
+        let work = accessContextInFlight.get(cacheKey)
+        if (!work) {
+          work = (async (): Promise<CachedAccessContext> => {
+            const settings = await ensurePlatformSettings()
+            await subscriptionsRepository.ensureDefaultSubscriptionForBusiness({
+              businessId: user.businessId as string,
+              trialDays: settings.trialDays,
+            })
+            const access = await syncBusinessStatusIfNeeded(prisma, user.business!, settings)
+            const flags =
+              user.business?.featureFlags && typeof user.business.featureFlags === 'object' && !Array.isArray(user.business.featureFlags)
+                ? { ...(user.business.featureFlags as Record<string, unknown>) }
+                : {}
+            const activeSub = await subscriptionsRepository.getCurrentSubscriptionByBusiness(user.businessId as string)
+            const planFeatures = (activeSub?.planFeatures ?? {}) as Record<string, unknown>
+            for (const [key, value] of Object.entries(planFeatures)) {
+              if (typeof value === 'boolean' && value === false && flags[key] === true) flags[key] = false
+            }
+            return {
+              accessLocked: access.accessLocked,
+              accessReason: access.reason,
+              effectiveStatus: access.effectiveStatus,
+              endsAtIso: access.endsAtIso,
+              monthlyPrice: access.pricing.monthlyPrice,
+              yearlyPrice: access.pricing.yearlyPrice,
+              rawFeatureFlags: flags,
+            }
+          })().finally(() => accessContextInFlight.delete(cacheKey))
+          accessContextInFlight.set(cacheKey, work)
         }
+
+        const resolved = await work
+        accessContextCache.set(cacheKey, {
+          expiresAt: Date.now() + ACCESS_CONTEXT_TTL_MS,
+          value: resolved,
+        })
+        accessLocked = resolved.accessLocked
+        accessReason = resolved.accessReason
+        effectiveStatus = resolved.effectiveStatus
+        endsAtIso = resolved.endsAtIso
+        monthlyPrice = resolved.monthlyPrice
+        yearlyPrice = resolved.yearlyPrice
+        rawFeatureFlags = { ...resolved.rawFeatureFlags }
       }
+    }
+
+    if (accessLocked && !isLockedOwnerRouteAllowed(req, user.role)) {
+      return reply.status(402).send({
+        success: false,
+        code: 'SUBSCRIPTION_REQUIRED',
+        error: accessReason,
+        data: {
+          accessLocked: true,
+          role: user.role,
+          businessId: user.businessId,
+          businessName: user.business?.name,
+          subscriptionStatus: effectiveStatus,
+          subscriptionEndsAt: endsAtIso,
+          monthlyPrice,
+          yearlyPrice,
+        },
+      })
     }
 
     req.user = {

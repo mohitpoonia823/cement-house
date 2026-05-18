@@ -13,13 +13,15 @@ import {
   useLocations,
   useStockByLocation,
   useCreateStockTransfer,
+  useBackfillLocationStock,
 } from '@/hooks/useInventory'
 import { fmt }         from '@/lib/utils'
 import { Suspense, type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState }    from 'react'
-import { useQuery }    from '@tanstack/react-query'
+import { useQuery, useQueryClient }    from '@tanstack/react-query'
 import { api }         from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 import { BillScanPanel } from '@/components/inventory/BillScanPanel'
+import { useFeedback } from '@/components/ui/FeedbackProvider'
 import { useAuthStore } from '@/store/auth'
 import { businessTerms, businessUnitOptions, splitPreferredUnits } from '@/lib/business-terms'
 import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
@@ -134,6 +136,8 @@ export default function InventoryPage() {
 }
 
 function InventoryContent() {
+  const qc = useQueryClient()
+  const { pushToast } = useFeedback()
   const searchParams = useSearchParams()
   const { user } = useAuthStore()
   const { hasModule, hasFeature } = useTenantCapabilities()
@@ -152,8 +156,10 @@ function InventoryContent() {
   const unitPreset = businessUnitOptions(user?.businessType as any)
   const { data: materials, isLoading } = useInventory()
   const { data: locations } = useLocations()
-  const { data: stockByLocation } = useStockByLocation()
+  const [stockLocationFilterId, setStockLocationFilterId] = useState('')
+  const { data: stockByLocation } = useStockByLocation(stockLocationFilterId || undefined)
   const createTransfer = useCreateStockTransfer()
+  const backfillLocationStock = useBackfillLocationStock()
   const stockIn        = useStockIn()
   const createMaterial = useCreateMaterial()
   const updateMaterial = useUpdateMaterial()
@@ -196,7 +202,12 @@ function InventoryContent() {
   const [transferMaterialId, setTransferMaterialId] = useState('')
   const [transferQty, setTransferQty] = useState('')
   const [transferError, setTransferError] = useState('')
+  const [backfillMessage, setBackfillMessage] = useState('')
+  const [bulkTransferMode, setBulkTransferMode] = useState(false)
+  const [bulkTransferQty, setBulkTransferQty] = useState<Record<string, string>>({})
   const openedFromScanIntent = useRef(false)
+  const transferPanelRef = useRef<HTMLDivElement | null>(null)
+  const { data: sourceStockByLocation } = useStockByLocation(transferFromLocationId || undefined)
 
   // Bulk selection
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -227,11 +238,36 @@ function InventoryContent() {
   const activeLocations = (locations ?? []).filter((loc: any) => loc.isActive)
   const availableTransferQty = useMemo(() => {
     if (!transferFromLocationId || !transferMaterialId) return 0
-    const row = (stockByLocation ?? []).find(
+    const row = (sourceStockByLocation ?? []).find(
       (entry: any) => entry.locationId === transferFromLocationId && entry.materialId === transferMaterialId
     )
     return Number(row?.quantity ?? 0)
-  }, [stockByLocation, transferFromLocationId, transferMaterialId])
+  }, [sourceStockByLocation, transferFromLocationId, transferMaterialId])
+  const defaultLocation = useMemo(
+    () => activeLocations.find((loc: any) => loc.isDefault) ?? activeLocations[0] ?? null,
+    [activeLocations]
+  )
+  const selectedMaterials = useMemo(
+    () => list.filter((m: any) => selected.has(m.id)),
+    [list, selected]
+  )
+
+  function buildDefaultBulkTransferQty(sourceLocationId: string, materialsForTransfer: any[]) {
+    return Object.fromEntries(
+      materialsForTransfer.map((material: any) => {
+        const available = Number((sourceStockByLocation ?? []).find(
+          (entry: any) => entry.locationId === sourceLocationId && entry.materialId === material.id
+        )?.quantity ?? 0)
+        return [material.id, available > 0 ? String(Number(available.toFixed(3))) : '']
+      })
+    ) as Record<string, string>
+  }
+  useEffect(() => {
+    if (selectedMaterials.length === 0 && bulkTransferMode) {
+      setBulkTransferMode(false)
+      setBulkTransferQty({})
+    }
+  }, [bulkTransferMode, selectedMaterials.length])
 
   useEffect(() => {
     setNewForm((prev) => {
@@ -427,12 +463,52 @@ function InventoryContent() {
     e.preventDefault()
     setTransferError('')
     try {
-      if (!transferFromLocationId || !transferToLocationId || !transferMaterialId || Number(transferQty) <= 0) {
-        setTransferError('Select from/to location, material, and valid quantity.')
+      if (!transferFromLocationId || !transferToLocationId) {
+        setTransferError('Select source and destination locations.')
         return
       }
       if (transferFromLocationId === transferToLocationId) {
         setTransferError('Source and destination location cannot be same.')
+        return
+      }
+      if (bulkTransferMode) {
+        const items = selectedMaterials
+          .map((material: any) => {
+            const qty = Number(bulkTransferQty[material.id] ?? 0)
+            const available = Number((sourceStockByLocation ?? []).find(
+              (entry: any) => entry.locationId === transferFromLocationId && entry.materialId === material.id
+            )?.quantity ?? 0)
+            return { materialId: material.id, quantity: qty, available }
+          })
+          .filter((item) => item.quantity > 0)
+        if (items.length === 0) {
+          setTransferError('Enter quantity for at least one selected item.')
+          return
+        }
+        const invalid = items.find((item) => item.quantity > item.available)
+        if (invalid) {
+          setTransferError('One or more transfer quantities exceed source stock.')
+          return
+        }
+        await createTransfer.mutateAsync({
+          fromLocationId: transferFromLocationId,
+          toLocationId: transferToLocationId,
+          items: items.map(({ materialId, quantity }) => ({ materialId, quantity })),
+        })
+        const previousToLocationId = transferToLocationId
+        setBulkTransferQty({})
+        setBulkTransferMode(false)
+        setSelected(new Set())
+        if (previousToLocationId) {
+          setTransferFromLocationId(previousToLocationId)
+        }
+        setTransferToLocationId('')
+        setTransferError('')
+        pushToast(`Stock transferred for ${items.length} material(s).`, 'success')
+        return
+      }
+      if (!transferMaterialId || Number(transferQty) <= 0) {
+        setTransferError('Select material and valid quantity.')
         return
       }
       if (Number(transferQty) > availableTransferQty) {
@@ -444,10 +520,68 @@ function InventoryContent() {
         toLocationId: transferToLocationId,
         items: [{ materialId: transferMaterialId, quantity: Number(transferQty) }],
       })
+      const previousToLocationId = transferToLocationId
       setTransferQty('')
+      setTransferMaterialId('')
+      if (previousToLocationId) {
+        setTransferFromLocationId(previousToLocationId)
+      }
+      setTransferToLocationId('')
       setTransferError('')
+      pushToast('Stock transferred successfully.', 'success')
     } catch (err: any) {
-      setTransferError(err?.response?.data?.error ?? 'Failed to create stock transfer')
+      const backendMessage =
+        err?.response?.data?.error
+        ?? err?.response?.data?.message
+        ?? err?.message
+        ?? 'Failed to create stock transfer'
+      const normalized = String(backendMessage).toLowerCase()
+      const isTimeoutLike = normalized.includes('timeout') || normalized.includes('canceled') || normalized.includes('cancelled')
+      if (isTimeoutLike) {
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: ['stock-by-location'] }),
+          qc.invalidateQueries({ queryKey: ['inventory'] }),
+          qc.invalidateQueries({ queryKey: ['stock-transfers'] }),
+          qc.invalidateQueries({ queryKey: ['dashboard'] }),
+        ])
+        setTransferError('Request timed out on UI, but transfer may be completed. Data has been refreshed.')
+        pushToast('Request timed out on UI. Stock was refreshed; transfer may already be completed.', 'info')
+        return
+      }
+      setTransferError(String(backendMessage))
+    }
+  }
+
+  function startBulkTransferFromSelection() {
+    if (selectedMaterials.length === 0) return
+    const sourceId = transferFromLocationId || defaultLocation?.id || ''
+    setBulkTransferMode(true)
+    setTransferMaterialId('')
+    setTransferQty('')
+    setTransferError('')
+    if (!transferFromLocationId && defaultLocation?.id) setTransferFromLocationId(defaultLocation.id)
+    if (sourceId) {
+      setBulkTransferQty(buildDefaultBulkTransferQty(sourceId, selectedMaterials))
+    } else {
+      setBulkTransferQty(Object.fromEntries(selectedMaterials.map((material: any) => [material.id, ''])))
+    }
+    setTimeout(() => transferPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40)
+  }
+
+  useEffect(() => {
+    if (!bulkTransferMode || !transferFromLocationId || selectedMaterials.length === 0) return
+    setBulkTransferQty(buildDefaultBulkTransferQty(transferFromLocationId, selectedMaterials))
+  }, [bulkTransferMode, transferFromLocationId, selectedMaterials.length, sourceStockByLocation])
+
+  async function handleBackfillLocationStock() {
+    setBackfillMessage('')
+    try {
+      const result = await backfillLocationStock.mutateAsync()
+      setBackfillMessage(
+        `Mapped ${result.mappedMaterialCount} material(s), added ${Number(result.totalQuantityAdded).toFixed(3)} units to default location.`
+      )
+    } catch (err: any) {
+      setBackfillMessage(err?.response?.data?.error ?? 'Failed to backfill location stock')
     }
   }
 
@@ -745,6 +879,8 @@ function InventoryContent() {
         <div ref={billScanPanelRef}>
           <BillScanPanel
             materials={list}
+            locations={activeLocations}
+            defaultLocationId={defaultLocation?.id ?? undefined}
             units={unitOptions}
             preferredUnits={preferredUnits}
             materialLabel={terms.material}
@@ -974,6 +1110,13 @@ function InventoryContent() {
           <button onClick={handleBulkDelete} disabled={bulkDelete.isPending}
             className="text-xs px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 font-medium transition-colors">
             {bulkDelete.isPending ? (language === 'hi' ? 'à¤¹à¤Ÿà¤¾à¤¯à¤¾ à¤œà¤¾ à¤°à¤¹à¤¾ à¤¹à¥ˆ...' : language === 'hinglish' ? 'Delete ho raha hai...' : 'Deleting...') : (language === 'hi' ? 'à¤šà¤¯à¤¨à¤¿à¤¤ à¤¹à¤Ÿà¤¾à¤à¤‚' : language === 'hinglish' ? 'Selected delete karo' : 'Delete selected')}
+          </button>
+          <button
+            type="button"
+            onClick={startBulkTransferFromSelection}
+            className="text-xs px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium transition-colors"
+          >
+            {t('Transfer selected', 'चयनित ट्रांसफर करें', 'Selected transfer karo')}
           </button>
           <button onClick={() => setSelected(new Set())}
             className="ml-0 text-xs text-stone-500 hover:text-stone-700 dark:text-stone-400 md:ml-auto">
@@ -1212,7 +1355,36 @@ function InventoryContent() {
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <Card>
-          <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">Stock by location</div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs font-medium uppercase tracking-wide text-stone-500">Stock by location</div>
+            <div className="flex items-center gap-2">
+              <select
+                value={stockLocationFilterId}
+                onChange={(e) => setStockLocationFilterId(e.target.value)}
+                className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              >
+                <option value="">All locations</option>
+                {activeLocations.map((loc: any) => (
+                  <option key={`stock-filter-${loc.id}`} value={loc.id}>
+                    {loc.name}{loc.isDefault ? ' (Default)' : ''}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleBackfillLocationStock}
+                disabled={backfillLocationStock.isPending}
+                className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                {backfillLocationStock.isPending ? 'Mapping...' : 'Backfill old stock'}
+              </button>
+            </div>
+          </div>
+          {backfillMessage ? (
+            <div className={`mb-2 text-[11px] ${backfillMessage.toLowerCase().includes('failed') || backfillMessage.toLowerCase().includes('not configured') ? 'text-red-600' : 'text-emerald-700 dark:text-emerald-300'}`}>
+              {backfillMessage}
+            </div>
+          ) : null}
           <div className="space-y-2 md:hidden">
             {(stockByLocation ?? []).slice(0, 50).map((row: any) => (
               <div key={`m-${row.materialId}:${row.locationId}`} className="rounded-lg border border-slate-200 bg-white/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/60">
@@ -1256,6 +1428,7 @@ function InventoryContent() {
         </Card>
 
         <Card>
+          <div ref={transferPanelRef} />
           <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">Stock transfer</div>
           <form onSubmit={handleCreateTransfer} className="grid grid-cols-1 gap-2">
             <select
@@ -1278,29 +1451,66 @@ function InventoryContent() {
                 <option key={`to-${loc.id}`} value={loc.id}>{loc.name}</option>
               ))}
             </select>
-            <select
-              value={transferMaterialId}
-              onChange={(e) => setTransferMaterialId(e.target.value)}
-              className={inputClass}
-            >
-              <option value="">Material</option>
-              {list.map((m: any) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-            <input
-              type="number"
-              min={0.001}
-              step={0.001}
-              value={transferQty}
-              onChange={(e) => setTransferQty(e.target.value)}
-              max={availableTransferQty > 0 ? availableTransferQty : undefined}
-              placeholder="Quantity"
-              className={inputClass}
-            />
-            <div className="text-[11px] text-stone-500 dark:text-slate-400">
-              Available at source: {availableTransferQty.toFixed(3)}
-            </div>
+            {bulkTransferMode ? (
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-white/70 p-2 dark:border-slate-700 dark:bg-slate-900/60">
+                {selectedMaterials.map((material: any) => {
+                  const available = Number((sourceStockByLocation ?? []).find(
+                    (entry: any) => entry.locationId === transferFromLocationId && entry.materialId === material.id
+                  )?.quantity ?? 0)
+                  return (
+                    <div key={material.id} className="grid grid-cols-[1fr_120px] items-center gap-2">
+                      <div className="truncate text-xs text-stone-700 dark:text-slate-200">{material.name}</div>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.001}
+                        max={available > 0 ? available : undefined}
+                        placeholder={`Qty (max ${available.toFixed(3)})`}
+                        value={bulkTransferQty[material.id] ?? ''}
+                        onChange={(e) => setBulkTransferQty((prev) => ({ ...prev, [material.id]: e.target.value }))}
+                        className={inputClass}
+                      />
+                    </div>
+                  )
+                })}
+                <button
+                  type="button"
+                  className="text-[11px] text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                  onClick={() => {
+                    setBulkTransferMode(false)
+                    setBulkTransferQty({})
+                  }}
+                >
+                  Use single material transfer
+                </button>
+              </div>
+            ) : (
+              <>
+                <select
+                  value={transferMaterialId}
+                  onChange={(e) => setTransferMaterialId(e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">Material</option>
+                  {list.map((m: any) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min={0.001}
+                  step={0.001}
+                  value={transferQty}
+                  onChange={(e) => setTransferQty(e.target.value)}
+                  max={availableTransferQty > 0 ? availableTransferQty : undefined}
+                  placeholder="Quantity"
+                  className={inputClass}
+                />
+                <div className="text-[11px] text-stone-500 dark:text-slate-400">
+                  Available at source: {availableTransferQty.toFixed(3)}
+                </div>
+              </>
+            )}
             {transferError ? <div className="text-xs text-red-600">{transferError}</div> : null}
             <div className="pt-1">
               <button

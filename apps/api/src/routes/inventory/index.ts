@@ -13,10 +13,13 @@ import {
 import { ensureUsageAllowed } from '../../services/subscription-access'
 
 const INVENTORY_LIST_CACHE_TTL_MS = 10_000
+const INVENTORY_OPTIONS_CACHE_TTL_MS = 10_000
 const INVENTORY_MOVEMENTS_CACHE_TTL_MS = 10_000
 const INVENTORY_BILL_SCANS_CACHE_TTL_MS = 20_000
 const inventoryListCache = new Map<string, { expiresAt: number; value: any }>()
 const inventoryListInFlight = new Map<string, Promise<any>>()
+const inventoryOptionsCache = new Map<string, { expiresAt: number; value: any }>()
+const inventoryOptionsInFlight = new Map<string, Promise<any>>()
 const inventoryMovementsCache = new Map<string, { expiresAt: number; value: any }>()
 const inventoryMovementsInFlight = new Map<string, Promise<any>>()
 const inventoryBillScansCache = new Map<string, { expiresAt: number; value: any }>()
@@ -34,6 +37,12 @@ function invalidateInventoryCacheForBusiness(businessId: string) {
   }
   for (const key of inventoryMovementsInFlight.keys()) {
     if (key.startsWith(`${businessId}:`)) inventoryMovementsInFlight.delete(key)
+  }
+  for (const key of inventoryOptionsCache.keys()) {
+    if (key.startsWith(`${businessId}:`)) inventoryOptionsCache.delete(key)
+  }
+  for (const key of inventoryOptionsInFlight.keys()) {
+    if (key.startsWith(`${businessId}:`)) inventoryOptionsInFlight.delete(key)
   }
   for (const key of inventoryBillScansCache.keys()) {
     if (key.startsWith(`${businessId}:`)) inventoryBillScansCache.delete(key)
@@ -221,11 +230,15 @@ const CommitBillLineSchema = z.object({
 
 const CommitBillScanSchema = z.object({
   lines: z.array(CommitBillLineSchema).min(1),
+  locationId: z.string().uuid().optional(),
 })
 
 const CleanupOrphanBillImagesSchema = z.object({
   dryRun: z.boolean().default(true),
   maxDeletes: z.coerce.number().int().min(1).max(500).default(100),
+})
+const BackfillLocationStockSchema = z.object({
+  confirm: z.literal(true),
 })
 
 const ALLOWED_BILL_IMAGE_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp'])
@@ -281,6 +294,25 @@ export async function inventoryRoutes(app: FastifyInstance) {
     inventoryListInFlight.set(cacheKey, compute)
     const materials = await compute
     inventoryListCache.set(cacheKey, { expiresAt: Date.now() + INVENTORY_LIST_CACHE_TTL_MS, value: materials })
+    return { success: true, data: materials }
+  })
+
+  app.get('/options', async (req) => {
+    const bizId = getBizId(req)
+    const cacheKey = `${bizId}:options`
+    const now = Date.now()
+    const cached = inventoryOptionsCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) return { success: true, data: cached.value }
+
+    const inFlight = inventoryOptionsInFlight.get(cacheKey)
+    if (inFlight) return { success: true, data: await inFlight }
+
+    const compute = inventoryRepository
+      .listOrderFormMaterials(bizId)
+      .finally(() => inventoryOptionsInFlight.delete(cacheKey))
+    inventoryOptionsInFlight.set(cacheKey, compute)
+    const materials = await compute
+    inventoryOptionsCache.set(cacheKey, { expiresAt: Date.now() + INVENTORY_OPTIONS_CACHE_TTL_MS, value: materials })
     return { success: true, data: materials }
   })
 
@@ -577,6 +609,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
         businessId: bizId,
         recordedById: user.id,
         lines: body.data.lines,
+        locationId: body.data.locationId,
       })
       invalidateInventoryCacheForBusiness(bizId)
       return { success: true, data: result }
@@ -645,6 +678,27 @@ export async function inventoryRoutes(app: FastifyInstance) {
     } catch (error: any) {
       req.log.error({ err: error }, 'bill scan orphan cleanup failed')
       return reply.status(502).send({ success: false, error: error.message ?? 'Failed to cleanup orphan bill images' })
+    }
+  })
+
+  app.post('/backfill-location-stock', async (req, reply) => {
+    const bizId = getBizId(req)
+    const body = BackfillLocationStockSchema.safeParse(req.body ?? {})
+    if (!body.success) return reply.status(400).send({ success: false, error: 'Pass { confirm: true } to run stock backfill.' })
+    try {
+      const result = await inventoryRepository.backfillGlobalStockToDefaultLocation(bizId)
+      invalidateInventoryCacheForBusiness(bizId)
+      return { success: true, data: result }
+    } catch (error: any) {
+      const message = String(error?.message ?? 'Failed to backfill location stock')
+      if (message.includes('Default location is not configured')) {
+        return reply.status(400).send({
+          success: false,
+          code: 'DEFAULT_LOCATION_MISSING',
+          error: 'Default location is not configured. Go to Settings > Locations and set one location as default.',
+        })
+      }
+      return reply.status(400).send({ success: false, error: message })
     }
   })
 

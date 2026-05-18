@@ -178,6 +178,7 @@ export async function adjustMaterialLocationStock(tx: Prisma.TransactionClient, 
   locationId: string
   deltaQty: number
   allowNegativeStock?: boolean
+  skipTotalSync?: boolean
 }) {
   const rows = await tx.$queryRaw<Array<{ quantity: number }>>(Prisma.sql`
     SELECT quantity::double precision AS quantity
@@ -208,7 +209,9 @@ export async function adjustMaterialLocationStock(tx: Prisma.TransactionClient, 
     `)
   }
 
-  await syncMaterialTotalStock(tx, input.businessId, input.materialId)
+  if (!input.skipTotalSync) {
+    await syncMaterialTotalStock(tx, input.businessId, input.materialId)
+  }
   return nextQty
 }
 
@@ -238,6 +241,7 @@ export async function getStockByLocation(input: { businessId: string; materialId
       ON l.id = ms."locationId"
      AND l."businessId" = ms."businessId"
     WHERE ms."businessId" = ${input.businessId}
+      AND ms.quantity > 0
       ${input.materialId ? Prisma.sql`AND ms."materialId" = ${input.materialId}` : Prisma.empty}
       ${input.locationId ? Prisma.sql`AND ms."locationId" = ${input.locationId}` : Prisma.empty}
     ORDER BY m.name ASC, l.name ASC
@@ -293,18 +297,19 @@ export async function createStockTransfer(input: {
     `)
     if (!created[0]?.id) throw new Error('Failed to create stock transfer')
 
+    const materialIds = [...new Set(input.items.map((item) => item.materialId))]
+    const materials = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM materials
+      WHERE "businessId" = ${input.businessId}
+        AND "isActive" = true
+        AND id IN (${Prisma.join(materialIds)})
+    `)
+    const validMaterialIds = new Set(materials.map((row) => row.id))
+    if (validMaterialIds.size !== materialIds.length) throw new Error('Transfer material not found for this business')
+
     for (const item of input.items) {
       if (item.quantity <= 0) throw new Error('Transfer quantity should be greater than 0')
-
-      const mat = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-        SELECT id
-        FROM materials
-        WHERE id = ${item.materialId}
-          AND "businessId" = ${input.businessId}
-          AND "isActive" = true
-        LIMIT 1
-      `)
-      if (!mat[0]?.id) throw new Error('Transfer material not found for this business')
 
       await tx.$executeRaw(Prisma.sql`
         INSERT INTO stock_transfer_items (id, "transferId", "materialId", quantity)
@@ -317,6 +322,7 @@ export async function createStockTransfer(input: {
         locationId: input.fromLocationId,
         deltaQty: -item.quantity,
         allowNegativeStock: false,
+        skipTotalSync: true,
       })
 
       await adjustMaterialLocationStock(tx, {
@@ -325,11 +331,16 @@ export async function createStockTransfer(input: {
         locationId: input.toLocationId,
         deltaQty: item.quantity,
         allowNegativeStock: true,
+        skipTotalSync: true,
       })
     }
 
+    for (const materialId of materialIds) {
+      await syncMaterialTotalStock(tx, input.businessId, materialId)
+    }
+
     return transferId
-  })
+  }, { timeout: 30_000, maxWait: 10_000 })
 }
 
 export async function listStockTransfers(input: { businessId: string; limit?: number }) {

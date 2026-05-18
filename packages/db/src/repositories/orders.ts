@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { prisma } from '../client'
-import { adjustMaterialLocationStock, resolveSourceLocationId } from './multi-location'
+import { adjustMaterialLocationStock, resolveSourceLocationId, syncMaterialTotalStock } from './multi-location'
 
 const ORDER_TX_MAX_WAIT_MS = 10_000
 const ORDER_TX_TIMEOUT_MS = 120_000
@@ -508,89 +508,102 @@ export async function createOrder(input: {
     const createdOrderId = created[0]?.id
     if (!createdOrderId) throw new Error('Failed to create order')
 
-    for (const item of input.items) {
+    const materialIds = [...new Set(input.items.map((item) => item.materialId))]
+    const materialRows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM materials
+      WHERE "businessId" = ${input.businessId}
+        AND "isActive" = true
+        AND id IN (${Prisma.join(materialIds)})
+    `)
+    const validMaterialIds = new Set(materialRows.map((row) => row.id))
+    if (validMaterialIds.size !== materialIds.length) {
+      throw new Error('One or more selected materials were not found')
+    }
+
+    const orderItemValues = input.items.map((item) => {
       const lineTotal = item.lineTotal ?? (item.quantity * item.unitPrice)
-      const orderItemId = randomUUID()
-      await tx.$executeRaw(Prisma.sql`
-        INSERT INTO order_items (
-          id,
-          "orderId",
-          "materialId",
-          quantity,
-          "hsnCode",
-          "gstRate",
-          "taxableAmount",
-          "gstAmount",
-          "cgstAmount",
-          "sgstAmount",
-          "igstAmount",
-          "discountAmount",
-          "unitPrice",
-          "purchasePrice",
-          "lineTotal"
-        ) VALUES (
-          ${orderItemId},
-          ${createdOrderId},
-          ${item.materialId},
-          ${item.quantity},
-          ${item.hsnCode ?? null},
-          ${item.gstRate ?? null},
-          ${item.taxableAmount ?? null},
-          ${item.gstAmount ?? null},
-          ${item.cgstAmount ?? null},
-          ${item.sgstAmount ?? null},
-          ${item.igstAmount ?? null},
-          ${item.discountAmount ?? null},
-          ${item.unitPrice},
-          ${item.purchasePrice},
-          ${lineTotal}
-        )
-      `)
+      return Prisma.sql`(
+        ${randomUUID()},
+        ${createdOrderId},
+        ${item.materialId},
+        ${item.quantity},
+        ${item.hsnCode ?? null},
+        ${item.gstRate ?? null},
+        ${item.taxableAmount ?? null},
+        ${item.gstAmount ?? null},
+        ${item.cgstAmount ?? null},
+        ${item.sgstAmount ?? null},
+        ${item.igstAmount ?? null},
+        ${item.discountAmount ?? null},
+        ${item.unitPrice},
+        ${item.purchasePrice},
+        ${lineTotal}
+      )`
+    })
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO order_items (
+        id,
+        "orderId",
+        "materialId",
+        quantity,
+        "hsnCode",
+        "gstRate",
+        "taxableAmount",
+        "gstAmount",
+        "cgstAmount",
+        "sgstAmount",
+        "igstAmount",
+        "discountAmount",
+        "unitPrice",
+        "purchasePrice",
+        "lineTotal"
+      ) VALUES ${Prisma.join(orderItemValues)}
+    `)
 
-      const mats = await tx.$queryRaw<Array<{ stockQty: number }>>(Prisma.sql`
-        SELECT "stockQty"::double precision AS "stockQty"
-        FROM materials
-        WHERE id = ${item.materialId} AND "businessId" = ${input.businessId} AND "isActive" = true
-        LIMIT 1
-      `)
-      const material = mats[0]
-      if (!material) throw new Error(`Material ${item.materialId} not found`)
-
+    const movementRows: Array<{ materialId: string; quantity: number; stockAfter: number }> = []
+    for (const item of input.items) {
+      const quantity = Number(item.deductionQty ?? item.quantity)
       const stockAfter = await adjustMaterialLocationStock(tx, {
         businessId: input.businessId,
         materialId: item.materialId,
         locationId: sourceLocationId,
-        deltaQty: -Number(item.deductionQty ?? item.quantity),
+        deltaQty: -quantity,
         allowNegativeStock: input.allowNegativeStock,
+        skipTotalSync: true,
       })
-
-      const stockMovementId = randomUUID()
-      await tx.$executeRaw(Prisma.sql`
-        INSERT INTO stock_movements (
-          id,
-          "materialId",
-          "orderId",
-          type,
-          quantity,
-          "stockAfter",
-          reason,
-          "recordedById",
-          "createdAt",
-          "businessId"
-        ) VALUES (
-          ${stockMovementId},
-          ${item.materialId},
-          ${createdOrderId},
-          'OUT'::"StockMovementType",
-          ${Number(item.deductionQty ?? item.quantity)},
-          ${stockAfter},
-          ${`Order ${input.orderNumber}`},
-          ${input.createdById},
-          NOW(),
-          ${input.businessId}
-        )
-      `)
+      movementRows.push({ materialId: item.materialId, quantity, stockAfter })
     }
+    for (const materialId of materialIds) {
+      await syncMaterialTotalStock(tx, input.businessId, materialId)
+    }
+
+    const movementValues = movementRows.map((row) => Prisma.sql`(
+      ${randomUUID()},
+      ${row.materialId},
+      ${createdOrderId},
+      'OUT'::"StockMovementType",
+      ${row.quantity},
+      ${row.stockAfter},
+      ${`Order ${input.orderNumber}`},
+      ${input.createdById},
+      NOW(),
+      ${input.businessId}
+    )`)
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO stock_movements (
+        id,
+        "materialId",
+        "orderId",
+        type,
+        quantity,
+        "stockAfter",
+        reason,
+        "recordedById",
+        "createdAt",
+        "businessId"
+      ) VALUES ${Prisma.join(movementValues)}
+    `)
 
     const debitLedgerEntryId = randomUUID()
     await tx.$executeRaw(Prisma.sql`

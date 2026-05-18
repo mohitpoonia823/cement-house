@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { PageLoader } from '@/components/ui/Spinner'
@@ -136,6 +136,8 @@ function initialEdits(scan: BillScan, materialsById: Map<string, Material>, defa
 
 export function BillScanPanel({
   materials,
+  locations,
+  defaultLocationId,
   units,
   preferredUnits,
   materialLabel = 'Material',
@@ -144,6 +146,8 @@ export function BillScanPanel({
   onImported,
 }: {
   materials: Material[]
+  locations: Array<{ id: string; name: string; isDefault?: boolean; isActive?: boolean }>
+  defaultLocationId?: string
   units?: string[]
   preferredUnits?: string[]
   materialLabel?: string
@@ -160,6 +164,7 @@ export function BillScanPanel({
   const [warnings, setWarnings] = useState<string[]>([])
   const [edits, setEdits] = useState<Record<string, LineEdit>>({})
   const [error, setError] = useState('')
+  const [commitLocationId, setCommitLocationId] = useState(defaultLocationId ?? '')
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
   const galleryInputRef = useRef<HTMLInputElement | null>(null)
   const desktopInputRef = useRef<HTMLInputElement | null>(null)
@@ -171,6 +176,13 @@ export function BillScanPanel({
     [allUnits, preferredUnits]
   )
   const defaultUnit = preferred[0] ?? allUnits[0] ?? 'pieces'
+  const activeLocations = useMemo(
+    () => (locations ?? []).filter((loc) => loc.isActive !== false),
+    [locations]
+  )
+  useEffect(() => {
+    if (!commitLocationId && defaultLocationId) setCommitLocationId(defaultLocationId)
+  }, [commitLocationId, defaultLocationId])
   const hasLines = (scan?.lines.length ?? 0) > 0
   const invalidLineCount = useMemo(() => {
     if (!scan) return 0
@@ -227,6 +239,7 @@ export function BillScanPanel({
     try {
       const result = await commitBill.mutateAsync({
         scanId: scan.id,
+        locationId: commitLocationId || undefined,
         lines: scan.lines.map((line) => {
           const edit = edits[line.id]
           const quantity = Number(edit.quantity || line.quantity || 1)
@@ -262,6 +275,14 @@ export function BillScanPanel({
     } catch (err: any) {
       setError(err.response?.data?.error ?? t('Failed to import bill', 'बिल आयात नहीं हो सका'))
     }
+  }
+
+  function resetCurrentScan() {
+    setScan(null)
+    setPreview('')
+    setWarnings([])
+    setEdits({})
+    setError('')
   }
 
   return (
@@ -368,6 +389,21 @@ export function BillScanPanel({
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-stone-400">{t('Scan confidence', 'स्कैन भरोसा')}</div>
                   <Badge variant={confidenceVariant(scan.confidence)}>{scoreLabel(scan.confidence)}</Badge>
+                </div>
+                <div className="sm:col-span-2 xl:col-span-2">
+                  <div className="text-[10px] uppercase tracking-wide text-stone-400">{t('Import to location', 'लोकेशन में जोड़ें')}</div>
+                  <select
+                    value={commitLocationId}
+                    onChange={(event) => setCommitLocationId(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
+                  >
+                    <option value="">{t('Select location', 'लोकेशन चुनें')}</option>
+                    {activeLocations.map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {location.name}{location.isDefault ? ' (Default)' : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -532,7 +568,7 @@ export function BillScanPanel({
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  disabled={!hasLines || applyCount === 0 || invalidLineCount > 0 || commitBill.isPending}
+                  disabled={!hasLines || applyCount === 0 || invalidLineCount > 0 || commitBill.isPending || !commitLocationId}
                   onClick={handleCommit}
                   className="rounded-lg bg-slate-950 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-sky-500 dark:text-slate-950"
                 >
@@ -545,16 +581,21 @@ export function BillScanPanel({
                 <button
                   type="button"
                   disabled={commitBill.isPending}
-                  onClick={() => {
-                    setScan(null)
-                    setPreview('')
-                    setWarnings([])
-                    setEdits({})
-                    setError('')
-                  }}
+                  onClick={resetCurrentScan}
                   className="rounded-lg border border-stone-200 px-3 py-2 text-xs hover:bg-stone-50 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800"
                 >
                   {t('Scan another', 'दूसरा बिल स्कैन करें')}
+                </button>
+                <button
+                  type="button"
+                  disabled={commitBill.isPending}
+                  onClick={() => {
+                    resetCurrentScan()
+                    onClose()
+                  }}
+                  className="rounded-lg border border-rose-200 px-3 py-2 text-xs text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                >
+                  {t('Cancel current scan', 'वर्तमान स्कैन रद्द करें')}
                 </button>
               </div>
             </div>

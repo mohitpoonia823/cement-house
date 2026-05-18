@@ -1,5 +1,6 @@
 ﻿import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
+import { invalidateBusinessData } from '@/lib/query'
 
 export function useLedger(customerId: string) {
   return useQuery({
@@ -31,8 +32,7 @@ export function useRecordPayment() {
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ['ledger', vars.customerId] })
       qc.invalidateQueries({ queryKey: ['ledger', 'summary'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
-      qc.invalidateQueries({ queryKey: ['orders'] })
+      invalidateBusinessData(qc, ['dashboard', 'orders'])
     },
   })
 }

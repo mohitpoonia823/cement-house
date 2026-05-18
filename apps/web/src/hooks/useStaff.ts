@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { invalidateBusinessData } from '@/lib/query'
 
 export function useStaff(options?: { enabled?: boolean }) {
   return useQuery({
@@ -19,7 +20,7 @@ export function useCreateStaff() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (data: any) => api.post('/api/settings/staff', data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['staff'] })
+    onSuccess: () => invalidateBusinessData(qc, ['staff'])
   })
 }
 
@@ -28,7 +29,7 @@ export function useUpdateStaff() {
   return useMutation({
     mutationFn: async ({ id, ...data }: { id: string } & any) =>
       api.patch(`/api/settings/staff/${id}`, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['staff'] })
+    onSuccess: () => invalidateBusinessData(qc, ['staff'])
   })
 }
 
@@ -36,6 +37,6 @@ export function useDeleteStaff() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (id: string) => api.delete(`/api/settings/staff/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['staff'] })
+    onSuccess: () => invalidateBusinessData(qc, ['staff'])
   })
 }

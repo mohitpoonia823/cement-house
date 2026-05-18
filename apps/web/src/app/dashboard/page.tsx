@@ -15,6 +15,7 @@ import { useAuthStore } from '@/store/auth'
 import { useI18n } from '@/lib/i18n'
 import { businessTerms } from '@/lib/business-terms'
 import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
+import { useFeedback } from '@/components/ui/FeedbackProvider'
 
 const RevenueRhythmChart = dynamic(
   () => import('@/components/dashboard/DashboardCharts').then((mod) => mod.RevenueRhythmChart),
@@ -74,6 +75,7 @@ function emptyIfBlank(value: string | null) {
 
 function DashboardContent() {
   const { language } = useI18n()
+  const { confirm, pushToast } = useFeedback()
   const tr = (en: string, hi: string, hinglish?: string) =>
     language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en
   const router = useRouter()
@@ -167,30 +169,28 @@ function DashboardContent() {
 
   async function handleSendReminders() {
     if (!overdueCustomers.length) {
-      window.alert(tr('No customers with outstanding balance found.', 'बकाया बैलेंस वाले ग्राहक नहीं मिले।', 'Outstanding balance wale customers nahi mile.'))
+      pushToast(tr('No customers with outstanding balance found.', 'बकाया बैलेंस वाले ग्राहक नहीं मिले।', 'Outstanding balance wale customers nahi mile.'), 'info')
       return
     }
 
-    const confirmed = window.confirm(
+    const confirmed = await confirm(
       tr(
         `Send WhatsApp reminders to ${overdueCustomers.length} customer(s) with outstanding balance?`,
         `क्या ${overdueCustomers.length} बकाया ग्राहकों को WhatsApp रिमाइंडर भेजना है?`,
         `Kya ${overdueCustomers.length} outstanding customers ko WhatsApp reminder bhejna hai?`
-      )
+      ),
+      tr('This will trigger your reminder workflow now.', 'यह अभी रिमाइंडर वर्कफ़्लो ट्रिगर करेगा।', 'Yeh abhi reminder workflow trigger karega.')
     )
     if (!confirmed) return
 
     try {
       const result = await sendReminders.mutateAsync(overdueCustomers.map((customer: any) => customer.id))
-      window.alert(
-        tr(
-          `Sent ${result.data.sent} reminder(s).`,
-          `${result.data.sent} रिमाइंडर भेज दिए गए।`,
-          `${result.data.sent} reminders bhej diye gaye.`
-        )
+      pushToast(
+        tr(`Sent ${result.data.sent} reminder(s).`, `${result.data.sent} रिमाइंडर भेज दिए गए।`, `${result.data.sent} reminders bhej diye gaye.`),
+        'success'
       )
     } catch (error: any) {
-      window.alert(error?.response?.data?.error ?? tr('Failed to send reminders.', 'रिमाइंडर भेजने में समस्या हुई।', 'Reminders bhejne me problem hui.'))
+      pushToast(error?.response?.data?.error ?? tr('Failed to send reminders.', 'रिमाइंडर भेजने में समस्या हुई।', 'Reminders bhejne me problem hui.'), 'error')
     }
   }
 

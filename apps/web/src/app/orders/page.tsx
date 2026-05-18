@@ -159,14 +159,6 @@ function OrdersContent() {
   )
 
   useEffect(() => {
-    const message = sessionStorage.getItem('orders_success_message')
-    if (message) {
-      setAlert({ tone: 'success', message })
-      sessionStorage.removeItem('orders_success_message')
-    }
-  }, [])
-
-  useEffect(() => {
     if (searchParams.get('openNewOrder') === '1') {
       setShowNewOrderModal(true)
       router.replace('/orders')

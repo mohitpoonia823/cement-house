@@ -11,6 +11,7 @@ import Link from 'next/link'
 import { useI18n } from '@/lib/i18n'
 import { useAuthStore } from '@/store/auth'
 import { businessTerms } from '@/lib/business-terms'
+import { useFeedback } from '@/components/ui/FeedbackProvider'
 
 const RISK_TAGS = ['ALL', 'RELIABLE', 'WATCH', 'BLOCKED']
 
@@ -86,6 +87,7 @@ export default function CustomersPage() {
   const deleteCustomer = useDeleteCustomer()
   const bulkDelete = useBulkDeleteCustomers()
   const sendReminders = useSendReminders()
+  const { confirm, pushToast } = useFeedback()
 
   const [form, setForm] = useState<CustomerForm>(emptyForm)
   const [formError, setFormError] = useState('')
@@ -120,30 +122,46 @@ export default function CustomersPage() {
     setShowForm(true)
   }
 
-  function handleDelete(id: string, name: string) {
-    if (!confirm(`Delete customer "${name}"? This will deactivate the customer.`)) return
+  async function handleDelete(id: string, name: string) {
+    const approved = await confirm(`Delete customer "${name}"?`, 'This will deactivate the customer.')
+    if (!approved) return
     deleteCustomer.mutate(id, {
-      onSuccess: () =>
+      onSuccess: () => {
+        pushToast('Customer deleted successfully.', 'success')
         setSelected((prev) => {
           const n = new Set(prev)
           n.delete(id)
           return n
-        }),
+        })
+      },
+      onError: (err: any) => pushToast(err?.response?.data?.error ?? 'Failed to delete customer.', 'error'),
     })
   }
 
-  function handleBulkDelete() {
-    if (!confirm(`Delete ${selected.size} selected customer(s)? They will be deactivated.`)) return
-    bulkDelete.mutate([...selected], { onSuccess: () => setSelected(new Set()) })
-  }
-
-  function handleBulkRemind() {
-    if (!confirm(`Send automated WhatsApp reminders to ${selected.size} selected customer(s)?`)) return
-    sendReminders.mutate([...selected], {
-      onSuccess: (res) => {
-        alert(`Successfully sent ${res.data.sent} reminders.`)
+  async function handleBulkDelete() {
+    const approved = await confirm(
+      `Delete ${selected.size} selected customer(s)?`,
+      'They will be deactivated.'
+    )
+    if (!approved) return
+    bulkDelete.mutate([...selected], {
+      onSuccess: () => {
+        pushToast('Selected customers deleted.', 'success')
         setSelected(new Set())
       },
+      onError: (err: any) => pushToast(err?.response?.data?.error ?? 'Failed to delete selected customers.', 'error'),
+    })
+  }
+
+  async function handleBulkRemind() {
+    const approved = await confirm(`Send automated WhatsApp reminders to ${selected.size} selected customer(s)?`)
+    if (!approved) return
+    sendReminders.mutate([...selected], {
+      onSuccess: (res) => {
+        pushToast(`Successfully sent ${res.data.sent} reminders.`, 'success')
+        setSelected(new Set())
+      },
+      onError: (err: any) => pushToast(err?.response?.data?.error ?? 'Failed to send reminders.', 'error'),
     })
   }
 
@@ -161,6 +179,7 @@ export default function CustomersPage() {
       setForm(emptyForm)
     } catch (err: any) {
       setFormError(err.response?.data?.error ?? 'Failed')
+      pushToast(err.response?.data?.error ?? 'Failed to save customer.', 'error')
     }
   }
 

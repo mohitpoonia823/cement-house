@@ -2,13 +2,13 @@
 
 import { Card } from '@/components/ui/Card'
 import { useCustomers } from '@/hooks/useCustomers'
-import { useInventory, useLocations } from '@/hooks/useInventory'
+import { useInventoryOptions, useLocations, useStockByLocation } from '@/hooks/useInventory'
 import { useCreateOrder } from '@/hooks/useOrders'
 import { getStateCodeFromGstin, useBusinessConfig } from '@/hooks/useBusinessConfig'
 import { fmt } from '@/lib/utils'
 import { computeOrderPreview } from '@cement-house/utils'
 import { useRouter } from 'next/navigation'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
 import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 
@@ -66,9 +66,12 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
   const { hasFeature } = useTenantCapabilities()
   const { gstBilling, storeStateCode } = useBusinessConfig()
   const router = useRouter()
-  const { data: customers, isLoading: customersLoading } = useCustomers()
-  const { data: materials, isLoading: materialsLoading } = useInventory()
-  const { data: locations } = useLocations()
+  const [shouldLoadCustomers, setShouldLoadCustomers] = useState(false)
+  const [shouldLoadMaterials, setShouldLoadMaterials] = useState(false)
+  const [shouldLoadLocations, setShouldLoadLocations] = useState(false)
+  const { data: customers, isLoading: customersLoading } = useCustomers(undefined, { enabled: shouldLoadCustomers })
+  const { data: materials, isLoading: materialsLoading } = useInventoryOptions({ enabled: shouldLoadMaterials })
+  const { data: locations } = useLocations({ enabled: shouldLoadLocations })
   const createOrder = useCreateOrder()
 
   const [customerId, setCustomerId] = useState('')
@@ -99,12 +102,16 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
     },
   ])
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
 
   const selectedCustomer = (customers ?? []).find((c: any) => c.id === customerId)
   const customerStateCode = (selectedCustomer?.stateCode as string | undefined | null) || getStateCodeFromGstin(selectedCustomer?.gstin ?? null)
   const isInterState = Boolean(selectedCustomer) && Boolean(storeStateCode) && Boolean(customerStateCode) && storeStateCode !== customerStateCode
   const minDeliveryDate = todayDateInput()
   const activeLocations = (locations ?? []).filter((l: any) => l.isActive)
+  const defaultLocation = activeLocations.find((loc: any) => loc.isDefault) ?? null
+  const effectiveSourceLocationId = sourceLocationId || defaultLocation?.id || undefined
+  const { data: sourceStockRows } = useStockByLocation(effectiveSourceLocationId)
   const showBatch = hasFeature('batchTracking')
   const showExpiry = hasFeature('expiryTracking')
   const showBarcode = hasFeature('barcodeSupport')
@@ -112,6 +119,14 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
   const showWeight = hasFeature('weightBasedBilling')
   const showGst = hasFeature('gstBilling')
   const showAdvancedLineFields = showBatch || showExpiry || showBarcode || showSerial || showWeight
+  const sourceStockByMaterial = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const row of sourceStockRows ?? []) {
+      map.set(String(row.materialId), Number(row.quantity ?? 0))
+    }
+    return map
+  }, [sourceStockRows])
+
   const products: Product[] = (materials ?? []).map((m: any) => ({
     id: String(m.id),
     name: String(m.name ?? ''),
@@ -122,8 +137,12 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
     isExempted: Boolean(m.isExempted === true || Number(m.gstRate ?? 0) === 0),
     purchasePrice: Number(m.purchasePrice ?? 0),
     salePrice: Number(m.salePrice ?? 0),
-    stockQty: Number(m.stockQty ?? 0),
+    stockQty: Number(sourceStockByMaterial.get(String(m.id)) ?? 0),
   }))
+  const inStockProducts = useMemo(
+    () => products.filter((product) => Number(product.stockQty) > 0),
+    [products]
+  )
   const preview = useMemo(
     () =>
       computeOrderPreview(
@@ -142,6 +161,23 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
   )
   const totalAmount = preview.grandTotal
   const totalDue = Math.max(0, totalAmount - amountPaid)
+
+  useEffect(() => {
+    const locationTimer = window.setTimeout(() => setShouldLoadLocations(true), 120)
+    const customerTimer = window.setTimeout(() => setShouldLoadCustomers(true), 220)
+    return () => {
+      window.clearTimeout(locationTimer)
+      window.clearTimeout(customerTimer)
+    }
+  }, [])
+
+  function locationLabel(loc: any) {
+    const name = String(loc?.name ?? '')
+    const lower = name.toLowerCase()
+    const hasDefaultInName = lower.includes('(default)') || lower.startsWith('default ')
+    if (loc?.isDefault && !hasDefaultInName) return `${name} (Default)`
+    return name
+  }
 
   function updateItem(idx: number, field: keyof LineItem, value: any) {
     setItems((prev) =>
@@ -246,8 +282,11 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
         })),
       })
       if (redirectOnSuccess) {
-        sessionStorage.setItem('orders_success_message', 'Order created successfully')
-        router.push('/orders')
+        const successText = language === 'hi' ? 'ऑर्डर सफलतापूर्वक बनाया गया।' : 'Order created successfully'
+        setSuccessMessage(successText)
+        window.setTimeout(() => {
+          router.push('/orders')
+        }, 1200)
       } else {
         onSuccess?.()
       }
@@ -268,25 +307,13 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
     router.back()
   }
 
-  if (customersLoading || materialsLoading) {
-    return (
-      <div className="max-w-3xl space-y-4">
-        {[0, 1, 2].map((index) => (
-          <Card key={index}>
-            <div className="mb-3 h-4 w-36 animate-pulse rounded bg-slate-100 dark:bg-slate-800/60" />
-            <div className="space-y-3">
-              <div className="h-10 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800/60" />
-              <div className="h-10 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800/60" />
-              <div className="h-10 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800/60" />
-            </div>
-          </Card>
-        ))}
-      </div>
-    )
-  }
-
   return (
     <form onSubmit={handleSubmit} className="max-w-3xl space-y-4">
+      {successMessage ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+          {successMessage}
+        </div>
+      ) : null}
       <Card>
         <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? 'ऑर्डर विवरण' : 'Order details'}</div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -294,11 +321,16 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
             <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? 'ग्राहक *' : 'Customer *'}</label>
             <select
               value={customerId}
+              onFocus={() => setShouldLoadCustomers(true)}
               onChange={(e) => setCustomerId(e.target.value)}
               className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               required
             >
-              <option value="">{language === 'hi' ? 'ग्राहक चुनें...' : 'Select customer...'}</option>
+              <option value="">
+                {customersLoading
+                  ? (language === 'hi' ? 'ग्राहक लोड हो रहे हैं...' : 'Loading customers...')
+                  : (language === 'hi' ? 'ग्राहक चुनें...' : 'Select customer...')}
+              </option>
               {(customers ?? []).map((c: any) => (
                 <option key={c.id} value={c.id}>
                   {c.name} - {c.phone}
@@ -313,10 +345,14 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
               onChange={(e) => setSourceLocationId(e.target.value)}
               className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             >
-              <option value="">Default (Main Store)</option>
+              <option value="">
+                {defaultLocation
+                  ? `Auto (Default: ${defaultLocation.name})`
+                  : 'Auto (Use default location)'}
+              </option>
               {activeLocations.map((loc: any) => (
                 <option key={loc.id} value={loc.id}>
-                  {loc.name} {loc.isDefault ? '(Default)' : ''}
+                  {locationLabel(loc)}
                 </option>
               ))}
             </select>
@@ -382,6 +418,13 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
 
       <Card>
         <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? 'ऑर्डर आइटम्स' : 'Order items'}</div>
+        {inStockProducts.length === 0 ? (
+          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            {language === 'hi'
+              ? 'इस लोकेशन में कोई स्टॉक उपलब्ध नहीं है। कृपया दूसरी लोकेशन चुनें।'
+              : 'No stock is available in this location. Please choose another location.'}
+          </div>
+        ) : null}
         <div>
           <div className="mb-1 hidden min-w-full grid-cols-12 gap-2 px-1 text-[10px] text-stone-400 sm:grid sm:min-w-[640px]">
             <div className="col-span-4">{language === 'hi' ? 'मटेरियल' : 'Material'}</div>
@@ -396,15 +439,22 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
               <div className="col-span-1 sm:col-span-4">
                 <select
                     value={item.materialId}
+                    onFocus={() => setShouldLoadMaterials(true)}
                     onChange={(e) => updateItem(idx, 'materialId', e.target.value)}
                   className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 >
-                  <option value="">{language === 'hi' ? 'चुनें...' : 'Select...'}</option>
-                  {products.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name} ({m.stockQty} {m.unit} in stock)
-                    </option>
-                  ))}
+                  <option value="">
+                    {materialsLoading
+                      ? (language === 'hi' ? 'मैटेरियल लोड हो रहे हैं...' : 'Loading materials...')
+                      : (language === 'hi' ? 'चुनें...' : 'Select...')}
+                  </option>
+                  {products
+                    .filter((m) => Number(m.stockQty) > 0 || m.id === item.materialId)
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} ({m.stockQty} {m.unit} in stock)
+                      </option>
+                    ))}
                 </select>
               </div>
               <div className="col-span-1 sm:col-span-2">

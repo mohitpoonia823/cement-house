@@ -10,9 +10,9 @@ function stateCodeFromGstin(gstin?: string | null) {
 
 export function useBusinessConfig() {
   const { user } = useAuthStore()
-  const bootstrap = useQuery({
-    queryKey: ['settings-bootstrap'],
-    queryFn: () => api.get('/api/settings/bootstrap').then((r) => r.data.data),
+  const orderFormConfig = useQuery({
+    queryKey: ['settings-order-form'],
+    queryFn: () => api.get('/api/settings/order-form').then((r) => r.data.data),
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     retry: 1,
@@ -20,20 +20,20 @@ export function useBusinessConfig() {
   })
 
   const featureFlags =
-    (bootstrap.data?.settings?.business?.featureFlags as Record<string, boolean> | undefined)
+    (orderFormConfig.data?.business?.featureFlags as Record<string, boolean> | undefined)
     ?? user?.featureFlags
     ?? {}
   const businessGstin =
-    (bootstrap.data?.settings?.business?.gstin as string | undefined | null)
+    (orderFormConfig.data?.business?.gstin as string | undefined | null)
     ?? null
   const explicitStateCode =
-    (bootstrap.data?.settings?.business?.stateCode as string | undefined | null)
+    (orderFormConfig.data?.business?.stateCode as string | undefined | null)
     ?? null
 
   return {
     gstBilling: featureFlags.gstBilling === true,
     storeStateCode: explicitStateCode || stateCodeFromGstin(businessGstin),
-    isLoading: bootstrap.isLoading,
+    isLoading: orderFormConfig.isLoading,
   }
 }
 

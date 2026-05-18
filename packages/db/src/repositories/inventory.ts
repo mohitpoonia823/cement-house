@@ -52,6 +52,18 @@ export interface InventoryMaterialRow extends MaterialRow {
   stockStatus: 'OUT_OF_STOCK' | 'LOW' | 'OK'
 }
 
+export interface OrderFormMaterialRow {
+  id: string
+  name: string
+  unit: string
+  stockQty: number
+  purchasePrice: number
+  salePrice: number
+  hsnCode: string | null
+  gstRate: number
+  isExempted: boolean
+}
+
 function materialTaxFieldsFromMetadata(metadata: Prisma.JsonValue | null) {
   const bag = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
     ? metadata as Record<string, unknown>
@@ -568,6 +580,37 @@ export async function listActiveMaterials(businessId: string) {
       ? (material.stockQty <= 0 ? 'OUT_OF_STOCK' : 'LOW')
       : 'OK',
   })) as InventoryMaterialRow[]
+}
+
+export async function listOrderFormMaterials(businessId: string) {
+  const rows = await prisma.$queryRaw<OrderFormMaterialRow[]>(Prisma.sql`
+    SELECT
+      id,
+      name,
+      unit,
+      "stockQty"::double precision AS "stockQty",
+      "purchasePrice"::double precision AS "purchasePrice",
+      "salePrice"::double precision AS "salePrice",
+      NULLIF(COALESCE(metadata->>'hsnCode', ''), '') AS "hsnCode",
+      CASE
+        WHEN COALESCE(metadata->>'gstRate', '') ~ '^[0-9]+(\\.[0-9]+)?$'
+          THEN (metadata->>'gstRate')::double precision
+        ELSE 0
+      END AS "gstRate",
+      CASE
+        WHEN LOWER(COALESCE(metadata->>'isExempted', 'false')) = 'true' THEN true
+        ELSE false
+      END AS "isExempted"
+    FROM materials
+    WHERE "businessId" = ${businessId} AND "isActive" = true
+    ORDER BY name ASC
+  `)
+
+  return rows.map((row) => ({
+    ...row,
+    gstRate: Number(row.gstRate ?? 0),
+    isExempted: row.isExempted === true || Number(row.gstRate ?? 0) === 0,
+  }))
 }
 
 export async function listMaterialMatchCatalog(businessId: string) {
@@ -1288,6 +1331,7 @@ export async function commitPurchaseBillScan(input: {
   businessId: string
   recordedById: string
   lines: CommitPurchaseBillLineInput[]
+  locationId?: string
 }) {
   await ensurePurchaseBillTables()
 
@@ -1298,6 +1342,22 @@ export async function commitPurchaseBillScan(input: {
   }
 
   return prisma.$transaction(async (tx) => {
+    let targetLocationId = input.locationId ?? null
+    if (targetLocationId) {
+      const locationRows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id
+        FROM locations
+        WHERE id = ${targetLocationId}
+          AND "businessId" = ${input.businessId}
+          AND "isActive" = true
+        LIMIT 1
+      `)
+      if (!locationRows[0]) throw new Error('Selected location was not found')
+    } else {
+      targetLocationId = await getDefaultLocation(input.businessId)
+      if (!targetLocationId) throw new Error('Default location is not configured for this business')
+    }
+
     const scanRows = await tx.$queryRaw<Array<{
       id: string
       status: PurchaseBillScanStatus
@@ -1487,6 +1547,26 @@ export async function commitPurchaseBillScan(input: {
       throw new Error('Unable to update one or more materials')
     }
 
+    const stockByMaterial = new Map(materialUpdates.map((entry) => [entry.materialId, entry.quantity]))
+    const locationStockValues = updatedMaterials.map((material) => Prisma.sql`(
+      ${randomUUID()},
+      ${input.businessId},
+      ${material.id},
+      ${targetLocationId!},
+      ${stockByMaterial.get(material.id) ?? 0},
+      NOW(),
+      NOW()
+    )`)
+
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO material_stock (id, "businessId", "materialId", "locationId", quantity, "createdAt", "updatedAt")
+      VALUES ${Prisma.join(locationStockValues)}
+      ON CONFLICT ("businessId", "materialId", "locationId")
+      DO UPDATE SET
+        quantity = material_stock.quantity + EXCLUDED.quantity,
+        "updatedAt" = NOW()
+    `)
+
     const reasonParts = ['Bill import']
     if (scan.invoiceNumber) reasonParts.push(`#${scan.invoiceNumber}`)
     if (scan.supplierName) reasonParts.push(scan.supplierName)
@@ -1650,4 +1730,62 @@ export async function bulkSoftDeleteMaterials(ids: string[], businessId: string)
   `)
 
   return rows[0]?.count ?? 0
+}
+
+export async function backfillGlobalStockToDefaultLocation(businessId: string) {
+  const defaultLocationId = await getDefaultLocation(businessId)
+  if (!defaultLocationId) throw new Error('Default location is not configured for this business')
+
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<Array<{ materialId: string; quantity: number }>>(Prisma.sql`
+      SELECT
+        m.id AS "materialId",
+        GREATEST(
+          0,
+          m."stockQty"::double precision - COALESCE((
+            SELECT SUM(ms.quantity)::double precision
+            FROM material_stock ms
+            WHERE ms."businessId" = m."businessId"
+              AND ms."materialId" = m.id
+          ), 0)
+        ) AS quantity
+      FROM materials m
+      WHERE m."businessId" = ${businessId}
+        AND m."isActive" = true
+    `)
+
+    const pending = rows.filter((row) => Number(row.quantity) > 0)
+    if (pending.length === 0) {
+      return {
+        locationId: defaultLocationId,
+        mappedMaterialCount: 0,
+        totalQuantityAdded: 0,
+      }
+    }
+
+    const values = pending.map((row) => Prisma.sql`(
+      ${randomUUID()},
+      ${businessId},
+      ${row.materialId},
+      ${defaultLocationId},
+      ${row.quantity},
+      NOW(),
+      NOW()
+    )`)
+
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO material_stock (id, "businessId", "materialId", "locationId", quantity, "createdAt", "updatedAt")
+      VALUES ${Prisma.join(values)}
+      ON CONFLICT ("businessId", "materialId", "locationId")
+      DO UPDATE SET
+        quantity = material_stock.quantity + EXCLUDED.quantity,
+        "updatedAt" = NOW()
+    `)
+
+    return {
+      locationId: defaultLocationId,
+      mappedMaterialCount: pending.length,
+      totalQuantityAdded: pending.reduce((sum, row) => sum + Number(row.quantity), 0),
+    }
+  })
 }

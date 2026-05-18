@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { invalidateBusinessData } from '@/lib/query'
 
 export function useCustomers(
   filters?: { search?: string; riskTag?: string },
@@ -32,7 +33,7 @@ export function useCreateCustomer() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: any) => api.post('/api/customers', data).then(r => r.data.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['customers'] }),
+    onSuccess: () => invalidateBusinessData(qc, ['customers']),
   })
 }
 
@@ -52,9 +53,7 @@ export function useDeleteCustomer() {
   return useMutation({
     mutationFn: (id: string) => api.delete(`/api/customers/${id}`).then(r => r.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['customers'] })
-      qc.invalidateQueries({ queryKey: ['ledger'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateBusinessData(qc, ['customers', 'ledger', 'dashboard'])
     },
   })
 }
@@ -64,9 +63,7 @@ export function useBulkDeleteCustomers() {
   return useMutation({
     mutationFn: (ids: string[]) => api.post('/api/customers/bulk-delete', { ids }).then(r => r.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['customers'] })
-      qc.invalidateQueries({ queryKey: ['ledger'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateBusinessData(qc, ['customers', 'ledger', 'dashboard'])
     },
   })
 }
@@ -76,7 +73,7 @@ export function useSendReminders() {
   return useMutation({
     mutationFn: (customerIds: string[]) => api.post('/api/reminders/send-selected', { customerIds }).then(r => r.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['reminders'] })
+      invalidateBusinessData(qc, ['reminders'])
     },
   })
 }

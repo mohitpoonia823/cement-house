@@ -24,6 +24,7 @@ const SETTINGS_SUBSCRIPTION_CACHE_TTL_MS = 10_000
 const SETTINGS_STAFF_CACHE_TTL_MS = 10_000
 const SETTINGS_SUBSCRIPTION_USAGE_CACHE_TTL_MS = 10_000
 const SETTINGS_BOOTSTRAP_CACHE_TTL_MS = 10_000
+const SETTINGS_ORDER_FORM_CACHE_TTL_MS = 30_000
 const settingsCache = new Map<string, { expiresAt: number; value: any }>()
 const settingsInFlight = new Map<string, Promise<any>>()
 const settingsSubscriptionCache = new Map<string, { expiresAt: number; value: any }>()
@@ -34,6 +35,8 @@ const settingsSubscriptionUsageCache = new Map<string, { expiresAt: number; valu
 const settingsSubscriptionUsageInFlight = new Map<string, Promise<any>>()
 const settingsBootstrapCache = new Map<string, { expiresAt: number; value: any }>()
 const settingsBootstrapInFlight = new Map<string, Promise<any>>()
+const settingsOrderFormCache = new Map<string, { expiresAt: number; value: any }>()
+const settingsOrderFormInFlight = new Map<string, Promise<any>>()
 
 function clearSettingsCacheByPrefix(prefix: string) {
   for (const key of settingsCache.keys()) if (key.startsWith(prefix)) settingsCache.delete(key)
@@ -46,6 +49,8 @@ function clearSettingsCacheByPrefix(prefix: string) {
   for (const key of settingsSubscriptionUsageInFlight.keys()) if (key.startsWith(prefix)) settingsSubscriptionUsageInFlight.delete(key)
   for (const key of settingsBootstrapCache.keys()) if (key.startsWith(prefix)) settingsBootstrapCache.delete(key)
   for (const key of settingsBootstrapInFlight.keys()) if (key.startsWith(prefix)) settingsBootstrapInFlight.delete(key)
+  for (const key of settingsOrderFormCache.keys()) if (key.startsWith(prefix)) settingsOrderFormCache.delete(key)
+  for (const key of settingsOrderFormInFlight.keys()) if (key.startsWith(prefix)) settingsOrderFormInFlight.delete(key)
 }
 
 function invalidateSettingsCaches(businessId: string, userId?: string) {
@@ -212,6 +217,37 @@ function shouldAutoActivateOnVerifyInTest() {
 }
 
 export async function settingsRoutes(app: FastifyInstance) {
+  app.get('/order-form', async (req, reply) => {
+    const bizId = getBizId(req)
+    const userId = (req.user as { id: string }).id
+    const cacheKey = `${bizId}:${userId}:order-form`
+    const now = Date.now()
+    const cached = settingsOrderFormCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) return { success: true, data: cached.value }
+
+    const inFlight = settingsOrderFormInFlight.get(cacheKey)
+    if (inFlight) return { success: true, data: await inFlight }
+
+    const compute = (async () => {
+      const business = await settingsRepository.getSettingsBusinessById(bizId)
+      if (!business) return null
+      return {
+        business: {
+          id: business.id,
+          gstin: business.gstin,
+          stateCode: business.stateCode,
+          featureFlags: business.featureFlags ?? {},
+        },
+      }
+    })().finally(() => settingsOrderFormInFlight.delete(cacheKey))
+
+    settingsOrderFormInFlight.set(cacheKey, compute)
+    const data = await compute
+    if (!data) return reply.status(404).send({ success: false, error: 'Workspace not found' })
+    settingsOrderFormCache.set(cacheKey, { expiresAt: Date.now() + SETTINGS_ORDER_FORM_CACHE_TTL_MS, value: data })
+    return { success: true, data }
+  })
+
   app.get('/bootstrap', async (req, reply) => {
     const routeStart = Date.now()
     const bizId = getBizId(req)

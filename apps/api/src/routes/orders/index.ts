@@ -13,8 +13,10 @@ const ordersListCache = new Map<string, { expiresAt: number; value: any }>()
 const ordersListInFlight = new Map<string, Promise<any>>()
 const orderDetailCache = new Map<string, { expiresAt: number; value: any }>()
 const orderDetailInFlight = new Map<string, Promise<any>>()
+const ordersCacheVersionByBusiness = new Map<string, number>()
 
 function invalidateOrderCachesForBusiness(businessId: string) {
+  ordersCacheVersionByBusiness.set(businessId, (ordersCacheVersionByBusiness.get(businessId) ?? 0) + 1)
   for (const key of ordersListCache.keys()) {
     if (key.startsWith(`${businessId}:`)) ordersListCache.delete(key)
   }
@@ -136,6 +138,7 @@ export async function orderRoutes(app: FastifyInstance) {
       }
     }
 
+    const cacheVersionAtStart = ordersCacheVersionByBusiness.get(bizId) ?? 0
     const compute = ordersRepository
       .listOrders({
         businessId: bizId,
@@ -147,7 +150,10 @@ export async function orderRoutes(app: FastifyInstance) {
       .finally(() => ordersListInFlight.delete(cacheKey))
     ordersListInFlight.set(cacheKey, compute)
     const result = await compute
-    ordersListCache.set(cacheKey, { expiresAt: Date.now() + ORDERS_LIST_CACHE_TTL_MS, value: result })
+    const cacheVersionAtEnd = ordersCacheVersionByBusiness.get(bizId) ?? 0
+    if (cacheVersionAtStart === cacheVersionAtEnd) {
+      ordersListCache.set(cacheKey, { expiresAt: Date.now() + ORDERS_LIST_CACHE_TTL_MS, value: result })
+    }
 
     return {
       success: true,
