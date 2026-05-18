@@ -69,11 +69,11 @@ export function VisualShowcase() {
         <div className="mb-10 text-center">
           <h2
             id="visual-showcase-title"
-            className="text-2xl font-bold text-[#1a1a1a] md:text-3xl"
+            className="text-2xl font-bold text-slate-900 dark:text-slate-100 md:text-3xl"
           >
             See NexaHub in action
           </h2>
-          <p className="mt-2 text-base text-[#666]">Powerful features in one platform</p>
+          <p className="mt-2 text-base text-slate-600 dark:text-slate-300">Powerful features in one platform</p>
         </div>
 
         <div className="space-y-6 md:space-y-8">
@@ -98,8 +98,8 @@ export function VisualShowcase() {
               </div>
 
               <div>
-                <h3 className="text-xl font-bold text-[#1a1a1a] md:text-[22px]">{item.title}</h3>
-                <p className="mt-3 text-sm leading-[1.6] text-[#666] md:text-base">{item.description}</p>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100 md:text-[22px]">{item.title}</h3>
+                <p className="mt-3 text-sm leading-[1.6] text-slate-600 dark:text-slate-300 md:text-base">{item.description}</p>
               </div>
             </article>
           ))}
