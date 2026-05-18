@@ -1,4 +1,5 @@
 import { prisma, subscriptionsRepository } from '@cement-house/db'
+import type { SubscriptionStatus } from '@cement-house/db'
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import { ensurePlatformSettings, syncBusinessStatusIfNeeded } from '../services/billing'
 const LAST_SEEN_WRITE_COOLDOWN_MS = 5 * 60 * 1000
@@ -10,7 +11,7 @@ const accessContextInFlight = new Map<string, Promise<CachedAccessContext>>()
 type CachedAccessContext = {
   accessLocked: boolean
   accessReason: string
-  effectiveStatus: string | null
+  effectiveStatus: SubscriptionStatus | null
   endsAtIso: string | null
   monthlyPrice: number
   yearlyPrice: number
@@ -70,7 +71,7 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
 
     let accessLocked = false
     let accessReason = ''
-    let effectiveStatus = user.business?.subscriptionStatus ?? null
+    let effectiveStatus: SubscriptionStatus | null = user.business?.subscriptionStatus ?? null
     let endsAtIso: string | null = user.business?.subscriptionEndsAt?.toISOString?.() ?? null
     let monthlyPrice = 0
     let yearlyPrice = 0

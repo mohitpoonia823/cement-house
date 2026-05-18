@@ -472,7 +472,7 @@ function InventoryContent() {
         return
       }
       if (bulkTransferMode) {
-        const items = selectedMaterials
+        const items: Array<{ materialId: string; quantity: number; available: number }> = selectedMaterials
           .map((material: any) => {
             const qty = Number(bulkTransferQty[material.id] ?? 0)
             const available = Number((sourceStockByLocation ?? []).find(
@@ -480,7 +480,7 @@ function InventoryContent() {
             )?.quantity ?? 0)
             return { materialId: material.id, quantity: qty, available }
           })
-          .filter((item) => item.quantity > 0)
+          .filter((item: { materialId: string; quantity: number; available: number }) => item.quantity > 0)
         if (items.length === 0) {
           setTransferError('Enter quantity for at least one selected item.')
           return
