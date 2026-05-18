@@ -34,6 +34,7 @@ const CreateCustomerSchema = z.object({
   address: z.string().optional(),
   siteAddress: z.string().optional(),
   gstin: z.string().optional(),
+  stateCode: z.string().trim().length(2).optional(),
   creditLimit: z.number().min(0).default(0),
   notes: z.string().optional(),
 })
@@ -50,6 +51,12 @@ const UpdateRiskSchema = z.object({
 const BulkDeleteSchema = z.object({
   ids: z.array(z.string().uuid()).min(1),
 })
+
+function stateCodeFromGstin(gstin?: string | null) {
+  const trimmed = String(gstin ?? '').trim()
+  const match = trimmed.match(/^(\d{2})[A-Za-z0-9]{13}$/)
+  return match ? match[1] : undefined
+}
 
 export async function customerRoutes(app: FastifyInstance) {
   app.get('/', async (req, reply) => {
@@ -148,6 +155,7 @@ export async function customerRoutes(app: FastifyInstance) {
 
     const customer = await customersRepository.createCustomer({
       ...body.data,
+      stateCode: body.data.stateCode ?? stateCodeFromGstin(body.data.gstin),
       businessId: bizId,
     })
     invalidateCustomersListCacheForBusiness(bizId)
@@ -163,7 +171,10 @@ export async function customerRoutes(app: FastifyInstance) {
     const body = UpdateCustomerSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const customer = await customersRepository.updateCustomer(params.data.id, bizId, body.data)
+    const customer = await customersRepository.updateCustomer(params.data.id, bizId, {
+      ...body.data,
+      stateCode: body.data.stateCode ?? stateCodeFromGstin(body.data.gstin),
+    })
     if (!customer) return reply.status(404).send({ success: false, error: 'Customer not found' })
     invalidateCustomersListCacheForBusiness(bizId)
 

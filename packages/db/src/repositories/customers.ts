@@ -12,6 +12,7 @@ export interface CustomerRow {
   address: string | null
   siteAddress: string | null
   gstin: string | null
+  stateCode: string | null
   creditLimit: number
   riskTag: RiskTag
   notes: string | null
@@ -98,6 +99,7 @@ interface CreateCustomerInput {
   address?: string
   siteAddress?: string
   gstin?: string
+  stateCode?: string
   creditLimit: number
   notes?: string
 }
@@ -109,6 +111,7 @@ interface UpdateCustomerInput {
   address?: string
   siteAddress?: string
   gstin?: string
+  stateCode?: string
   creditLimit?: number
   notes?: string
   riskTag?: RiskTag
@@ -125,6 +128,7 @@ function customerSelectSql() {
       c.address,
       c."siteAddress" AS "siteAddress",
       c.gstin,
+      c."stateCode" AS "stateCode",
       c."creditLimit"::double precision AS "creditLimit",
       c."riskTag"::text AS "riskTag",
       c.notes,
@@ -152,6 +156,7 @@ export async function listActiveCustomersWithStats(input: ListCustomersInput) {
         c.address,
         c."siteAddress" AS "siteAddress",
         c.gstin,
+        c."stateCode" AS "stateCode",
         c."creditLimit"::double precision AS "creditLimit",
         c."riskTag"::text AS "riskTag",
         c.notes,
@@ -171,6 +176,7 @@ export async function listActiveCustomersWithStats(input: ListCustomersInput) {
       fc.address,
       fc."siteAddress" AS "siteAddress",
       fc.gstin,
+      fc."stateCode" AS "stateCode",
       fc."creditLimit"::double precision AS "creditLimit",
       fc."riskTag"::text AS "riskTag",
       fc.notes,
@@ -341,6 +347,7 @@ export async function createCustomer(input: CreateCustomerInput) {
       address,
       "siteAddress",
       gstin,
+      "stateCode",
       "creditLimit",
       notes,
       "businessId",
@@ -357,6 +364,7 @@ export async function createCustomer(input: CreateCustomerInput) {
       ${input.address ?? null},
       ${input.siteAddress ?? null},
       ${input.gstin ?? null},
+      ${input.stateCode ?? null},
       ${input.creditLimit},
       ${input.notes ?? null},
       ${input.businessId},
@@ -374,6 +382,7 @@ export async function createCustomer(input: CreateCustomerInput) {
       address,
       "siteAddress" AS "siteAddress",
       gstin,
+      "stateCode" AS "stateCode",
       "creditLimit"::double precision AS "creditLimit",
       "riskTag"::text AS "riskTag",
       notes,
@@ -394,6 +403,7 @@ export async function updateCustomer(customerId: string, businessId: string, inp
   if (input.address !== undefined) updates.push(Prisma.sql`address = ${input.address}`)
   if (input.siteAddress !== undefined) updates.push(Prisma.sql`"siteAddress" = ${input.siteAddress}`)
   if (input.gstin !== undefined) updates.push(Prisma.sql`gstin = ${input.gstin}`)
+  if (input.stateCode !== undefined) updates.push(Prisma.sql`"stateCode" = ${input.stateCode}`)
   if (input.creditLimit !== undefined) updates.push(Prisma.sql`"creditLimit" = ${input.creditLimit}`)
   if (input.notes !== undefined) updates.push(Prisma.sql`notes = ${input.notes}`)
   if (input.riskTag !== undefined) updates.push(Prisma.sql`"riskTag" = ${input.riskTag}::"RiskTag"`)
@@ -413,6 +423,7 @@ export async function updateCustomer(customerId: string, businessId: string, inp
       address,
       "siteAddress" AS "siteAddress",
       gstin,
+      "stateCode" AS "stateCode",
       "creditLimit"::double precision AS "creditLimit",
       "riskTag"::text AS "riskTag",
       notes,

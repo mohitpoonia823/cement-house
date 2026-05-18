@@ -69,3 +69,6 @@ export {
 } from './business-config'
 export type { BusinessType, ModuleKey, FeatureKey, BusinessTypeConfig } from './business-config'
 
+export { computeOrderPreview } from './compute-order-preview'
+export type { OrderLineInput, OrderLineResult, OrderSummary } from './compute-order-preview'
+

@@ -1,3 +1,5 @@
+import { computeOrderPreview } from '@cement-house/utils'
+
 export type BillingFeatureFlags = Partial<{
   gstBilling: boolean
   weightBilling: boolean
@@ -101,15 +103,11 @@ export function calculateInvoice(input: BillingInput): BillingComputed {
   const flags = input.featureFlags ?? {}
   const isWeightBilling = bool(flags.weightBilling)
   const gstEnabled = input.gstEnabled ?? bool(flags.gstBilling)
+  const isInterState = input.isInterState === true
 
   let subtotal = 0
-  let itemDiscountTotal = 0
-  let taxableTotal = 0
-  let cgstTotal = 0
-  let sgstTotal = 0
-  let igstTotal = 0
 
-  const lines: BillingLineComputed[] = input.items.map((item) => {
+  const prepared = input.items.map((item) => {
     const qty = Number(item.quantity)
     const unitPrice = Number(item.unitPrice)
     const purchasePrice = Number(item.purchasePrice ?? 0)
@@ -118,50 +116,53 @@ export function calculateInvoice(input: BillingInput): BillingComputed {
     const netWeight = item.netWeight != null ? Number(item.netWeight) : (grossWeight != null && tareWeight != null ? Math.max(0, grossWeight - tareWeight) : undefined)
     const deductionQty = isWeightBilling ? Number(netWeight ?? qty) : qty
     const itemSubtotal = round2(deductionQty * unitPrice)
-    const itemDiscount = round2(Number(item.discount ?? 0))
-    const taxableAmount = round2(Math.max(0, itemSubtotal - itemDiscount))
-    const gstRate = gstEnabled ? Number(item.gstRate ?? 0) : 0
-    const gstAmount = round2((taxableAmount * gstRate) / 100)
-    const isInterState = input.isInterState === true
-    const cgstAmount = gstEnabled && !isInterState ? round2(gstAmount / 2) : 0
-    const sgstAmount = gstEnabled && !isInterState ? round2(gstAmount / 2) : 0
-    const igstAmount = gstEnabled && isInterState ? gstAmount : 0
-    const lineTotal = round2(taxableAmount + cgstAmount + sgstAmount + igstAmount)
 
     subtotal += itemSubtotal
-    itemDiscountTotal += itemDiscount
-    taxableTotal += taxableAmount
-    cgstTotal += cgstAmount
-    sgstTotal += sgstAmount
-    igstTotal += igstAmount
+    return { item, qty, unitPrice, purchasePrice, deductionQty, itemSubtotal, grossWeight, tareWeight, netWeight }
+  })
 
+  const preview = computeOrderPreview(
+    prepared.map((row) => ({
+      quantity: row.deductionQty,
+      unitPrice: row.unitPrice,
+      discountAmount: Number(row.item.discount ?? 0),
+      gstRate: Number(row.item.gstRate ?? 0),
+      hsnCode: '',
+      isExempted: false,
+    })),
+    isInterState,
+    gstEnabled
+  )
+
+  const lines: BillingLineComputed[] = prepared.map((row, index) => {
+    const tax = preview.lines[index]
     return {
-      materialId: item.materialId,
-      quantity: qty,
-      deductionQty,
-      unitPrice,
-      purchasePrice,
-      itemSubtotal,
-      itemDiscount,
-      taxableAmount,
-      gstRate,
-      cgstAmount,
-      sgstAmount,
-      igstAmount,
-      gstAmount,
-      lineTotal,
-      grossWeight,
-      tareWeight,
-      netWeight,
+      materialId: row.item.materialId,
+      quantity: row.qty,
+      deductionQty: row.deductionQty,
+      unitPrice: row.unitPrice,
+      purchasePrice: row.purchasePrice,
+      itemSubtotal: row.itemSubtotal,
+      itemDiscount: tax.discountAmount,
+      taxableAmount: tax.taxableAmount,
+      gstRate: tax.cgstRate + tax.sgstRate + tax.igstRate,
+      cgstAmount: tax.cgstAmount,
+      sgstAmount: tax.sgstAmount,
+      igstAmount: tax.igstAmount,
+      gstAmount: tax.totalTax,
+      lineTotal: tax.lineTotal,
+      grossWeight: row.grossWeight,
+      tareWeight: row.tareWeight,
+      netWeight: row.netWeight,
     }
   })
 
   subtotal = round2(subtotal)
-  itemDiscountTotal = round2(itemDiscountTotal)
-  taxableTotal = round2(taxableTotal)
-  cgstTotal = round2(cgstTotal)
-  sgstTotal = round2(sgstTotal)
-  igstTotal = round2(igstTotal)
+  const itemDiscountTotal = round2(preview.totalDiscount)
+  const taxableTotal = round2(preview.totalTaxable)
+  const cgstTotal = round2(preview.totalCgst)
+  const sgstTotal = round2(preview.totalSgst)
+  const igstTotal = round2(preview.totalIgst)
   const gstTotal = round2(cgstTotal + sgstTotal + igstTotal)
 
   const invoiceDiscount = round2(Number(input.invoiceDiscount ?? 0))

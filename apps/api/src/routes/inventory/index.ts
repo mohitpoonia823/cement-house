@@ -86,6 +86,9 @@ const CreateMaterialSchema = z.object({
   grossWeight: z.number().min(0).optional(),
   tareWeight: z.number().min(0).optional(),
   netWeight: z.number().min(0).optional(),
+  hsnCode: z.string().trim().max(30).optional(),
+  gstRate: z.number().min(0).max(100).optional(),
+  isExempted: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   allowPastExpiry: z.boolean().optional(),
 })
@@ -163,6 +166,22 @@ function withDerivedWeightFields<T extends z.infer<typeof CreateMaterialSchema>>
     } as T
   }
   return payload
+}
+
+function withTaxMetadata<T extends z.infer<typeof CreateMaterialSchema>>(payload: T): T {
+  const base = payload.metadata && typeof payload.metadata === 'object' && !Array.isArray(payload.metadata)
+    ? { ...payload.metadata }
+    : {}
+  const next = {
+    ...payload,
+    metadata: {
+      ...base,
+      ...(payload.hsnCode !== undefined ? { hsnCode: payload.hsnCode } : {}),
+      ...(payload.gstRate !== undefined ? { gstRate: payload.gstRate } : {}),
+      ...(payload.isExempted !== undefined ? { isExempted: payload.isExempted } : {}),
+    },
+  }
+  return next as T
 }
 
 const BillScanSchema = z.object({
@@ -655,7 +674,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
     const bizId = getBizId(req)
     const body = CreateMaterialSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
-    const normalized = withDerivedWeightFields(body.data)
+    const normalized = withTaxMetadata(withDerivedWeightFields(body.data))
     const validationError = validateMaterialByFeatures(req, normalized)
     if (validationError) return reply.status(400).send({ success: false, error: validationError })
 
@@ -691,7 +710,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
     if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
     const body = UpdateMaterialSchema.safeParse({ ...(req.body as object), id: params.data.id })
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
-    const normalized = withDerivedWeightFields(body.data)
+    const normalized = withTaxMetadata(withDerivedWeightFields(body.data))
     const validationError = validateMaterialByFeatures(req, normalized)
     if (validationError) return reply.status(400).send({ success: false, error: validationError })
     const { id: _id, ...payload } = normalized

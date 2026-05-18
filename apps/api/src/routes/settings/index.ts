@@ -59,6 +59,7 @@ const UpdateBusinessSchema = z.object({
   address: z.string().optional(),
   phone: z.string().optional(),
   gstin: z.string().optional(),
+  stateCode: z.string().trim().length(2).optional(),
   businessType: z.enum(BUSINESS_TYPE_VALUES).optional(),
   customLabels: z
     .object({
@@ -123,6 +124,10 @@ const UpdateModulesConfigSchema = z.object({
   featureFlags: z.record(z.string(), z.boolean()),
 })
 
+const UpdateGstBillingSchema = z.object({
+  gstBilling: z.boolean(),
+})
+
 const SubscriptionCheckoutVerifySchema = z.object({
   transactionId: z.string().min(1),
   interval: z.enum(['MONTHLY', 'YEARLY']),
@@ -134,6 +139,12 @@ const SubscriptionCheckoutVerifySchema = z.object({
 const CancelSubscriptionSchema = z.object({
   reason: z.string().trim().min(3).max(200).optional(),
 })
+
+function stateCodeFromGstin(gstin?: string | null) {
+  const trimmed = String(gstin ?? '').trim()
+  const match = trimmed.match(/^(\d{2})[A-Za-z0-9]{13}$/)
+  return match ? match[1] : undefined
+}
 
 function buildSettingsAuthUser(user: {
   id: string
@@ -891,7 +902,40 @@ export async function settingsRoutes(app: FastifyInstance) {
     const body = UpdateBusinessSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const business = await settingsRepository.updateBusinessProfile(bizId, body.data)
+    const business = await settingsRepository.updateBusinessProfile(bizId, {
+      ...body.data,
+      stateCode: body.data.stateCode ?? stateCodeFromGstin(body.data.gstin),
+    })
+    if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
+    invalidateSettingsCaches(bizId, (req.user as any).id)
+
+    return { success: true, data: business }
+  })
+
+  app.patch('/business/gst-billing', async (req, reply) => {
+    if (!requireOwner(req, reply)) return
+    const bizId = getBizId(req)
+    const body = UpdateGstBillingSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    const current = await settingsRepository.getSettingsBusinessById(bizId)
+    if (!current) return reply.status(404).send({ success: false, error: 'Business not found' })
+
+    const enabledModules = Array.isArray(current.enabledModules) ? current.enabledModules : []
+    if (body.data.gstBilling && !enabledModules.includes('orders')) {
+      return reply.status(400).send({ success: false, error: 'GST billing requires billing/orders module.' })
+    }
+
+    const currentFlags =
+      current.featureFlags && typeof current.featureFlags === 'object'
+        ? current.featureFlags
+        : {}
+    const business = await settingsRepository.updateBusinessProfile(bizId, {
+      featureFlags: {
+        ...(currentFlags as Record<string, boolean>),
+        gstBilling: body.data.gstBilling,
+      },
+    })
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
     invalidateSettingsCaches(bizId, (req.user as any).id)
 

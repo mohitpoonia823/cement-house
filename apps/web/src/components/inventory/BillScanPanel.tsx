@@ -162,6 +162,7 @@ export function BillScanPanel({
   const [error, setError] = useState('')
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
   const galleryInputRef = useRef<HTMLInputElement | null>(null)
+  const desktopInputRef = useRef<HTMLInputElement | null>(null)
 
   const materialsById = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials])
   const allUnits = useMemo(() => (units?.length ? units : fallbackUnits), [units])
@@ -210,6 +211,14 @@ export function BillScanPanel({
 
   function resetInputValue(input: HTMLInputElement | null) {
     if (input) input.value = ''
+  }
+
+  async function handlePickerChange(input: HTMLInputElement | null, file: File | undefined) {
+    try {
+      await handleFile(file)
+    } finally {
+      resetInputValue(input)
+    }
   }
 
   async function handleCommit() {
@@ -277,8 +286,7 @@ export function BillScanPanel({
                 capture="environment"
                 className="sr-only"
                 onChange={(event) => {
-                  handleFile(event.target.files?.[0])
-                  resetInputValue(cameraInputRef.current)
+                  handlePickerChange(cameraInputRef.current, event.target.files?.[0])
                 }}
               />
               <span aria-hidden className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300">
@@ -293,8 +301,7 @@ export function BillScanPanel({
                 accept="image/png,image/jpeg,image/webp"
                 className="sr-only"
                 onChange={(event) => {
-                  handleFile(event.target.files?.[0])
-                  resetInputValue(galleryInputRef.current)
+                  handlePickerChange(galleryInputRef.current, event.target.files?.[0])
                 }}
               />
               <span aria-hidden className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-sky-100 text-sky-600 dark:bg-sky-900/40 dark:text-sky-300">
@@ -306,10 +313,13 @@ export function BillScanPanel({
 
           <label className="hidden min-h-40 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-4 text-center transition-colors hover:bg-white dark:border-slate-700 dark:bg-slate-950/30 dark:hover:bg-slate-900 sm:flex">
             <input
+              ref={desktopInputRef}
               type="file"
               accept="image/png,image/jpeg,image/webp"
               className="sr-only"
-              onChange={(event) => handleFile(event.target.files?.[0])}
+              onChange={(event) => {
+                handlePickerChange(desktopInputRef.current, event.target.files?.[0])
+              }}
             />
             <span aria-hidden className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-sky-100 text-sky-600 dark:bg-sky-900/40 dark:text-sky-300">
               <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current"><path d="M5 3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5Zm12.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM6 17.5l3.5-4.5 2.7 3.4 2-2.4L18 17.5H6Z"/></svg>

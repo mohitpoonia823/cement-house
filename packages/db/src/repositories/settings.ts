@@ -40,6 +40,7 @@ export interface SettingsBusinessRow {
   address: string | null
   phone: string | null
   gstin: string | null
+  stateCode: string | null
   businessType: string
   customLabels: Record<string, string> | null
   enabledModules: string[] | null
@@ -140,6 +141,7 @@ interface UpdateBusinessInput {
   address?: string
   phone?: string
   gstin?: string
+  stateCode?: string
   businessType?: string
   customLabels?: Record<string, string>
   enabledModules?: string[]
@@ -212,6 +214,7 @@ function settingsBusinessSelectSql() {
       address,
       phone,
       gstin,
+      "stateCode" AS "stateCode",
       "businessType" AS "businessType",
       "customLabels" AS "customLabels",
       "enabledModules" AS "enabledModules",
@@ -500,6 +503,7 @@ export async function cancelSubscriptionByBusiness(businessId: string) {
       address,
       phone,
       gstin,
+      "stateCode" AS "stateCode",
       "businessType" AS "businessType",
       "customLabels" AS "customLabels",
       "isActive" AS "isActive",
@@ -529,6 +533,7 @@ export async function updateBusinessProfile(businessId: string, input: UpdateBus
   if (input.address !== undefined) updates.push(Prisma.sql`address = ${input.address}`)
   if (input.phone !== undefined) updates.push(Prisma.sql`phone = ${input.phone}`)
   if (input.gstin !== undefined) updates.push(Prisma.sql`gstin = ${input.gstin}`)
+  if (input.stateCode !== undefined) updates.push(Prisma.sql`"stateCode" = ${input.stateCode}`)
   if (input.businessType !== undefined) updates.push(Prisma.sql`"businessType" = ${input.businessType}`)
   if (input.customLabels !== undefined) updates.push(Prisma.sql`"customLabels" = ${JSON.stringify(input.customLabels)}::jsonb`)
   if (input.enabledModules !== undefined) updates.push(Prisma.sql`"enabledModules" = ${JSON.stringify(input.enabledModules)}::jsonb`)
@@ -548,6 +553,7 @@ export async function updateBusinessProfile(businessId: string, input: UpdateBus
       address,
       phone,
       gstin,
+      "stateCode" AS "stateCode",
       "businessType" AS "businessType",
       "customLabels" AS "customLabels",
       "enabledModules" AS "enabledModules",
@@ -594,6 +600,7 @@ export async function updateBusinessReminders(businessId: string, input: UpdateR
       address,
       phone,
       gstin,
+      "stateCode" AS "stateCode",
       "businessType" AS "businessType",
       "customLabels" AS "customLabels",
       "enabledModules" AS "enabledModules",

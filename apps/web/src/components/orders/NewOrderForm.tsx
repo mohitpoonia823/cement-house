@@ -4,11 +4,26 @@ import { Card } from '@/components/ui/Card'
 import { useCustomers } from '@/hooks/useCustomers'
 import { useInventory, useLocations } from '@/hooks/useInventory'
 import { useCreateOrder } from '@/hooks/useOrders'
+import { getStateCodeFromGstin, useBusinessConfig } from '@/hooks/useBusinessConfig'
 import { fmt } from '@/lib/utils'
+import { computeOrderPreview } from '@cement-house/utils'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
 import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
+
+type Product = {
+  id: string
+  name: string
+  price: number
+  unit: string
+  hsnCode: string
+  gstRate: number
+  isExempted: boolean
+  purchasePrice: number
+  salePrice: number
+  stockQty: number
+}
 
 type LineItem = {
   materialId: string
@@ -17,6 +32,10 @@ type LineItem = {
   quantity: number
   unitPrice: number
   purchasePrice: number
+  discountAmount: number
+  gstRate: number
+  hsnCode: string
+  isExempted: boolean
   batchNumber?: string
   expiryDate?: string
   barcode?: string
@@ -45,6 +64,7 @@ interface NewOrderFormProps {
 export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: NewOrderFormProps) {
   const { language } = useI18n()
   const { hasFeature } = useTenantCapabilities()
+  const { gstBilling, storeStateCode } = useBusinessConfig()
   const router = useRouter()
   const { data: customers, isLoading: customersLoading } = useCustomers()
   const { data: materials, isLoading: materialsLoading } = useInventory()
@@ -58,13 +78,31 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
   const [amountPaid, setAmountPaid] = useState(0)
   const [notes, setNotes] = useState('')
   const [items, setItems] = useState<LineItem[]>([
-    { materialId: '', materialName: '', unit: '', quantity: 1, unitPrice: 0, purchasePrice: 0, batchNumber: '', expiryDate: '', barcode: '', serialOrImei: '', grossWeight: 0, tareWeight: 0, netWeight: 0 },
+    {
+      materialId: '',
+      materialName: '',
+      unit: '',
+      quantity: 1,
+      unitPrice: 0,
+      purchasePrice: 0,
+      discountAmount: 0,
+      gstRate: 0,
+      hsnCode: '',
+      isExempted: false,
+      batchNumber: '',
+      expiryDate: '',
+      barcode: '',
+      serialOrImei: '',
+      grossWeight: 0,
+      tareWeight: 0,
+      netWeight: 0,
+    },
   ])
   const [error, setError] = useState('')
 
   const selectedCustomer = (customers ?? []).find((c: any) => c.id === customerId)
-  const totalAmount = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0)
-  const totalDue = Math.max(0, totalAmount - amountPaid)
+  const customerStateCode = (selectedCustomer?.stateCode as string | undefined | null) || getStateCodeFromGstin(selectedCustomer?.gstin ?? null)
+  const isInterState = Boolean(selectedCustomer) && Boolean(storeStateCode) && Boolean(customerStateCode) && storeStateCode !== customerStateCode
   const minDeliveryDate = todayDateInput()
   const activeLocations = (locations ?? []).filter((l: any) => l.isActive)
   const showBatch = hasFeature('batchTracking')
@@ -72,22 +110,56 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
   const showBarcode = hasFeature('barcodeSupport')
   const showSerial = hasFeature('serialTracking')
   const showWeight = hasFeature('weightBasedBilling')
+  const showGst = hasFeature('gstBilling')
   const showAdvancedLineFields = showBatch || showExpiry || showBarcode || showSerial || showWeight
+  const products: Product[] = (materials ?? []).map((m: any) => ({
+    id: String(m.id),
+    name: String(m.name ?? ''),
+    price: Number(m.salePrice ?? 0),
+    unit: String(m.unit ?? ''),
+    hsnCode: String(m.hsnCode ?? ''),
+    gstRate: Number(m.gstRate ?? 0),
+    isExempted: Boolean(m.isExempted === true || Number(m.gstRate ?? 0) === 0),
+    purchasePrice: Number(m.purchasePrice ?? 0),
+    salePrice: Number(m.salePrice ?? 0),
+    stockQty: Number(m.stockQty ?? 0),
+  }))
+  const preview = useMemo(
+    () =>
+      computeOrderPreview(
+        items.map((item) => ({
+          quantity: Number(item.quantity),
+          unitPrice: Number(item.unitPrice),
+          discountAmount: Number(item.discountAmount ?? 0),
+          gstRate: Number(item.gstRate ?? 0),
+          hsnCode: item.hsnCode ?? '',
+          isExempted: item.isExempted === true,
+        })),
+        isInterState,
+        gstBilling
+      ),
+    [items, isInterState, gstBilling]
+  )
+  const totalAmount = preview.grandTotal
+  const totalDue = Math.max(0, totalAmount - amountPaid)
 
   function updateItem(idx: number, field: keyof LineItem, value: any) {
     setItems((prev) =>
       prev.map((item, i) => {
         if (i !== idx) return item
         if (field === 'materialId') {
-          const mat = (materials ?? []).find((m: any) => m.id === value)
-          return mat
+          const product = products.find((m) => m.id === value)
+          return product
             ? {
                 ...item,
-                materialId: mat.id,
-                materialName: mat.name,
-                unit: mat.unit,
-                unitPrice: Number(mat.salePrice),
-                purchasePrice: Number(mat.purchasePrice),
+                materialId: product.id,
+                materialName: product.name,
+                unit: product.unit,
+                unitPrice: Number(product.salePrice),
+                purchasePrice: Number(product.purchasePrice),
+                hsnCode: product.hsnCode,
+                gstRate: product.isExempted ? 0 : Number(product.gstRate),
+                isExempted: product.isExempted,
               }
             : { ...item, materialId: value }
         }
@@ -96,6 +168,8 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
           [field]:
             field === 'quantity' ||
             field === 'unitPrice' ||
+            field === 'discountAmount' ||
+            field === 'gstRate' ||
             field === 'grossWeight' ||
             field === 'tareWeight' ||
             field === 'netWeight'
@@ -107,7 +181,28 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
   }
 
   function addItem() {
-    setItems((prev) => [...prev, { materialId: '', materialName: '', unit: '', quantity: 1, unitPrice: 0, purchasePrice: 0, batchNumber: '', expiryDate: '', barcode: '', serialOrImei: '', grossWeight: 0, tareWeight: 0, netWeight: 0 }])
+    setItems((prev) => [
+      ...prev,
+      {
+        materialId: '',
+        materialName: '',
+        unit: '',
+        quantity: 1,
+        unitPrice: 0,
+        purchasePrice: 0,
+        discountAmount: 0,
+        gstRate: 0,
+        hsnCode: '',
+        isExempted: false,
+        batchNumber: '',
+        expiryDate: '',
+        barcode: '',
+        serialOrImei: '',
+        grossWeight: 0,
+        tareWeight: 0,
+        netWeight: 0,
+      },
+    ])
   }
 
   function removeItem(idx: number) {
@@ -126,10 +221,29 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
         customerId,
         sourceLocationId: sourceLocationId || undefined,
         deliveryDate: deliveryDate || undefined,
+        gstEnabled: gstBilling,
+        isInterState,
+        customerGstin: selectedCustomer?.gstin ?? null,
         paymentMode,
         amountPaid,
         notes,
-        items,
+        items: items.map((item) => ({
+          productId: item.materialId,
+          materialId: item.materialId,
+          quantity: Number(item.quantity),
+          unitPrice: Number(item.unitPrice),
+          purchasePrice: Number(item.purchasePrice),
+          discountAmount: Number(item.discountAmount ?? 0),
+          discount: Number(item.discountAmount ?? 0),
+          hsnCode: item.hsnCode || undefined,
+          gstRate: Number(item.gstRate ?? 0),
+          batchNumber: item.batchNumber || undefined,
+          expiryDate: item.expiryDate || undefined,
+          barcode: item.barcode || undefined,
+          grossWeight: Number(item.grossWeight ?? 0),
+          tareWeight: Number(item.tareWeight ?? 0),
+          netWeight: Number(item.netWeight ?? 0),
+        })),
       })
       if (redirectOnSuccess) {
         sessionStorage.setItem('orders_success_message', 'Order created successfully')
@@ -219,6 +333,27 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
               />
             </div>
           </div>
+          {showGst ? (
+            <div>
+              <label className="mb-1 block text-xs text-stone-500">Tax mode</label>
+              <div className="inline-flex items-center gap-2">
+                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                  isInterState
+                    ? 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200'
+                    : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200'
+                }`}>
+                  {isInterState ? 'Inter-state tax (IGST)' : 'Intra-state tax (CGST+SGST)'}
+                </span>
+                <span
+                  className="inline-flex h-5 w-5 cursor-help items-center justify-center rounded-full border border-stone-300 text-[11px] font-semibold text-stone-600 dark:border-slate-600 dark:text-slate-300"
+                  title="Tax mode is auto-detected from the first two digits (state code) of business GSTIN and customer GSTIN."
+                  aria-label="Tax mode is auto-detected from GSTIN state codes"
+                >
+                  i
+                </span>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {selectedCustomer && selectedCustomer.balance > 0 && (
@@ -228,6 +363,22 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
           </div>
         )}
       </Card>
+
+      {showGst ? (
+        <Card>
+          <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">Tax preview</div>
+          <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+            <div><div className="text-xs text-stone-500">Subtotal</div><div className="font-medium">{fmt(preview.subtotal)}</div></div>
+            <div><div className="text-xs text-stone-500">Discount</div><div className="font-medium">-{fmt(preview.totalDiscount)}</div></div>
+            <div><div className="text-xs text-stone-500">Taxable value</div><div className="font-medium">{fmt(preview.totalTaxable)}</div></div>
+            <div><div className="text-xs text-stone-500">{isInterState ? 'CGST (9%)' : 'CGST'}</div><div className="font-medium">{isInterState ? '-' : fmt(preview.totalCgst)}</div></div>
+            <div><div className="text-xs text-stone-500">{isInterState ? 'SGST (9%)' : 'SGST'}</div><div className="font-medium">{isInterState ? '-' : fmt(preview.totalSgst)}</div></div>
+            <div><div className="text-xs text-stone-500">{isInterState ? 'IGST (18%)' : 'IGST'}</div><div className="font-medium">{isInterState ? fmt(preview.totalIgst) : '-'}</div></div>
+            <div><div className="text-xs text-stone-500">Total tax</div><div className="font-medium">{fmt(preview.totalTax)}</div></div>
+            <div><div className="text-xs text-stone-500">Total</div><div className="font-medium">{fmt(preview.grandTotal)}</div></div>
+          </div>
+        </Card>
+      ) : null}
 
       <Card>
         <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? 'ऑर्डर आइटम्स' : 'Order items'}</div>
@@ -244,12 +395,12 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
               <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-12">
               <div className="col-span-1 sm:col-span-4">
                 <select
-                  value={item.materialId}
-                  onChange={(e) => updateItem(idx, 'materialId', e.target.value)}
+                    value={item.materialId}
+                    onChange={(e) => updateItem(idx, 'materialId', e.target.value)}
                   className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 >
                   <option value="">{language === 'hi' ? 'चुनें...' : 'Select...'}</option>
-                  {(materials ?? []).map((m: any) => (
+                  {products.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name} ({m.stockQty} {m.unit} in stock)
                     </option>
@@ -370,6 +521,30 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
                       </div>
                     </div>
                   ) : null}
+                </div>
+              ) : null}
+              {showGst ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="rounded-md border border-stone-200 bg-stone-50 px-2 py-1 dark:border-slate-700 dark:bg-slate-900">
+                    HSN: {item.hsnCode || 'N/A'}
+                  </span>
+                  <span className="rounded-md border border-stone-200 bg-stone-50 px-2 py-1 dark:border-slate-700 dark:bg-slate-900">
+                    GST: {item.isExempted ? 'Exempted' : `${Number(item.gstRate ?? 0)}%`}
+                  </span>
+                  {!item.hsnCode ? (
+                    <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                      HSN not configured
+                    </span>
+                  ) : null}
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={item.discountAmount ?? 0}
+                    onChange={(e) => updateItem(idx, 'discountAmount', e.target.value)}
+                    placeholder="Discount"
+                    className="w-28 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                  />
                 </div>
               ) : null}
             </div>

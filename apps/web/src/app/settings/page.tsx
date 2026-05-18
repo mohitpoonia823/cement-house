@@ -454,6 +454,30 @@ export default function SettingsPage() {
       setAlert({ tone: 'danger', message: getAlertMessage(error, 'Failed to update modules and features.') }),
   })
 
+  const updateGstBilling = useMutation({
+    mutationFn: (payload: { gstBilling: boolean }) =>
+      api.patch('/api/settings/business/gst-billing', payload).then((r) => r.data.data),
+    onSuccess: (_biz, variables) => {
+      qc.invalidateQueries({ queryKey: ['settings-bootstrap'] })
+      setFeatureSelection((prev) => ({ ...prev, gstBilling: variables.gstBilling }))
+      if (token && user) {
+        login(token, {
+          ...user,
+          featureFlags: {
+            ...(user.featureFlags ?? {}),
+            gstBilling: variables.gstBilling,
+          },
+        })
+      }
+      setAlert({
+        tone: 'success',
+        message: variables.gstBilling ? 'GST billing enabled.' : 'GST billing disabled.',
+      })
+    },
+    onError: (error) =>
+      setAlert({ tone: 'danger', message: getAlertMessage(error, 'Failed to update GST setting.') }),
+  })
+
   function toggleModule(moduleKey: string) {
     setModulesSelection((prev) =>
       prev.includes(moduleKey) ? prev.filter((entry) => entry !== moduleKey) : [...prev, moduleKey],
@@ -938,6 +962,33 @@ export default function SettingsPage() {
                 )}
               </Card>
             </div>
+
+            {user?.role === 'OWNER' ? (
+              <Card className={settingsCardCls}>
+                <div className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  {t('GST billing', 'जीएसटी बिलिंग')}
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-sm text-slate-600 dark:text-slate-300">
+                    {Boolean(featureSelection.gstBilling)
+                      ? t('GST tax computation and GST reports are enabled.', 'जीएसटी टैक्स कैलकुलेशन और जीएसटी रिपोर्ट सक्षम हैं।')
+                      : t('GST is disabled. Orders will be created without GST tax.', 'जीएसटी बंद है। ऑर्डर बिना जीएसटी टैक्स के बनेंगे।')}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={updateGstBilling.isPending}
+                    onClick={() => updateGstBilling.mutate({ gstBilling: !Boolean(featureSelection.gstBilling) })}
+                    className={Boolean(featureSelection.gstBilling) ? cancelBtnCls : saveBtnCls}
+                  >
+                    {updateGstBilling.isPending
+                      ? t('Saving...', 'सेव हो रहा है...')
+                      : Boolean(featureSelection.gstBilling)
+                        ? t('Disable GST', 'जीएसटी बंद करें')
+                        : t('Enable GST', 'जीएसटी चालू करें')}
+                  </button>
+                </div>
+              </Card>
+            ) : null}
 
             {bizType === 'CUSTOM' && user?.role === 'OWNER' ? (
               <Card className={settingsCardCls}>

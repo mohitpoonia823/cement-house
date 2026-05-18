@@ -5,6 +5,7 @@
   "scripts": {
     "db:push":    "prisma db push",
     "db:migrate": "prisma migrate dev",
+    "db:sync":    "node scripts/db-sync.mjs",
     "db:studio":  "prisma studio",
     "db:seed":    "tsx prisma/seed.ts",
     "generate":   "prisma generate"

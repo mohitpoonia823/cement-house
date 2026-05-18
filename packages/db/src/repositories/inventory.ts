@@ -38,6 +38,9 @@ export interface MaterialRow {
   grossWeight: number | null
   tareWeight: number | null
   netWeight: number | null
+  hsnCode: string | null
+  gstRate: number | null
+  isExempted: boolean
   metadata: Prisma.JsonValue | null
   isActive: boolean
   createdAt: Date
@@ -47,6 +50,21 @@ export interface MaterialRow {
 
 export interface InventoryMaterialRow extends MaterialRow {
   stockStatus: 'OUT_OF_STOCK' | 'LOW' | 'OK'
+}
+
+function materialTaxFieldsFromMetadata(metadata: Prisma.JsonValue | null) {
+  const bag = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+    ? metadata as Record<string, unknown>
+    : {}
+  const rawHsn = typeof bag.hsnCode === 'string' ? bag.hsnCode.trim() : ''
+  const numericRate = Number(bag.gstRate)
+  const gstRate = Number.isFinite(numericRate) && numericRate >= 0 ? Number(numericRate.toFixed(2)) : 0
+  const isExempted = bag.isExempted === true || gstRate === 0
+  return {
+    hsnCode: rawHsn || null,
+    gstRate,
+    isExempted,
+  }
 }
 
 export interface StockMovementWithOrderRow {
@@ -517,6 +535,16 @@ function materialSelectSql() {
       "grossWeight"::double precision AS "grossWeight",
       "tareWeight"::double precision AS "tareWeight",
       "netWeight"::double precision AS "netWeight",
+      NULLIF(COALESCE(metadata->>'hsnCode', ''), '') AS "hsnCode",
+      CASE
+        WHEN COALESCE(metadata->>'gstRate', '') ~ '^[0-9]+(\\.[0-9]+)?$'
+          THEN (metadata->>'gstRate')::double precision
+        ELSE 0
+      END AS "gstRate",
+      CASE
+        WHEN LOWER(COALESCE(metadata->>'isExempted', 'false')) = 'true' THEN true
+        ELSE false
+      END AS "isExempted",
       metadata,
       "isActive" AS "isActive",
       "createdAt" AS "createdAt",
@@ -535,6 +563,7 @@ export async function listActiveMaterials(businessId: string) {
 
   return rows.map((material) => ({
     ...material,
+    ...materialTaxFieldsFromMetadata(material.metadata),
     stockStatus: material.stockQty <= material.minThreshold
       ? (material.stockQty <= 0 ? 'OUT_OF_STOCK' : 'LOW')
       : 'OK',

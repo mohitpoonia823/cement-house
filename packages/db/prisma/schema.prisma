@@ -146,6 +146,7 @@ model Business {
   address     String?
   phone       String?
   gstin       String?
+  stateCode   String?
   businessType String  @default("GENERAL_STORE")
   customLabels Json?
   enabledModules Json? @default("[]")
@@ -232,6 +233,7 @@ model Customer {
   address      String?
   siteAddress  String?
   gstin        String?
+  stateCode    String?
   creditLimit  Decimal  @default(0) @db.Decimal(12, 2)
   riskTag      RiskTag  @default(RELIABLE)
   notes        String?
