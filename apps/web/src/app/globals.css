@@ -104,3 +104,26 @@ a {
     transform: scale(0.2);
   }
 }
+
+@keyframes reviewsMarquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.reviews-track {
+  animation: reviewsMarquee 34s linear infinite;
+  will-change: transform;
+}
+
+.review-mask {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 5%, #000 95%, transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 5%, #000 95%, transparent 100%);
+}
+
+.review-mask:hover .reviews-track {
+  animation-play-state: paused;
+}

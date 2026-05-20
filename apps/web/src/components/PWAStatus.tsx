@@ -1,33 +1,23 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 type SwNotice = {
   type: 'API_NETWORK_OK' | 'API_CACHE_FALLBACK' | 'API_CACHE_MISS'
   path?: string
 }
 
-function isStandaloneMode() {
-  if (typeof window === 'undefined') return false
-  const iosStandalone = Boolean((window.navigator as any).standalone)
-  const displayModeStandalone = window.matchMedia('(display-mode: standalone)').matches
-  return iosStandalone || displayModeStandalone
-}
-
 export function PWAStatus() {
   const [isOnline, setIsOnline] = useState(true)
   const [cachedNotice, setCachedNotice] = useState<string>('')
   const [missNotice, setMissNotice] = useState<string>('')
-  const [isInstalled, setIsInstalled] = useState(false)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     setIsOnline(window.navigator.onLine)
-    setIsInstalled(isStandaloneMode())
 
     const onOnline = () => setIsOnline(true)
     const onOffline = () => setIsOnline(false)
-    const onInstalled = () => setIsInstalled(true)
     const onSwMessage = (event: MessageEvent<SwNotice>) => {
       const msg = event.data
       if (!msg?.type) return
@@ -44,13 +34,11 @@ export function PWAStatus() {
 
     window.addEventListener('online', onOnline)
     window.addEventListener('offline', onOffline)
-    window.addEventListener('appinstalled', onInstalled)
     navigator.serviceWorker?.addEventListener('message', onSwMessage as EventListener)
 
     return () => {
       window.removeEventListener('online', onOnline)
       window.removeEventListener('offline', onOffline)
-      window.removeEventListener('appinstalled', onInstalled)
       navigator.serviceWorker?.removeEventListener('message', onSwMessage as EventListener)
     }
   }, [])
@@ -61,19 +49,12 @@ export function PWAStatus() {
     return () => window.clearTimeout(t)
   }, [cachedNotice])
 
-  const installLabel = useMemo(() => (isInstalled ? 'Installed' : null), [isInstalled])
-
   return (
     <>
       <div className="pointer-events-none fixed right-3 top-3 z-[130] flex flex-col items-end gap-2">
         {!isOnline ? (
           <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-800 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200">
             Offline
-          </span>
-        ) : null}
-        {installLabel ? (
-          <span className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-950/30 dark:text-emerald-200">
-            {installLabel}
           </span>
         ) : null}
       </div>
