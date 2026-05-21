@@ -219,14 +219,6 @@ export function Topbar() {
             >
               {language === 'hi' ? 'à¤¬à¤¾à¤¦ à¤®à¥‡à¤‚' : language === 'hinglish' ? 'Later' : 'Later'}
             </button>
-            <button
-              type="button"
-              onClick={() => hideTrialBanner(24)}
-              className="inline-flex h-5 w-5 items-center justify-center rounded-full text-amber-800 transition-colors hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40"
-              aria-label={language === 'hi' ? 'à¤¸à¥‚à¤šà¤¨à¤¾ à¤¬à¤‚à¤¦ à¤•à¤°à¥‡à¤‚' : language === 'hinglish' ? 'Reminder band karo' : 'Dismiss reminder'}
-            >
-              Ã—
-            </button>
           </div>
         </div>
         <div className="mb-3 hidden rounded-[24px] border border-amber-200/80 bg-amber-50/95 px-4 py-3 text-sm text-amber-900 shadow-sm sm:block dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-100">
@@ -239,14 +231,6 @@ export function Topbar() {
                 className="rounded-full border border-amber-300/80 px-2 py-0.5 text-[10px] font-semibold text-amber-800 transition-colors hover:bg-amber-100 dark:border-amber-400/40 dark:text-amber-200 dark:hover:bg-amber-900/40"
               >
                 {language === 'hi' ? 'à¤¬à¤¾à¤¦ à¤®à¥‡à¤‚' : language === 'hinglish' ? 'Later' : 'Later'}
-              </button>
-              <button
-                type="button"
-                onClick={() => hideTrialBanner(24)}
-                className="inline-flex h-5 w-5 items-center justify-center rounded-full text-amber-800 transition-colors hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40"
-                aria-label={language === 'hi' ? 'à¤¸à¥‚à¤šà¤¨à¤¾ à¤¬à¤‚à¤¦ à¤•à¤°à¥‡à¤‚' : language === 'hinglish' ? 'Reminder band karo' : 'Dismiss reminder'}
-              >
-                Ã—
               </button>
             </div>
           </div>

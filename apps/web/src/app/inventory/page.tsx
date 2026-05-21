@@ -211,6 +211,7 @@ function InventoryContent() {
 
   // Bulk selection
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [inventoryPage, setInventoryPage] = useState(1)
   const [deleteConfirm, setDeleteConfirm] = useState<{
     open: boolean
     mode: 'single' | 'bulk'
@@ -251,6 +252,40 @@ function InventoryContent() {
     () => list.filter((m: any) => selected.has(m.id)),
     [list, selected]
   )
+  const inventoryRowsPerPage = 10
+  const totalInventoryPages = Math.max(1, Math.ceil(list.length / inventoryRowsPerPage))
+  const paginatedInventoryList = useMemo(() => {
+    const start = (inventoryPage - 1) * inventoryRowsPerPage
+    return list.slice(start, start + inventoryRowsPerPage)
+  }, [inventoryPage, list])
+  const hasAnyTableMeta = useMemo(
+    () =>
+      list.some(
+        (m: any) =>
+          (canBatch && m.batchNumber) ||
+          (canExpiry && m.expiryDate) ||
+          (canStorage && m.rackLocation) ||
+          (canSerial && m.serialNumber)
+      ),
+    [canBatch, canExpiry, canSerial, canStorage, list]
+  )
+  const showMinColumn = useMemo(
+    () => list.some((m: any) => Number(m.minThreshold) > 0),
+    [list]
+  )
+
+  function formatStockQty(material: any) {
+    const value = Number(material?.stockQty ?? 0)
+    if (!Number.isFinite(value)) return '0'
+    if (Number.isInteger(value)) return String(value)
+    return value.toFixed(2).replace(/\.?0+$/, '')
+  }
+
+  function statusPillClass(status: string) {
+    if (status === 'OK') return 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200'
+    if (status === 'LOW') return 'bg-amber-100 text-amber-800 ring-1 ring-amber-200'
+    return 'bg-rose-100 text-rose-800 ring-1 ring-rose-200'
+  }
 
   function buildDefaultBulkTransferQty(sourceLocationId: string, materialsForTransfer: any[]) {
     return Object.fromEntries(
@@ -268,6 +303,12 @@ function InventoryContent() {
       setBulkTransferQty({})
     }
   }, [bulkTransferMode, selectedMaterials.length])
+
+  useEffect(() => {
+    if (inventoryPage > totalInventoryPages) {
+      setInventoryPage(totalInventoryPages)
+    }
+  }, [inventoryPage, totalInventoryPages])
 
   useEffect(() => {
     setNewForm((prev) => {
@@ -629,7 +670,8 @@ function InventoryContent() {
       const insideCard = (target as HTMLElement).closest('[data-material-card="true"]')
       const insidePanel = (target as HTMLElement).closest('[data-stock-panel="true"]')
       const insideToolbar = (target as HTMLElement).closest('[data-inventory-toolbar="true"]')
-      if (insideCard || insidePanel || insideToolbar) return
+      const insideEditPanel = (target as HTMLElement).closest('[data-edit-panel="true"]')
+      if (insideCard || insidePanel || insideToolbar || insideEditPanel) return
       setSelectedId('')
       setShowStockIn(false)
     }
@@ -1022,7 +1064,7 @@ function InventoryContent() {
       )}
 
       {showEdit && selectedMat && (
-        <div ref={addNewFormRef}>
+        <div ref={addNewFormRef} data-edit-panel="true">
         <Card className="mb-4">
           <div className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-3">Edit {terms.material.toLowerCase()}</div>
           <form onSubmit={handleUpdateMaterial} className="space-y-3">
@@ -1145,9 +1187,9 @@ function InventoryContent() {
         </div>
       )}
 
-      {/* Material cards grid */}
-      <div data-inventory-toolbar="true" className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {isLoading ? <div className="md:col-span-2 xl:col-span-3">
+      {/* Material cards on mobile + table on desktop */}
+      <div data-inventory-toolbar="true" className="mb-5 space-y-4">
+        {isLoading ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {[1, 2, 3].map((i) => (
               <div key={i} className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/60">
@@ -1157,93 +1199,220 @@ function InventoryContent() {
               </div>
             ))}
           </div>
-        </div> :
-          list.map((m: any) => {
-            const isSelected = selected.has(m.id)
-            return (
-              <div data-material-card="true" key={m.id} className={`relative rounded-xl border transition-all ${
-                selectedId === m.id
-                  ? 'border-blue-400 bg-blue-50 dark:bg-blue-950'
-                  : isSelected
-                    ? 'border-blue-300 bg-blue-50/50 dark:bg-blue-950/30'
-                    : 'border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-stone-300 dark:hover:border-slate-500'
-              } ${m.stockStatus === 'LOW' && selectedId !== m.id ? 'border-amber-300' : ''} ${m.stockStatus === 'OUT_OF_STOCK' && selectedId !== m.id ? 'border-red-400' : ''}`}>
-                {/* Checkbox overlay */}
-                <div className="absolute top-3 left-3 z-10">
-                  <input type="checkbox" checked={isSelected}
-                    onChange={(e) => { e.stopPropagation(); toggleOne(m.id) }}
-                    className="rounded border-stone-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
-                </div>
-                <button onClick={() => setSelectedId(m.id === selectedId ? '' : m.id)}
-                  className="w-full text-left p-4 pl-9">
-                  <div className="mb-2 flex items-start justify-between pr-12">
-                    <div className="text-sm font-medium text-stone-800 dark:text-stone-200">{m.name}</div>
-                    <div className="flex items-center gap-1.5">
-                      <Badge variant={statusBadge(m.stockStatus)}>{m.stockStatus}</Badge>
+        ) : null}
+
+        {!isLoading && (
+          <>
+            <div className="grid gap-4 md:hidden">
+              {paginatedInventoryList.map((m: any) => {
+                const isSelected = selected.has(m.id)
+                return (
+                  <div data-material-card="true" key={`mobile-${m.id}`} className={`relative rounded-xl border transition-all ${
+                    selectedId === m.id
+                      ? 'border-blue-400 bg-blue-50 dark:bg-blue-950'
+                      : isSelected
+                        ? 'border-blue-300 bg-blue-50/50 dark:bg-blue-950/30'
+                        : 'border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-stone-300 dark:hover:border-slate-500'
+                  }`}>
+                    <div className="absolute top-3 left-3 z-10">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => { e.stopPropagation(); toggleOne(m.id) }}
+                        className="rounded border-stone-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
                     </div>
+                    <button onClick={() => setSelectedId(m.id === selectedId ? '' : m.id)} className="w-full text-left p-4 pl-9">
+                      <div className="mb-2 flex items-start justify-between gap-2">
+                        <div className="text-sm font-medium text-stone-800 dark:text-stone-200">{m.name}</div>
+                        <Badge variant={statusBadge(m.stockStatus)}>{m.stockStatus}</Badge>
+                      </div>
+                      <div className="text-xl font-medium text-stone-900 dark:text-stone-100">
+                        {formatStockQty(m)} <span className="text-sm font-normal text-stone-500 dark:text-slate-300">{m.unit}</span>
+                      </div>
+                      <div className="mt-2 h-1 rounded bg-stone-100 dark:bg-stone-800">
+                        <div
+                          className="h-1 rounded transition-all"
+                          style={{
+                            width: `${Math.min(100, (Number(m.stockQty) / (Number(m.maxThreshold) || Number(m.stockQty) + 1)) * 100)}%`,
+                            background: m.stockStatus === 'OK' ? '#639922' : m.stockStatus === 'LOW' ? '#EF9F27' : '#E24B4A',
+                          }}
+                        />
+                      </div>
+                      <div className="mt-2 flex justify-between text-[10px] text-stone-400 dark:text-slate-400">
+                        <span>Min: {Number(m.minThreshold)} {m.unit}</span>
+                        <span>Buy: {fmt(Number(m.purchasePrice))} • Sell: {fmt(Number(m.salePrice))}</span>
+                      </div>
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSelectedId(m.id); setShowEdit(true); setShowAddNew(false) }}
+                      className="absolute top-2 right-9 inline-flex h-5 w-5 items-center justify-center rounded text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-900/20"
+                      title="Edit"
+                      aria-label="Edit item"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDelete(m.id, m.name) }}
+                      className="absolute top-2 right-2 inline-flex h-5 w-5 items-center justify-center rounded text-rose-600 transition-colors hover:bg-red-50 hover:text-rose-700 dark:text-rose-300 dark:hover:bg-red-900/20"
+                      title={`Delete ${terms.material.toLowerCase()}`}
+                      aria-label={`Delete ${terms.material.toLowerCase()}`}
+                    >
+                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4h8v2" />
+                        <path d="M19 6l-1 14H6L5 6" />
+                        <path d="M10 11v6M14 11v6" />
+                      </svg>
+                    </button>
                   </div>
-                  <div className="text-xl font-medium text-stone-900 dark:text-stone-100">
-                    {Number(m.stockQty).toFixed(m.unit === 'bags' ? 0 : 1)} <span className="text-sm font-normal text-stone-500 dark:text-slate-300">{m.unit}</span>
-                  </div>
-                  {/* Stock bar */}
-                  <div className="mt-2 h-1 bg-stone-100 dark:bg-stone-800 rounded">
-                    <div className="h-1 rounded transition-all"
-                      style={{
-                        width: `${Math.min(100, (Number(m.stockQty) / (Number(m.maxThreshold) || Number(m.stockQty) + 1)) * 100)}%`,
-                        background: m.stockStatus === 'OK' ? '#639922' : m.stockStatus === 'LOW' ? '#EF9F27' : '#E24B4A',
-                      }} />
-                  </div>
-                  <div className="flex justify-between mt-2 text-[10px] text-stone-400 dark:text-slate-400">
-                    <span>Min: {Number(m.minThreshold)} {m.unit}</span>
-                    <span>Buy: {fmt(Number(m.purchasePrice))} • Sell: {fmt(Number(m.salePrice))}</span>
-                  </div>
-                  <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-stone-500 dark:text-slate-300">
-                    {canBatch && m.batchNumber ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Batch: {m.batchNumber}</span> : null}
-                    {canExpiry && m.expiryDate ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Expiry: {String(m.expiryDate).slice(0, 10)}</span> : null}
-                    {canStorage && m.manufacturer ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Mfr: {m.manufacturer}</span> : null}
-                    {canStorage && m.rackLocation ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Rack: {m.rackLocation}</span> : null}
-                    {canBarcode && m.barcode ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Barcode: {m.barcode}</span> : null}
-                    {canVariants && m.size ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Size: {m.size}</span> : null}
-                    {canVariants && m.color ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Color: {m.color}</span> : null}
-                    {canVariants && m.material ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Material: {m.material}</span> : null}
-                    {canSerial && m.serialNumber ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Serial: {m.serialNumber}</span> : null}
-                    {canSerial && m.imeiNumber ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">IMEI: {m.imeiNumber}</span> : null}
-                    {canWeight && m.grossWeight != null ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Gross: {m.grossWeight}</span> : null}
-                    {canWeight && m.tareWeight != null ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Tare: {m.tareWeight}</span> : null}
-                    {canWeight && m.netWeight != null ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Net: {m.netWeight}</span> : null}
-                    {canJewellery && m.purity != null ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Purity: {m.purity}%</span> : null}
-                    {canJewellery && m.makingCharges != null ? <span className="rounded bg-stone-100 px-1.5 py-0.5 dark:bg-slate-800">Making: {fmt(Number(m.makingCharges))}</span> : null}
-                  </div>
-                </button>
-                {/* Delete button */}
+                )
+              })}
+            </div>
+
+            <div className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm md:block dark:border-slate-700 dark:bg-slate-900/70">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1080px] table-auto text-xs">
+                  <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] uppercase tracking-[0.12em] text-slate-500 dark:bg-slate-950 dark:text-slate-300">
+                    <tr>
+                      <th className="border-r border-slate-200 px-3 py-3 text-left font-semibold dark:border-slate-800"> </th>
+                      <th className="px-4 py-3 text-left font-semibold">{terms.material}</th>
+                      <th className="px-4 py-3 pr-10 text-left font-semibold">Stock</th>
+                      <th className="px-4 py-3 pl-6 text-left font-semibold">Unit</th>
+                      {showMinColumn ? <th className="px-4 py-3 text-right font-semibold">Min</th> : null}
+                      <th className="px-4 py-3 text-right font-semibold">Buy</th>
+                      <th className="px-4 py-3 text-right font-semibold">Sell</th>
+                      <th className="w-[112px] px-4 py-3 text-center font-semibold">Status</th>
+                      {hasAnyTableMeta ? <th className="px-4 py-3 text-left font-semibold">Meta</th> : null}
+                      <th className="px-4 py-3 text-center font-semibold">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedInventoryList.map((m: any) => {
+                      const isSelected = selected.has(m.id)
+                      const isActive = selectedId === m.id
+                      return (
+                        <tr
+                          key={`desktop-${m.id}`}
+                          className={`h-12 border-t border-slate-100 transition-colors dark:border-slate-800 ${
+                            isActive
+                              ? 'bg-blue-50/70 dark:bg-blue-950/35'
+                              : isSelected
+                                ? 'bg-blue-50/40 dark:bg-blue-950/20'
+                                : 'odd:bg-white even:bg-slate-50/55 hover:bg-slate-100 dark:odd:bg-slate-900/70 dark:even:bg-slate-900 dark:hover:bg-slate-800/80'
+                          }`}
+                        >
+                          <td className="border-r border-slate-100 px-3 py-2.5 dark:border-slate-800">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => { e.stopPropagation(); toggleOne(m.id) }}
+                              className="rounded border-stone-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <button onClick={() => setSelectedId(m.id === selectedId ? '' : m.id)} className="text-left">
+                              <div className="truncate font-semibold text-slate-900 dark:text-slate-100">{m.name}</div>
+                            </button>
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-2.5 pr-10 text-left font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+                            {formatStockQty(m)}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-2.5 pl-6 text-slate-700 dark:text-slate-300">{m.unit}</td>
+                          {showMinColumn ? (
+                            <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                              {Number(m.minThreshold) > 0 ? Number(m.minThreshold) : '-'}
+                            </td>
+                          ) : null}
+                          <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                            {fmt(Number(m.purchasePrice))}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                            <span>{fmt(Number(m.salePrice))}</span>
+                            {Number(m.salePrice) !== Number(m.purchasePrice) ? (
+                              <span className={`ml-1 text-[10px] ${Number(m.salePrice) > Number(m.purchasePrice) ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                ({Number(m.salePrice) > Number(m.purchasePrice) ? '+' : ''}{fmt(Number(m.salePrice) - Number(m.purchasePrice))})
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="w-[112px] px-4 py-2.5 text-center">
+                            <span className={`mx-auto inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${statusPillClass(m.stockStatus)}`}>
+                              {m.stockStatus}
+                            </span>
+                          </td>
+                          {hasAnyTableMeta ? (
+                            <td className="px-4 py-2.5 text-[10px] text-slate-600 dark:text-slate-400">
+                              <div className="flex flex-wrap gap-1">
+                                {canBatch && m.batchNumber ? <span className="rounded bg-slate-100 px-1.5 py-0.5 dark:bg-slate-800">Batch: {m.batchNumber}</span> : null}
+                                {canExpiry && m.expiryDate ? <span className="rounded bg-slate-100 px-1.5 py-0.5 dark:bg-slate-800">Expiry: {String(m.expiryDate).slice(0, 10)}</span> : null}
+                                {canStorage && m.rackLocation ? <span className="rounded bg-slate-100 px-1.5 py-0.5 dark:bg-slate-800">Rack: {m.rackLocation}</span> : null}
+                                {canSerial && m.serialNumber ? <span className="rounded bg-slate-100 px-1.5 py-0.5 dark:bg-slate-800">Serial: {m.serialNumber}</span> : null}
+                              </div>
+                            </td>
+                          ) : null}
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center justify-center gap-0.5">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setSelectedId(m.id); setShowEdit(true); setShowAddNew(false) }}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-900/20"
+                                title="Edit"
+                                aria-label="Edit item"
+                              >
+                                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M12 20h9" />
+                                  <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                </svg>
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDelete(m.id, m.name) }}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-rose-600 transition-colors hover:bg-red-50 hover:text-rose-700 dark:text-rose-300 dark:hover:bg-red-900/20"
+                                title={`Delete ${terms.material.toLowerCase()}`}
+                                aria-label={`Delete ${terms.material.toLowerCase()}`}
+                              >
+                                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M3 6h18" />
+                                  <path d="M8 6V4h8v2" />
+                                  <path d="M19 6l-1 14H6L5 6" />
+                                  <path d="M10 11v6M14 11v6" />
+                                </svg>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div className="mt-3 flex items-center justify-between px-1 text-xs text-slate-600 dark:text-slate-300">
+              <div>
+                Page {inventoryPage} of {totalInventoryPages}
+              </div>
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={(e) => { e.stopPropagation(); setSelectedId(m.id); setShowEdit(true); setShowAddNew(false) }}
-                  className="absolute top-2 right-9 inline-flex h-5 w-5 items-center justify-center rounded text-stone-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:text-slate-400 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-300"
-                  title="Edit"
-                  aria-label="Edit item"
+                  type="button"
+                  disabled={inventoryPage <= 1}
+                  onClick={() => setInventoryPage((p) => Math.max(1, p - 1))}
+                  className="rounded-md border border-slate-200 px-2.5 py-1 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700"
                 >
-                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 20h9" />
-                    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                  </svg>
+                  Prev
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); handleDelete(m.id, m.name) }}
-                  className="absolute top-2 right-2 inline-flex h-5 w-5 items-center justify-center rounded text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:text-slate-400 dark:hover:bg-red-900/20 dark:hover:text-red-300"
-                  title={`Delete ${terms.material.toLowerCase()}`}
-                  aria-label={`Delete ${terms.material.toLowerCase()}`}
+                  type="button"
+                  disabled={inventoryPage >= totalInventoryPages}
+                  onClick={() => setInventoryPage((p) => Math.min(totalInventoryPages, p + 1))}
+                  className="rounded-md border border-slate-200 px-2.5 py-1 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700"
                 >
-                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 6h18" />
-                    <path d="M8 6V4h8v2" />
-                    <path d="M19 6l-1 14H6L5 6" />
-                    <path d="M10 11v6M14 11v6" />
-                  </svg>
+                  Next
                 </button>
               </div>
-            )
-          })
-        }
+            </div>
+          </>
+        )}
       </div>
 
       {selectedId && (

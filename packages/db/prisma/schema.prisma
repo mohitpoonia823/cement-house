@@ -135,6 +135,11 @@ enum StockTransferStatus {
   CANCELLED
 }
 
+enum ReferralRewardType {
+  FLAT
+  PERCENT
+}
+
 // ─────────────────────────────────────────
 // BUSINESS — each cement house / tenant
 // ─────────────────────────────────────────
@@ -174,6 +179,7 @@ model Business {
   customers   Customer[]
   materials   Material[]
   orders      Order[]
+  referralPartners ReferralPartner[]
   salesReturns SalesReturn[]
   ledgerEntries LedgerEntry[]
   stockMovements StockMovement[]
@@ -183,6 +189,7 @@ model Business {
   locations   Location[]
   materialStocks MaterialStock[]
   stockTransfers StockTransfer[]
+  productVariants ProductVariant[]
 
   @@index([isActive, subscriptionStatus])
   @@map("businesses")
@@ -305,6 +312,7 @@ model Material {
   deliveryItems   DeliveryItem[]
   locationStocks  MaterialStock[]
   transferItems   StockTransferItem[]
+  variants        ProductVariant[]
 
   @@index([businessId, isActive, name])
   @@index([businessId, isActive, stockQty])
@@ -321,6 +329,10 @@ model Order {
   invoiceNumber String?
   customer      Customer    @relation(fields: [customerId], references: [id])
   customerId    String
+  referralPartner   ReferralPartner? @relation(fields: [referralPartnerId], references: [id])
+  referralPartnerId String?
+  referralRewardAmount Decimal? @db.Decimal(12, 2)
+  referralRewardRate   Decimal? @db.Decimal(10, 2)
   createdBy     User        @relation("OrderCreatedBy", fields: [createdById], references: [id])
   createdById   String
   orderDate     DateTime    @default(now())
@@ -370,7 +382,30 @@ model Order {
   @@index([businessId, customerId, isDeleted, createdAt])
   @@index([customerId, createdAt])
   @@index([businessId, sourceLocationId, createdAt])
+  @@index([businessId, referralPartnerId, createdAt])
   @@map("orders")
+}
+
+model ReferralPartner {
+  id          String   @id @default(uuid())
+  name        String
+  phone       String
+  role        String
+  area        String?
+  notes       String?
+  rewardType  ReferralRewardType @default(PERCENT)
+  rewardValue Decimal  @default(1.00) @db.Decimal(10, 2)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business    Business @relation(fields: [businessId], references: [id])
+  businessId  String
+  orders      Order[]
+
+  @@index([businessId, isActive, name])
+  @@index([businessId, phone])
+  @@map("referral_partners")
 }
 
 model Location {
@@ -457,6 +492,8 @@ model OrderItem {
   orderId        String
   material       Material @relation(fields: [materialId], references: [id])
   materialId     String
+  variant        ProductVariant? @relation(fields: [variantId], references: [id])
+  variantId      String?
   quantity       Decimal  @db.Decimal(12, 3)
   hsnCode        String?
   gstRate        Decimal? @db.Decimal(5, 2)
@@ -473,7 +510,36 @@ model OrderItem {
 
   @@index([orderId])
   @@index([materialId])
+  @@index([variantId])
   @@map("order_items")
+}
+
+model ProductVariant {
+  id            String   @id @default(uuid())
+  business      Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId    String
+  material      Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  materialId    String
+  name          String
+  sku           String?
+  barcode       String?
+  unit          String
+  purchasePrice Decimal  @db.Decimal(10, 2)
+  salePrice     Decimal  @db.Decimal(10, 2)
+  minThreshold  Decimal  @default(0) @db.Decimal(12, 3)
+  maxThreshold  Decimal? @db.Decimal(12, 3)
+  attributes    Json?
+  metadata      Json?
+  isDefault     Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  orderItems    OrderItem[]
+
+  @@unique([businessId, materialId, name])
+  @@index([businessId, materialId, isActive])
+  @@map("product_variants")
 }
 
 model SalesReturn {

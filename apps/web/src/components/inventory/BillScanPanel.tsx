@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { PageLoader } from '@/components/ui/Spinner'
-import { useCommitPurchaseBillScan, useScanPurchaseBill } from '@/hooks/useInventory'
+import { useCommitPurchaseBillScan, usePurchaseBillScanDraft, useScanPurchaseBill } from '@/hooks/useInventory'
 import { useI18n } from '@/lib/i18n'
 import { fmt } from '@/lib/utils'
 import { splitPreferredUnits } from '@/lib/business-terms'
@@ -62,10 +63,17 @@ type LineEdit = {
   quantity: string
   purchasePrice: string
   lineTotal: string
-  salePrice: string
 }
 
 const fallbackUnits = ['bags', 'MT', 'ton', 'tons', 'tonne', 'tonnes', 'feet', 'cft', 'm3', 'pieces', 'kg', 'quintal', 'litres']
+const BILL_SCAN_DRAFT_STORAGE_KEY = 'inventory_bill_scan_draft_v1'
+
+type PersistedDraftState = {
+  scanId: string
+  commitLocationId: string
+  edits: Record<string, LineEdit>
+  updatedAt: number
+}
 
 function asInputNumber(value: number | null | undefined) {
   return value === null || value === undefined || Number.isNaN(Number(value)) ? '' : String(value)
@@ -128,7 +136,6 @@ function initialEdits(scan: BillScan, materialsById: Map<string, Material>, defa
       quantity: asInputNumber(line.quantity),
       purchasePrice: asInputNumber(purchasePrice),
       lineTotal: asInputNumber(line.lineTotal),
-      salePrice: asInputNumber(material?.salePrice ?? purchasePrice),
     }
   }
   return edits
@@ -165,9 +172,15 @@ export function BillScanPanel({
   const [edits, setEdits] = useState<Record<string, LineEdit>>({})
   const [error, setError] = useState('')
   const [commitLocationId, setCommitLocationId] = useState(defaultLocationId ?? '')
+  const [resumeScanId, setResumeScanId] = useState('')
+  const [resumeRestored, setResumeRestored] = useState(false)
+  const [resumeMissing, setResumeMissing] = useState(false)
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
   const galleryInputRef = useRef<HTMLInputElement | null>(null)
   const desktopInputRef = useRef<HTMLInputElement | null>(null)
+  const restoredRef = useRef(false)
+  const persistTimerRef = useRef<number | null>(null)
+  const draftQuery = usePurchaseBillScanDraft(resumeScanId, { enabled: Boolean(resumeScanId) })
 
   const materialsById = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials])
   const allUnits = useMemo(() => (units?.length ? units : fallbackUnits), [units])
@@ -183,6 +196,56 @@ export function BillScanPanel({
   useEffect(() => {
     if (!commitLocationId && defaultLocationId) setCommitLocationId(defaultLocationId)
   }, [commitLocationId, defaultLocationId])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const raw = window.localStorage.getItem(BILL_SCAN_DRAFT_STORAGE_KEY)
+      if (!raw) return
+      const parsed = JSON.parse(raw) as PersistedDraftState
+      if (parsed?.scanId) {
+        setResumeScanId(parsed.scanId)
+      }
+    } catch {
+      // ignore invalid local draft payload
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!resumeScanId || restoredRef.current || !draftQuery.data?.scan) return
+    restoredRef.current = true
+    const restoredScan = draftQuery.data.scan as BillScan
+    const baseEdits = initialEdits(restoredScan, materialsById, defaultUnit)
+    let persistedEdits: Record<string, LineEdit> = {}
+    let persistedLocation = ''
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem(BILL_SCAN_DRAFT_STORAGE_KEY)
+        if (raw) {
+          const parsed = JSON.parse(raw) as PersistedDraftState
+          if (parsed?.scanId === restoredScan.id) {
+            persistedEdits = parsed.edits ?? {}
+            persistedLocation = parsed.commitLocationId ?? ''
+          }
+        }
+      } catch {
+        // ignore invalid local draft payload
+      }
+    }
+    setScan(restoredScan)
+    setWarnings([])
+    setEdits({ ...baseEdits, ...persistedEdits })
+    setCommitLocationId((current) => persistedLocation || current || defaultLocationId || '')
+    setResumeRestored(true)
+    setResumeMissing(false)
+  }, [defaultLocationId, defaultUnit, draftQuery.data, materialsById, resumeScanId])
+
+  useEffect(() => {
+    if (!resumeScanId || !draftQuery.isError || typeof window === 'undefined') return
+    window.localStorage.removeItem(BILL_SCAN_DRAFT_STORAGE_KEY)
+    setResumeScanId('')
+    setResumeMissing(true)
+  }, [draftQuery.isError, resumeScanId])
   const hasLines = (scan?.lines.length ?? 0) > 0
   const invalidLineCount = useMemo(() => {
     if (!scan) return 0
@@ -191,11 +254,10 @@ export function BillScanPanel({
       if (!edit || edit.action === 'SKIP') return false
       const quantity = Number(edit.quantity)
       const purchasePrice = Number(edit.purchasePrice)
-      const salePrice = Number(edit.salePrice)
       if (!Number.isFinite(quantity) || quantity <= 0) return true
       if (!Number.isFinite(purchasePrice) || purchasePrice < 0) return true
       if (!edit.unit.trim()) return true
-      if (edit.createNew) return !edit.materialName.trim() || !Number.isFinite(salePrice) || salePrice < 0
+      if (edit.createNew) return !edit.materialName.trim()
       return !edit.materialId
     }).length
   }, [edits, scan])
@@ -216,6 +278,9 @@ export function BillScanPanel({
       setScan(result.scan)
       setWarnings(result.warnings ?? [])
       setEdits(initialEdits(result.scan, materialsById, defaultUnit))
+      setResumeScanId(result.scan.id)
+      restoredRef.current = true
+      setResumeRestored(false)
     } catch (err: any) {
       setError(err.response?.data?.error ?? err.message ?? t('Bill scan failed', 'बिल स्कैन विफल हुआ'))
     }
@@ -252,7 +317,7 @@ export function BillScanPanel({
               ? {
                   name: edit.materialName.trim(),
                   unit: edit.unit,
-                  salePrice: Number(edit.salePrice || edit.purchasePrice || 0),
+                  salePrice: Number(edit.purchasePrice || 0),
                 }
               : undefined,
             unit: edit.unit,
@@ -271,19 +336,46 @@ export function BillScanPanel({
       setPreview('')
       setWarnings([])
       setEdits({})
+      if (typeof window !== 'undefined') window.localStorage.removeItem(BILL_SCAN_DRAFT_STORAGE_KEY)
+      setResumeScanId('')
+      setResumeRestored(false)
       onClose()
     } catch (err: any) {
       setError(err.response?.data?.error ?? t('Failed to import bill', 'बिल आयात नहीं हो सका'))
     }
   }
 
-  function resetCurrentScan() {
+  function resetCurrentScan(clearPersisted = true) {
     setScan(null)
     setPreview('')
     setWarnings([])
     setEdits({})
     setError('')
+    setResumeRestored(false)
+    setResumeMissing(false)
+    restoredRef.current = false
+    if (clearPersisted) {
+      if (typeof window !== 'undefined') window.localStorage.removeItem(BILL_SCAN_DRAFT_STORAGE_KEY)
+      setResumeScanId('')
+    }
   }
+
+  useEffect(() => {
+    if (!scan || typeof window === 'undefined') return
+    if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current)
+    persistTimerRef.current = window.setTimeout(() => {
+      const payload: PersistedDraftState = {
+        scanId: scan.id,
+        commitLocationId,
+        edits,
+        updatedAt: Date.now(),
+      }
+      window.localStorage.setItem(BILL_SCAN_DRAFT_STORAGE_KEY, JSON.stringify(payload))
+    }, 250)
+    return () => {
+      if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current)
+    }
+  }, [commitLocationId, edits, scan])
 
   return (
     <Card className="mb-4">
@@ -364,6 +456,16 @@ export function BillScanPanel({
 
         <div className="min-w-0">
           {scanBill.isPending && <PageLoader />}
+          {resumeScanId && draftQuery.isFetching && !scanBill.isPending && !scan && (
+            <div className="mb-3 rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
+              {t('Checking your last scanned draft...', 'आपका पिछला स्कैन ड्राफ्ट जांचा जा रहा है...')}
+            </div>
+          )}
+          {resumeMissing && !scan && !scanBill.isPending && (
+            <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+              {t('No restorable previous draft was found. Please upload the bill image again.', 'पहला स्कैन ड्राफ्ट नहीं मिला। कृपया बिल इमेज दोबारा अपलोड करें।')}
+            </div>
+          )}
 
           {!scanBill.isPending && !scan && (
             <div className="rounded-xl border border-stone-200 bg-white/70 p-6 text-center text-sm text-stone-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
@@ -410,6 +512,21 @@ export function BillScanPanel({
               {warnings.length > 0 && (
                 <div className="space-y-1 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
                   {warnings.map((warning) => <div key={warning}>{warning}</div>)}
+                </div>
+              )}
+
+              {resumeRestored && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">
+                  {t('Draft restored. Continue from where you left off without rescanning.', 'ड्राफ्ट बहाल हो गया है। बिना दोबारा स्कैन किए वहीं से जारी रखें।')}
+                </div>
+              )}
+
+              {activeLocations.length === 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+                  <div>{t('No active location found. Add one, then return here; your scanned draft is preserved.', 'कोई सक्रिय लोकेशन नहीं मिला। पहले लोकेशन जोड़ें, फिर वापस आएं; आपका स्कैन ड्राफ्ट सुरक्षित रहेगा।')}</div>
+                  <Link href="/settings/locations" className="mt-2 inline-block rounded-md border border-amber-300 bg-white px-2.5 py-1 font-medium text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+                    {t('Open locations', 'लोकेशन खोलें')}
+                  </Link>
                 </div>
               )}
 
@@ -463,21 +580,11 @@ export function BillScanPanel({
                               </label>
                             </div>
                             {edit.createNew ? (
-                              <div className="space-y-2">
+                              <div>
                                 <input
                                   value={edit.materialName}
                                   disabled={edit.action === 'SKIP'}
                                   onChange={(event) => updateLine(line.id, { materialName: event.target.value })}
-                                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
-                                />
-                                <input
-                                  type="number"
-                                  value={edit.salePrice}
-                                  disabled={edit.action === 'SKIP'}
-                                  placeholder={t('Sale price', 'बिक्री मूल्य')}
-                                  min={0}
-                                  step={0.01}
-                                  onChange={(event) => updateLine(line.id, { salePrice: event.target.value })}
                                   className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
                                 />
                               </div>
@@ -490,7 +597,6 @@ export function BillScanPanel({
                                   updateLine(line.id, {
                                     materialId: event.target.value,
                                     unit: material?.unit ?? edit.unit,
-                                    salePrice: asInputNumber(material?.salePrice ?? Number(edit.salePrice)),
                                   })
                                 }}
                                 className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
@@ -510,7 +616,7 @@ export function BillScanPanel({
                               min={0.01}
                               step={0.01}
                               onChange={(event) => updateLine(line.id, { quantity: event.target.value })}
-                              className="w-24 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
+                              className="w-28 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
                             />
                           </td>
                           <td className="px-3 py-3">
@@ -518,7 +624,7 @@ export function BillScanPanel({
                               value={edit.unit}
                               disabled={edit.action === 'SKIP'}
                               onChange={(event) => updateLine(line.id, { unit: event.target.value })}
-                              className="w-24 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
+                              className="w-28 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
                             >
                               {preferred.map((unit) => <option key={`pref-${unit}`} value={unit}>{unit}</option>)}
                               {preferred.length > 0 && otherUnits.length > 0 ? <option disabled>--------</option> : null}
@@ -533,7 +639,7 @@ export function BillScanPanel({
                               min={0}
                               step={0.01}
                               onChange={(event) => updateLine(line.id, { purchasePrice: event.target.value })}
-                              className="w-28 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
+                              className="w-36 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
                             />
                             {line.lineTotal !== null && (
                               <div className="mt-1 text-[10px] text-stone-400">Line: {fmt(line.lineTotal)}</div>
@@ -607,3 +713,4 @@ export function BillScanPanel({
     </Card>
   )
 }
+

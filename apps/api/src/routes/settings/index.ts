@@ -118,7 +118,6 @@ const UpdateStaffSchema = z.object({
 })
 
 const SubscriptionCheckoutInitiateSchema = z.object({
-  planName: z.enum(['FREE', 'BASIC', 'PRO', 'ENTERPRISE']).default('PRO'),
   interval: z.enum(['MONTHLY', 'YEARLY']),
 })
 
@@ -610,9 +609,23 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
 
     const paymentMethod = await settingsRepository.getDefaultPaymentMethodByBusiness(bizId)
+    const plan = await subscriptionsRepository.getDefaultPaidPlan()
+    if (!plan) return reply.status(400).send({ success: false, error: 'No active paid plan is configured' })
 
-    const plan = await subscriptionsRepository.getPlanByName(body.data.planName)
-    if (!plan) return reply.status(400).send({ success: false, error: 'Selected plan is not active' })
+    const accessBusiness: BusinessWithBilling = {
+      id: business.id,
+      name: business.name,
+      subscriptionStatus: business.subscriptionStatus,
+      subscriptionEndsAt: business.subscriptionEndsAt,
+      trialStartedAt: business.trialStartedAt,
+      trialDaysOverride: business.trialDaysOverride,
+      subscriptionInterval: business.subscriptionInterval,
+      monthlySubscriptionAmount: business.monthlySubscriptionAmount,
+      yearlySubscriptionAmount: business.yearlySubscriptionAmount,
+      isActive: business.isActive,
+      suspendedReason: business.suspendedReason,
+    }
+    const access = computeBusinessAccess(accessBusiness, platform)
 
     const pending = await subscriptionsRepository.getLatestPendingSubscriptionPaymentByBusiness(bizId)
     if (pending) {
@@ -638,7 +651,9 @@ export async function settingsRoutes(app: FastifyInstance) {
       }
     }
 
-    const amount = body.data.interval === 'YEARLY' ? Number(plan.priceYearly) : Number(plan.priceMonthly)
+    const amount = body.data.interval === 'YEARLY'
+      ? Number(access.pricing.yearlyPrice)
+      : Number(access.pricing.monthlyPrice)
     const amountInPaise = Math.round(Number(amount) * 100)
     if (!Number.isFinite(amountInPaise) || amountInPaise <= 0) {
       return reply.status(400).send({ success: false, error: 'Invalid payment amount' })
@@ -659,7 +674,7 @@ export async function settingsRoutes(app: FastifyInstance) {
         notes: {
           businessId: bizId,
           interval: body.data.interval,
-          planName: body.data.planName,
+          planName: plan.name,
         },
       }),
     })
@@ -686,30 +701,17 @@ export async function settingsRoutes(app: FastifyInstance) {
       amount,
       currency: platform.currency,
       reference: orderPayload.id,
-      metadata: {
-        gateway: 'RAZORPAY',
-        receipt,
-        razorpayOrderId: orderPayload.id,
-        planName: body.data.planName,
-        plannedStartAt: plannedStartAt.toISOString(),
-        plannedEndAt: plannedEndAt.toISOString(),
-        queued,
-      },
-    })
-    await subscriptionsRepository.createPendingSubscriptionPayment({
-      businessId: bizId,
-      planId: plan.id,
-      interval: body.data.interval,
-      amount,
-      razorpayOrderId: orderPayload.id,
-      metadata: {
-        transactionId: transaction.id,
-        planName: body.data.planName,
-        plannedStartAt: plannedStartAt.toISOString(),
-        plannedEndAt: plannedEndAt.toISOString(),
-        queued,
-      },
-    })
+        metadata: {
+          gateway: 'RAZORPAY',
+          receipt,
+          razorpayOrderId: orderPayload.id,
+          planId: plan.id,
+          planName: plan.name,
+          plannedStartAt: plannedStartAt.toISOString(),
+          plannedEndAt: plannedEndAt.toISOString(),
+          queued,
+        },
+      })
     req.log.info({ route: '/api/settings/subscription/checkout/initiate', bizId, externalMs, totalMs: Date.now() - routeStart }, 'checkout initiated')
 
     return {
@@ -720,14 +722,14 @@ export async function settingsRoutes(app: FastifyInstance) {
         amount,
         currency: platform.currency,
         interval: body.data.interval,
-        planName: body.data.planName,
+        planName: plan.name,
         razorpay: {
           keyId: razorpay.keyId,
           orderId: orderPayload.id,
           amount: amountInPaise,
           currency: platform.currency || 'INR',
           name: business.name,
-          description: `${body.data.planName} ${body.data.interval === 'YEARLY' ? 'yearly' : 'monthly'} subscription`,
+          description: `${body.data.interval === 'YEARLY' ? 'Yearly' : 'Monthly'} subscription`,
           prefill: {
             name: (req.user as any)?.name ?? business.name,
             contact: (req.user as any)?.phone ?? undefined,

@@ -158,6 +158,17 @@ export function usePurchaseBillScans(limit = 100, search = '') {
   })
 }
 
+export function usePurchaseBillScanDraft(scanId?: string, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ['inventory-bill-scan-draft', scanId ?? 'none'],
+    queryFn: () => api.get(`/api/inventory/bill-scans/${scanId}`).then((r) => r.data.data),
+    enabled: Boolean(scanId) && (options?.enabled ?? true),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  })
+}
+
 export function useScanPurchaseBill() {
   return useMutation({
     mutationFn: (data: { fileName?: string; dataUrl: string }) =>

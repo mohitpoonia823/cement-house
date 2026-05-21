@@ -23,10 +23,7 @@ export default function PricingPage() {
 
   useEffect(() => {
     api
-      .get('/api/auth/registration-config', {
-        params: { t: Date.now() },
-        headers: { 'Cache-Control': 'no-cache' },
-      })
+      .get('/api/auth/registration-config')
       .then((res) => setConfig(res.data.data as RegistrationConfig))
       .catch(() => undefined)
   }, [])

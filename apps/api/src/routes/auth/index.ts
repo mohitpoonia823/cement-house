@@ -463,6 +463,15 @@ export async function authRoutes(app: FastifyInstance) {
     }
   }
 
+  // Product rule: GST must stay disabled by default for every new account.
+  // Owners can explicitly enable it later from Settings.
+  const featureFlagsForRegistration = (
+    normalizedBusinessType === 'CUSTOM'
+      ? { ...(customFeatureFlags ?? {}) }
+      : { ...typeConfig.featureFlags }
+  ) as Record<string, boolean>
+  featureFlagsForRegistration.gstBilling = false
+
     const settings = await ensurePlatformSettings()
     const passwordHash = await bcrypt.hash(body.data.password, 10)
     const trialDays = settings.trialDays
@@ -485,9 +494,7 @@ export async function authRoutes(app: FastifyInstance) {
               : typeConfig.enabledModules
           ) as unknown as Prisma.InputJsonValue,
           featureFlags: (
-            normalizedBusinessType === 'CUSTOM'
-              ? customFeatureFlags
-              : typeConfig.featureFlags
+            featureFlagsForRegistration
           ) as unknown as Prisma.InputJsonValue,
           defaultSettings: (
             normalizedBusinessType === 'CUSTOM'

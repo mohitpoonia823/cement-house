@@ -73,6 +73,13 @@ function MenuIcon({ href, className = '' }: { href: string; className?: string }
       </svg>
     )
   }
+  if (href === '/partners') {
+    return (
+      <svg {...common}>
+        <path d="M8.5 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Zm7 0a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM4.5 18.5v-.75A2.75 2.75 0 0 1 7.25 15h2.5a2.75 2.75 0 0 1 2.75 2.75v.75m1-3.5h2.25A2.75 2.75 0 0 1 18.5 17.75v.75" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
   return (
     <svg {...common}>
       <path d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -91,6 +98,7 @@ function iconAccentClasses(href: string, active: boolean) {
   if (href === '/khata') return 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-200'
   if (href === '/reports') return 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200'
   if (href === '/tickets') return 'bg-lime-100 text-lime-700 dark:bg-lime-900/40 dark:text-lime-200'
+  if (href === '/partners') return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-200'
   return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
 }
 

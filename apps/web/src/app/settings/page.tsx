@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppShell } from '@/components/layout/AppShell'
 import { Badge } from '@/components/ui/Badge'
@@ -55,10 +55,9 @@ const PERMISSION_OPTIONS = [
 ]
 
 type BillingInterval = 'MONTHLY' | 'YEARLY'
-type PlanName = 'FREE' | 'BASIC' | 'PRO' | 'ENTERPRISE'
 type ActivePlan = {
   id: string
-  name: PlanName
+  name: 'FREE' | 'BASIC' | 'PRO' | 'ENTERPRISE'
   priceMonthly: number
   priceYearly: number
   description: string | null
@@ -122,7 +121,6 @@ export default function SettingsPage() {
   const qc = useQueryClient()
   const { data: bootstrapData, isLoading } = useSettingsBootstrap()
   const data = bootstrapData?.settings
-  const plansData = bootstrapData?.plans as ActivePlan[] | undefined
   const subscriptionUsage = bootstrapData?.subscriptionUsage
   const [shouldLoadLocations, setShouldLoadLocations] = useState(false)
   const [shouldLoadStaff, setShouldLoadStaff] = useState(false)
@@ -183,7 +181,6 @@ export default function SettingsPage() {
 
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [selectedInterval, setSelectedInterval] = useState<BillingInterval>('MONTHLY')
-  const [selectedPlanName, setSelectedPlanName] = useState<PlanName>('PRO')
   const [isConfirmingPayment, setIsConfirmingPayment] = useState(false)
   const [logoutReason, setLogoutReason] = useState('')
   const [toasts, setToasts] = useState<ToastItem[]>([])
@@ -192,13 +189,9 @@ export default function SettingsPage() {
     [modulesSelection, featureSelection],
   )
 
-  const selectedPlan = useMemo(
-    () => (plansData ?? []).find((plan) => plan.name === selectedPlanName) ?? null,
-    [plansData, selectedPlanName]
-  )
   const selectedPlanAmount = selectedInterval === 'YEARLY'
-    ? fmt(Number(selectedPlan?.priceYearly ?? 0))
-    : fmt(Number(selectedPlan?.priceMonthly ?? 0))
+    ? fmt(Number(data?.subscription?.yearlyPrice ?? 0))
+    : fmt(Number(data?.subscription?.monthlyPrice ?? 0))
   const canCancelSubscription =
     Boolean(data?.subscription?.interval) &&
     Boolean(data?.subscription?.endsAt) &&
@@ -212,7 +205,7 @@ export default function SettingsPage() {
     return !accessLocked && stillInCurrentCycle && data?.subscription?.interval === interval
   }
 
-  const currentPlanName = (subscriptionUsage?.subscription?.plan?.name ?? null) as PlanName | null
+  const currentPlanName = (subscriptionUsage?.subscription?.plan?.name ?? null) as ActivePlan['name'] | null
   const paymentTimeline = useMemo<SubscriptionTimelineItem[]>(
     () => (Array.isArray((subscriptionUsage as any)?.paymentTimeline) ? (subscriptionUsage as any).paymentTimeline : []),
     [subscriptionUsage],
@@ -253,15 +246,6 @@ export default function SettingsPage() {
     const createdMs = new Date(nextQueuedPlan.createdAt).getTime()
     return Number.isFinite(createdMs) && now - createdMs <= pendingWebhookGraceMs
   }, [nextQueuedPlan])
-  const paidPlanForCheckout = useMemo(
-    () =>
-      (plansData ?? []).find((plan) => plan.name === 'BASIC')
-      ?? (plansData ?? []).find((plan) => plan.name === 'PRO')
-      ?? (plansData ?? []).find((plan) => plan.name === 'ENTERPRISE')
-      ?? null,
-    [plansData],
-  )
-
   const trialBannerMessage = useMemo(() => {
     if (!data?.subscription?.inTrial || data?.subscription?.interval) return ''
     const daysRemaining = data?.subscription?.daysRemaining ?? 0
@@ -506,13 +490,8 @@ export default function SettingsPage() {
     },
   })
 
-  function openCheckout(planName: PlanName, interval: BillingInterval) {
-    if (planName === 'FREE') {
-      setAlert({ tone: 'info', message: 'FREE plan is managed without online payment. Contact support or use downgrade flow.' })
-      return
-    }
-    if (currentPlanName === planName && isCurrentPlanActive(interval)) return
-    setSelectedPlanName(planName)
+  function openCheckout(interval: BillingInterval) {
+    if (isCurrentPlanActive(interval)) return
     setSelectedInterval(interval)
     setCheckoutOpen(true)
   }
@@ -527,7 +506,6 @@ export default function SettingsPage() {
 
       const initiate = await api
         .post('/api/settings/subscription/checkout/initiate', {
-          planName: selectedPlanName,
           interval: selectedInterval,
         })
         .then((r) => r.data.data)
@@ -707,7 +685,7 @@ export default function SettingsPage() {
               className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-amber-800 transition-colors hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40"
               aria-label="Dismiss trial notice"
             >
-              ×
+              x
             </button>
           </div>
           <div className="mt-2 flex items-center gap-2">
@@ -718,15 +696,13 @@ export default function SettingsPage() {
             >
               {language === 'hi' ? 'बाद में' : language === 'hinglish' ? 'Later' : 'Later'}
             </button>
-            {paidPlanForCheckout ? (
-              <button
-                type="button"
-                onClick={() => openCheckout(paidPlanForCheckout.name, 'MONTHLY')}
-                className="rounded-full bg-amber-600 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white transition-colors hover:bg-amber-700"
-              >
-                {language === 'hi' ? 'सब्सक्राइब करें' : language === 'hinglish' ? 'Subscribe' : 'Subscribe'}
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => openCheckout('MONTHLY')}
+              className="rounded-full bg-amber-600 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white transition-colors hover:bg-amber-700"
+            >
+              {language === 'hi' ? 'सब्सक्राइब करें' : language === 'hinglish' ? 'Subscribe' : 'Subscribe'}
+            </button>
           </div>
         </div>
       ) : null}
@@ -794,36 +770,30 @@ export default function SettingsPage() {
             />
             <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/60">
               <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Choose billing cycle</div>
-              {paidPlanForCheckout ? (
-                <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
-                  <PlanOption
-                    title="Monthly"
-                    amount={fmt(Number(paidPlanForCheckout.priceMonthly))}
-                    sub={paidPlanForCheckout.description ?? '30-day access window'}
-                    statusLabel={isCurrentPlanActive('MONTHLY') ? 'Current plan' : undefined}
-                    onClick={() => openCheckout(paidPlanForCheckout.name, 'MONTHLY')}
-                    busy={isConfirmingPayment && selectedInterval === 'MONTHLY' && selectedPlanName === paidPlanForCheckout.name}
-                    subscribed={isCurrentPlanActive('MONTHLY')}
-                    disabled={isCurrentPlanActive('MONTHLY')}
-                    ctaLabel={isCurrentPlanActive('MONTHLY') ? 'Current plan' : 'Activate monthly'}
-                  />
-                  <PlanOption
-                    title="Yearly"
-                    amount={fmt(Number(paidPlanForCheckout.priceYearly))}
-                    sub="365-day access window"
-                    statusLabel={isCurrentPlanActive('YEARLY') ? 'Current plan' : 'Best value'}
-                    onClick={() => openCheckout(paidPlanForCheckout.name, 'YEARLY')}
-                    busy={isConfirmingPayment && selectedInterval === 'YEARLY' && selectedPlanName === paidPlanForCheckout.name}
-                    subscribed={isCurrentPlanActive('YEARLY')}
-                    disabled={isCurrentPlanActive('YEARLY')}
-                    ctaLabel={isCurrentPlanActive('YEARLY') ? 'Current plan' : 'Activate yearly'}
-                  />
-                </div>
-              ) : (
-                <div className="mt-3 text-sm text-rose-600 dark:text-rose-300">
-                  Paid plan is not configured yet. Ask admin to set Monthly/Yearly pricing.
-                </div>
-              )}
+              <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+                <PlanOption
+                  title="Monthly"
+                  amount={fmt(Number(data?.subscription?.monthlyPrice ?? 0))}
+                  sub="30-day access window"
+                  statusLabel={isCurrentPlanActive('MONTHLY') ? 'Current plan' : undefined}
+                  onClick={() => openCheckout('MONTHLY')}
+                  busy={isConfirmingPayment && selectedInterval === 'MONTHLY'}
+                  subscribed={isCurrentPlanActive('MONTHLY')}
+                  disabled={isCurrentPlanActive('MONTHLY')}
+                  ctaLabel={isCurrentPlanActive('MONTHLY') ? 'Current plan' : 'Activate monthly'}
+                />
+                <PlanOption
+                  title="Yearly"
+                  amount={fmt(Number(data?.subscription?.yearlyPrice ?? 0))}
+                  sub="365-day access window"
+                  statusLabel={isCurrentPlanActive('YEARLY') ? 'Current plan' : 'Best value'}
+                  onClick={() => openCheckout('YEARLY')}
+                  busy={isConfirmingPayment && selectedInterval === 'YEARLY'}
+                  subscribed={isCurrentPlanActive('YEARLY')}
+                  disabled={isCurrentPlanActive('YEARLY')}
+                  ctaLabel={isCurrentPlanActive('YEARLY') ? 'Current plan' : 'Activate yearly'}
+                />
+              </div>
             </div>
           </div>
           
@@ -1387,7 +1357,7 @@ export default function SettingsPage() {
                   {t('Confirm to open Razorpay secure checkout and complete payment with your preferred method.', 'Razorpay secure checkout à¤–à¥‹à¤²à¤¨à¥‡ à¤”à¤° à¤…à¤ªà¤¨à¥€ à¤ªà¤¸à¤‚à¤¦ à¤¸à¥‡ à¤­à¥à¤—à¤¤à¤¾à¤¨ à¤ªà¥‚à¤°à¤¾ à¤•à¤°à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤ªà¥à¤·à¥à¤Ÿà¤¿ à¤•à¤°à¥‡à¤‚à¥¤')}
                 </div>
                 <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  {selectedPlanName} Â· {selectedInterval}
+                  STANDARD · {selectedInterval}
                 </div>
               </div>
               <button type="button" onClick={() => setCheckoutOpen(false)} className={cancelBtnCls}>

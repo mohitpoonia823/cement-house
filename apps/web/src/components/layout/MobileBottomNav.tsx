@@ -66,6 +66,13 @@ function iconFor(href: string) {
       </svg>
     )
   }
+  if (href === '/partners') {
+    return (
+      <svg {...common}>
+        <path d="M8.5 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Zm7 0a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM4.5 18.5v-.75A2.75 2.75 0 0 1 7.25 15h2.5a2.75 2.75 0 0 1 2.75 2.75v.75m1-3.5h2.25A2.75 2.75 0 0 1 18.5 17.75v.75" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
   if (href === '/settings') {
     return (
       <svg {...common}>

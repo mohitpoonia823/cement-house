@@ -18,6 +18,7 @@ import { salesReturnRoutes } from './routes/sales-returns'
 import { razorpayWebhookRoutes } from './routes/webhooks/razorpay'
 import { locationRoutes } from './routes/locations'
 import { stockTransferRoutes } from './routes/stock-transfers'
+import { referralPartnersRoutes } from './routes/referral-partners'
 import { authenticate } from './middleware/auth'
 
 const app = Fastify({ logger: { level: 'info' } })
@@ -53,6 +54,7 @@ app.register(async function protectedRoutes(scoped) {
   scoped.register(salesReturnRoutes,    { prefix: '/api/sales-returns' })
   scoped.register(locationRoutes,       { prefix: '/api/locations' })
   scoped.register(stockTransferRoutes,  { prefix: '/api/stock-transfers' })
+  scoped.register(referralPartnersRoutes, { prefix: '/api/referral-partners' })
 })
 
 const port = Number(process.env.PORT ?? 4000)

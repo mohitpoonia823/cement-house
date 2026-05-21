@@ -83,6 +83,7 @@ function OrdersContent() {
       deliveryDate: t('Delivery Date', 'डिलीवरी तिथि'),
       customer: language === 'hi' ? 'ग्राहक' : terms.customer,
       items: language === 'hi' ? 'आइटम' : `${terms.material}s`,
+      variant: t('Variant', 'वैरिएंट', 'Variant'),
       amount: t('Amount', 'राशि'),
       paid: t('Paid', 'भुगतान'),
       due: t('Due', 'बकाया'),
@@ -157,6 +158,49 @@ function OrdersContent() {
     () => orders.reduce((sum: number, o: any) => sum + (Number(o.totalAmount) - Number(o.amountPaid)), 0),
     [orders]
   )
+
+  function formatVariantAttributes(attrs: any) {
+    if (!attrs || typeof attrs !== 'object' || Array.isArray(attrs)) return ''
+    const entries = Object.entries(attrs as Record<string, unknown>)
+      .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+      .slice(0, 2)
+      .map(([k, v]) => `${k}: ${String(v)}`)
+    return entries.join(', ')
+  }
+
+  function itemLabelWithVariant(item: any) {
+    const materialName = item?.material?.name ?? 'Item'
+    const variantName = item?.variant?.name
+    const attrs = formatVariantAttributes(item?.variant?.attributes)
+    if (!variantName || String(variantName).toLowerCase() === 'default') return materialName
+    return attrs ? `${materialName} · ${variantName} (${attrs})` : `${materialName} · ${variantName}`
+  }
+
+  function orderItemsPreview(order: any) {
+    const items = Array.isArray(order?.items) ? order.items : []
+    if (items.length === 0) return '-'
+    const labels = items.slice(0, 2).map((item: any) => itemLabelWithVariant(item))
+    const more = items.length - labels.length
+    return more > 0 ? `${labels.join(', ')} +${more}` : labels.join(', ')
+  }
+
+  function orderVariantsPreview(order: any) {
+    const items = Array.isArray(order?.items) ? order.items : []
+    if (items.length === 0) return '-'
+    const variantLabels = items
+      .map((item: any) => {
+        const variantName = item?.variant?.name
+        if (!variantName || String(variantName).toLowerCase() === 'default') return null
+        const attrs = formatVariantAttributes(item?.variant?.attributes)
+        return attrs ? `${variantName} (${attrs})` : String(variantName)
+      })
+      .filter(Boolean) as string[]
+    if (variantLabels.length === 0) return '-'
+    const unique = [...new Set(variantLabels)]
+    const shown = unique.slice(0, 2)
+    const more = unique.length - shown.length
+    return more > 0 ? `${shown.join(', ')} +${more}` : shown.join(', ')
+  }
 
   useEffect(() => {
     if (searchParams.get('openNewOrder') === '1') {
@@ -469,7 +513,7 @@ function OrdersContent() {
               ))}
             </div>
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[860px] text-xs">
+              <table className="w-full min-w-[980px] text-xs">
                 <thead>
                   <tr className="border-b border-slate-200/70 dark:border-slate-800">
                     {[tr.columns.orderNo, tr.columns.orderDate, tr.columns.deliveryDate, tr.columns.customer, tr.columns.items, tr.columns.amount, tr.columns.paid, tr.columns.due, tr.columns.status, tr.columns.actions].map((h) => (
@@ -533,6 +577,9 @@ function OrdersContent() {
                     <div className="text-right font-medium text-slate-800 dark:text-slate-200">{o.customer?.name ?? '-'}</div>
                     <div className="text-slate-500 dark:text-slate-400">{tr.columns.items}</div>
                     <div className="text-right font-medium text-slate-800 dark:text-slate-200">{o.items?.length ?? 0}</div>
+                    <div className="col-span-2 text-right text-[10px] text-slate-500 dark:text-slate-400" title={orderItemsPreview(o)}>
+                      {orderItemsPreview(o)}
+                    </div>
                     <div className="text-slate-500 dark:text-slate-400">{tr.columns.amount}</div>
                     <div className="text-right font-medium text-slate-900 dark:text-slate-100">{fmt(Number(o.totalAmount))}</div>
                     <div className="text-slate-500 dark:text-slate-400">{tr.columns.paid}</div>
@@ -572,7 +619,7 @@ function OrdersContent() {
             })}
           </div>
           <div className="hidden overflow-x-auto md:block">
-            <table className="w-full min-w-[860px] text-xs">
+            <table className="w-full min-w-[980px] text-xs">
               <thead>
                 <tr className="border-b border-slate-200/70 dark:border-slate-800">
                   <th className="w-8 py-2 pr-2 text-left">
@@ -608,7 +655,7 @@ function OrdersContent() {
                       <span className="text-[10px]">{sortIndicator('deliveryDate')}</span>
                     </button>
                   </th>
-                  {[tr.columns.customer, tr.columns.items, tr.columns.amount, tr.columns.paid, tr.columns.due, tr.columns.status, tr.columns.actions].map((h) => (
+                  {[tr.columns.customer, tr.columns.items, tr.columns.variant, tr.columns.amount, tr.columns.paid, tr.columns.due, tr.columns.status, tr.columns.actions].map((h) => (
                     <th key={h} className="py-3 pr-3 text-left font-normal uppercase tracking-[0.18em] text-slate-400 dark:text-slate-300">
                       {h}
                     </th>
@@ -647,7 +694,13 @@ function OrdersContent() {
                       <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300">{fmtDate(o.orderDate ?? o.createdAt)}</td>
                       <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300">{o.deliveryDate ? fmtDate(o.deliveryDate) : '-'}</td>
                       <td className="py-2.5 pr-3 font-medium text-stone-800 dark:text-stone-200">{o.customer?.name}</td>
-                      <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300">{o.items?.length}</td>
+                      <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300" title={orderItemsPreview(o)}>
+                        <div>{o.items?.length}</div>
+                        <div className="max-w-[260px] truncate text-[10px] text-slate-400 dark:text-slate-500">{orderItemsPreview(o)}</div>
+                      </td>
+                      <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300" title={orderVariantsPreview(o)}>
+                        <div className="max-w-[220px] truncate text-[10px] text-slate-500 dark:text-slate-400">{orderVariantsPreview(o)}</div>
+                      </td>
                       <td className="py-2.5 pr-3 font-medium">{fmt(Number(o.totalAmount))}</td>
                       <td className="py-2.5 pr-3 text-green-700 dark:text-green-400">{fmt(Number(o.amountPaid))}</td>
                       <td className={`py-2.5 pr-3 font-medium ${due > 0 ? 'text-red-600 dark:text-red-400' : 'text-stone-400'}`}>

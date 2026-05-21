@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { ordersRepository, type Prisma } from '@cement-house/db'
+import { ordersRepository, referralPartnersRepository, type Prisma } from '@cement-house/db'
 import { generateChallanNumber, marginPct } from '@cement-house/utils'
 import { getBizId } from '../../middleware/auth'
 import { createAuditLog } from '../../services/audit'
@@ -43,6 +43,7 @@ const ListOrdersQuerySchema = z.object({
 
 const CreateOrderSchema = z.object({
   customerId: z.string().uuid(),
+  referralPartnerId: z.string().uuid().optional(),
   sourceLocationId: z.string().uuid().optional(),
   deliveryDate: z.string().min(1).optional(),
   gstEnabled: z.boolean().optional(),
@@ -58,6 +59,7 @@ const CreateOrderSchema = z.object({
   notes: z.string().optional(),
   items: z.array(z.object({
     materialId: z.string().uuid(),
+    variantId: z.string().uuid().optional(),
     quantity: z.number().positive(),
     unitPrice: z.number().min(0),
     purchasePrice: z.number().min(0),
@@ -77,6 +79,7 @@ const CreateOrderSchema = z.object({
 
 const AddItemSchema = z.object({
   materialId: z.string().uuid(),
+  variantId: z.string().uuid().optional(),
   quantity: z.number().positive(),
   unitPrice: z.number().min(0),
   purchasePrice: z.number().min(0),
@@ -216,6 +219,7 @@ export async function orderRoutes(app: FastifyInstance) {
 
     const {
       customerId,
+      referralPartnerId,
       sourceLocationId,
       paymentMode,
       amountPaid,
@@ -273,6 +277,21 @@ export async function orderRoutes(app: FastifyInstance) {
     })
 
     const totalAmount = computed.grandTotal
+    let referralRewardAmount: number | undefined
+    let referralRewardRate: number | undefined
+    if (referralPartnerId) {
+      const partner = await referralPartnersRepository.getReferralPartnerById(referralPartnerId, bizId)
+      if (!partner || !partner.isActive) {
+        return reply.status(400).send({ success: false, error: 'Referral partner not found or inactive' })
+      }
+      if (partner.rewardType === 'FLAT') {
+        referralRewardRate = Number(partner.rewardValue)
+        referralRewardAmount = Number(partner.rewardValue)
+      } else {
+        referralRewardRate = Number(partner.rewardValue)
+        referralRewardAmount = Number(((totalAmount * referralRewardRate) / 100).toFixed(2))
+      }
+    }
     const avgMargin = items.reduce((sum, item) => sum + marginPct(item.unitPrice, item.purchasePrice), 0) / items.length
     const nowYear = new Date().getFullYear()
     const seq = await ordersRepository.getNextInvoiceSequence(bizId, nowYear)
@@ -283,6 +302,9 @@ export async function orderRoutes(app: FastifyInstance) {
         orderNumber,
         invoiceNumber: orderNumber,
         customerId,
+        referralPartnerId,
+        referralRewardAmount,
+        referralRewardRate,
         createdById: user.id,
         paymentMode,
         amountPaid: computed.paidAmount,
@@ -316,6 +338,7 @@ export async function orderRoutes(app: FastifyInstance) {
         allowNegativeStock: allowNegativeStock === true || user.defaultSettings?.allowNegativeStock === true,
         items: computed.lines.map((line, i) => ({
           materialId: line.materialId,
+          variantId: items[i].variantId,
           quantity: items[i].quantity,
           unitPrice: items[i].unitPrice,
           purchasePrice: items[i].purchasePrice,
@@ -398,6 +421,7 @@ export async function orderRoutes(app: FastifyInstance) {
       orderId: params.data.id,
       businessId: bizId,
       materialId: body.data.materialId,
+      variantId: body.data.variantId,
       quantity: body.data.quantity,
       unitPrice: body.data.unitPrice,
       purchasePrice: body.data.purchasePrice,

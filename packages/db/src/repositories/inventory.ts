@@ -10,6 +10,7 @@ const BILL_MATCH_THRESHOLD = 0.82
 const BILL_LOW_MATCH_THRESHOLD = 0.58
 
 let ensurePurchaseBillTablesPromise: Promise<void> | null = null
+let ensureProductVariantTablesPromise: Promise<void> | null = null
 
 export interface MaterialRow {
   id: string
@@ -46,6 +47,10 @@ export interface MaterialRow {
   createdAt: Date
   updatedAt: Date
   businessId: string
+  hasVariants?: boolean
+  defaultVariantId?: string | null
+  defaultVariantName?: string | null
+  variantAttributes?: Prisma.JsonValue | null
 }
 
 export interface InventoryMaterialRow extends MaterialRow {
@@ -54,6 +59,10 @@ export interface InventoryMaterialRow extends MaterialRow {
 
 export interface OrderFormMaterialRow {
   id: string
+  variantId?: string | null
+  variantName?: string | null
+  hasVariants?: boolean
+  variantAttributes?: Prisma.JsonValue | null
   name: string
   unit: string
   stockQty: number
@@ -255,6 +264,9 @@ interface CreateMaterialInput {
   tareWeight?: number | null
   netWeight?: number | null
   metadata?: Prisma.InputJsonValue | null
+  hasVariants?: boolean
+  variantName?: string | null
+  variantAttributes?: Prisma.InputJsonValue | null
 }
 
 interface UpdateMaterialInput extends CreateMaterialInput {
@@ -521,56 +533,66 @@ export function preparePurchaseBillLines(
 function materialSelectSql() {
   return Prisma.sql`
     SELECT
-      id,
-      name,
-      category,
-      unit,
-      "stockQty"::double precision AS "stockQty",
-      "minThreshold"::double precision AS "minThreshold",
-      "maxThreshold"::double precision AS "maxThreshold",
-      "purchasePrice"::double precision AS "purchasePrice",
-      "salePrice"::double precision AS "salePrice",
-      barcode,
-      "batchNumber" AS "batchNumber",
-      "expiryDate" AS "expiryDate",
-      "manufactureDate" AS "manufactureDate",
-      manufacturer,
-      "rackLocation" AS "rackLocation",
-      size,
-      color,
-      material,
-      weight::double precision AS weight,
-      purity::double precision AS purity,
-      "makingCharges"::double precision AS "makingCharges",
-      "serialNumber" AS "serialNumber",
-      "imeiNumber" AS "imeiNumber",
-      "grossWeight"::double precision AS "grossWeight",
-      "tareWeight"::double precision AS "tareWeight",
-      "netWeight"::double precision AS "netWeight",
-      NULLIF(COALESCE(metadata->>'hsnCode', ''), '') AS "hsnCode",
+      m.id,
+      m.name,
+      m.category,
+      COALESCE(pv.unit, m.unit) AS unit,
+      m."stockQty"::double precision AS "stockQty",
+      COALESCE(pv."minThreshold", m."minThreshold")::double precision AS "minThreshold",
+      COALESCE(pv."maxThreshold", m."maxThreshold")::double precision AS "maxThreshold",
+      COALESCE(pv."purchasePrice", m."purchasePrice")::double precision AS "purchasePrice",
+      COALESCE(pv."salePrice", m."salePrice")::double precision AS "salePrice",
+      COALESCE(pv.barcode, m.barcode) AS barcode,
+      m."batchNumber" AS "batchNumber",
+      m."expiryDate" AS "expiryDate",
+      m."manufactureDate" AS "manufactureDate",
+      m.manufacturer,
+      m."rackLocation" AS "rackLocation",
+      m.size,
+      m.color,
+      m.material,
+      m.weight::double precision AS weight,
+      m.purity::double precision AS purity,
+      m."makingCharges"::double precision AS "makingCharges",
+      m."serialNumber" AS "serialNumber",
+      m."imeiNumber" AS "imeiNumber",
+      m."grossWeight"::double precision AS "grossWeight",
+      m."tareWeight"::double precision AS "tareWeight",
+      m."netWeight"::double precision AS "netWeight",
+      NULLIF(COALESCE(m.metadata->>'hsnCode', ''), '') AS "hsnCode",
       CASE
-        WHEN COALESCE(metadata->>'gstRate', '') ~ '^[0-9]+(\\.[0-9]+)?$'
-          THEN (metadata->>'gstRate')::double precision
+        WHEN COALESCE(m.metadata->>'gstRate', '') ~ '^[0-9]+(\\.[0-9]+)?$'
+          THEN (m.metadata->>'gstRate')::double precision
         ELSE 0
       END AS "gstRate",
       CASE
-        WHEN LOWER(COALESCE(metadata->>'isExempted', 'false')) = 'true' THEN true
+        WHEN LOWER(COALESCE(m.metadata->>'isExempted', 'false')) = 'true' THEN true
         ELSE false
       END AS "isExempted",
-      metadata,
-      "isActive" AS "isActive",
-      "createdAt" AS "createdAt",
-      "updatedAt" AS "updatedAt",
-      "businessId" AS "businessId"
-    FROM materials
+      m.metadata,
+      m."isActive" AS "isActive",
+      m."createdAt" AS "createdAt",
+      m."updatedAt" AS "updatedAt",
+      m."businessId" AS "businessId",
+      EXISTS (
+        SELECT 1 FROM product_variants pvx
+        WHERE pvx."businessId" = m."businessId" AND pvx."materialId" = m.id AND pvx."isActive" = true AND pvx."isDefault" = false
+      ) AS "hasVariants",
+      pv.id AS "defaultVariantId",
+      pv.name AS "defaultVariantName",
+      pv.attributes AS "variantAttributes"
+    FROM materials m
+    LEFT JOIN product_variants pv
+      ON pv."businessId" = m."businessId" AND pv."materialId" = m.id AND pv."isDefault" = true AND pv."isActive" = true
   `
 }
 
 export async function listActiveMaterials(businessId: string) {
+  await ensureProductVariantTables()
   const rows = await prisma.$queryRaw<MaterialRow[]>(Prisma.sql`
     ${materialSelectSql()}
-    WHERE "businessId" = ${businessId} AND "isActive" = true
-    ORDER BY name ASC
+    WHERE m."businessId" = ${businessId} AND m."isActive" = true
+    ORDER BY m.name ASC
   `)
 
   return rows.map((material) => ({
@@ -582,28 +604,180 @@ export async function listActiveMaterials(businessId: string) {
   })) as InventoryMaterialRow[]
 }
 
+async function ensureProductVariantTables() {
+  if (!ensureProductVariantTablesPromise) {
+    ensureProductVariantTablesPromise = (async () => {
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS product_variants (
+          id TEXT PRIMARY KEY,
+          "businessId" TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          "materialId" TEXT NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+          name TEXT NOT NULL DEFAULT 'Default',
+          sku TEXT,
+          barcode TEXT,
+          unit TEXT NOT NULL,
+          "purchasePrice" NUMERIC(10, 2) NOT NULL DEFAULT 0,
+          "salePrice" NUMERIC(10, 2) NOT NULL DEFAULT 0,
+          "minThreshold" NUMERIC(12, 3) NOT NULL DEFAULT 0,
+          "maxThreshold" NUMERIC(12, 3),
+          attributes JSONB,
+          metadata JSONB,
+          "isDefault" BOOLEAN NOT NULL DEFAULT false,
+          "isActive" BOOLEAN NOT NULL DEFAULT true,
+          "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE ("businessId", id),
+          UNIQUE ("businessId", "materialId", name)
+        )
+      `)
+      await prisma.$executeRawUnsafe(`
+        CREATE UNIQUE INDEX IF NOT EXISTS product_variants_default_unique_idx
+        ON product_variants ("businessId", "materialId")
+        WHERE "isDefault" = true
+      `)
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS product_variants_material_idx
+        ON product_variants ("businessId", "materialId", "isActive")
+      `)
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE order_items
+        ADD COLUMN IF NOT EXISTS "variantId" TEXT
+      `)
+      await prisma.$executeRawUnsafe(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.table_constraints
+            WHERE constraint_name = 'order_items_variant_fk'
+          ) THEN
+            ALTER TABLE order_items
+            ADD CONSTRAINT order_items_variant_fk
+            FOREIGN KEY ("variantId") REFERENCES product_variants(id) ON DELETE SET NULL;
+          END IF;
+        END $$;
+      `)
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS order_items_variant_idx
+        ON order_items ("variantId")
+      `)
+    })().catch((error) => {
+      ensureProductVariantTablesPromise = null
+      throw error
+    })
+  }
+  await ensureProductVariantTablesPromise
+}
+
+async function upsertDefaultVariant(
+  tx: Prisma.TransactionClient,
+  input: {
+    businessId: string
+    materialId: string
+    name: string
+    unit: string
+    purchasePrice: number
+    salePrice: number
+    minThreshold: number
+    maxThreshold?: number | null
+    barcode?: string | null
+    variantName?: string | null
+    variantAttributes?: Prisma.InputJsonValue | null
+    metadata?: Prisma.InputJsonValue | null
+    hasVariants?: boolean
+  }
+) {
+  const attributesFromLegacy = {
+    ...(input.hasVariants ? {} : {}),
+  }
+  const resolvedAttributes = input.variantAttributes ?? attributesFromLegacy
+  const resolvedName = (input.variantName ?? 'Default').trim() || 'Default'
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO product_variants (
+      id,
+      "businessId",
+      "materialId",
+      name,
+      sku,
+      barcode,
+      unit,
+      "purchasePrice",
+      "salePrice",
+      "minThreshold",
+      "maxThreshold",
+      attributes,
+      metadata,
+      "isDefault",
+      "isActive",
+      "createdAt",
+      "updatedAt"
+    ) VALUES (
+      ${randomUUID()},
+      ${input.businessId},
+      ${input.materialId},
+      ${resolvedName},
+      NULL,
+      ${input.barcode ?? null},
+      ${input.unit},
+      ${input.purchasePrice},
+      ${input.salePrice},
+      ${input.minThreshold},
+      ${input.maxThreshold ?? null},
+      ${resolvedAttributes ?? null},
+      ${input.metadata ?? null},
+      true,
+      true,
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT ("businessId", "materialId") WHERE "isDefault" = true
+    DO UPDATE SET
+      name = EXCLUDED.name,
+      barcode = EXCLUDED.barcode,
+      unit = EXCLUDED.unit,
+      "purchasePrice" = EXCLUDED."purchasePrice",
+      "salePrice" = EXCLUDED."salePrice",
+      "minThreshold" = EXCLUDED."minThreshold",
+      "maxThreshold" = EXCLUDED."maxThreshold",
+      attributes = EXCLUDED.attributes,
+      metadata = EXCLUDED.metadata,
+      "isActive" = true,
+      "updatedAt" = NOW()
+  `)
+}
+
 export async function listOrderFormMaterials(businessId: string) {
+  await ensureProductVariantTables()
   const rows = await prisma.$queryRaw<OrderFormMaterialRow[]>(Prisma.sql`
     SELECT
-      id,
-      name,
-      unit,
-      "stockQty"::double precision AS "stockQty",
-      "purchasePrice"::double precision AS "purchasePrice",
-      "salePrice"::double precision AS "salePrice",
-      NULLIF(COALESCE(metadata->>'hsnCode', ''), '') AS "hsnCode",
+      m.id,
+      pv.id AS "variantId",
+      pv.name AS "variantName",
+      EXISTS (
+        SELECT 1 FROM product_variants pvx
+        WHERE pvx."businessId" = m."businessId" AND pvx."materialId" = m.id AND pvx."isActive" = true AND pvx."isDefault" = false
+      ) AS "hasVariants",
+      pv.attributes AS "variantAttributes",
+      m.name,
+      COALESCE(pv.unit, m.unit) AS unit,
+      m."stockQty"::double precision AS "stockQty",
+      COALESCE(pv."purchasePrice", m."purchasePrice")::double precision AS "purchasePrice",
+      COALESCE(pv."salePrice", m."salePrice")::double precision AS "salePrice",
+      NULLIF(COALESCE(m.metadata->>'hsnCode', ''), '') AS "hsnCode",
       CASE
-        WHEN COALESCE(metadata->>'gstRate', '') ~ '^[0-9]+(\\.[0-9]+)?$'
-          THEN (metadata->>'gstRate')::double precision
+        WHEN COALESCE(m.metadata->>'gstRate', '') ~ '^[0-9]+(\\.[0-9]+)?$'
+          THEN (m.metadata->>'gstRate')::double precision
         ELSE 0
       END AS "gstRate",
       CASE
-        WHEN LOWER(COALESCE(metadata->>'isExempted', 'false')) = 'true' THEN true
+        WHEN LOWER(COALESCE(m.metadata->>'isExempted', 'false')) = 'true' THEN true
         ELSE false
       END AS "isExempted"
-    FROM materials
-    WHERE "businessId" = ${businessId} AND "isActive" = true
-    ORDER BY name ASC
+    FROM materials m
+    LEFT JOIN product_variants pv
+      ON pv."businessId" = m."businessId" AND pv."materialId" = m.id AND pv."isDefault" = true AND pv."isActive" = true
+    WHERE m."businessId" = ${businessId} AND m."isActive" = true
+    ORDER BY m.name ASC
   `)
 
   return rows.map((row) => ({
@@ -1135,6 +1309,7 @@ export async function listMaterialMovements(materialId: string, businessId: stri
 }
 
 export async function createMaterial(input: CreateMaterialInput) {
+  await ensureProductVariantTables()
   const materialId = randomUUID()
   const expiryDate = input.expiryDate ? new Date(input.expiryDate) : null
   const manufactureDate = input.manufactureDate ? new Date(input.manufactureDate) : null
@@ -1249,15 +1424,41 @@ export async function createMaterial(input: CreateMaterialInput) {
         DO UPDATE SET quantity = EXCLUDED.quantity, "updatedAt" = NOW()
       `)
     }
+    const derivedVariantAttributes = input.variantAttributes ?? (
+      input.size || input.color || input.material
+        ? {
+            ...(input.size ? { size: input.size } : {}),
+            ...(input.color ? { color: input.color } : {}),
+            ...(input.material ? { material: input.material } : {}),
+          }
+        : null
+    )
+    await upsertDefaultVariant(tx, {
+      businessId: input.businessId,
+      materialId,
+      name: input.name,
+      unit: input.unit,
+      purchasePrice: input.purchasePrice,
+      salePrice: input.salePrice,
+      minThreshold: input.minThreshold,
+      maxThreshold: input.maxThreshold ?? null,
+      barcode: input.barcode ?? null,
+      variantName: input.variantName ?? null,
+      variantAttributes: derivedVariantAttributes as Prisma.InputJsonValue | null,
+      metadata: input.metadata ?? null,
+      hasVariants: input.hasVariants ?? false,
+    })
     return created
   })
   return rows
 }
 
 export async function updateMaterial(input: UpdateMaterialInput) {
+  await ensureProductVariantTables()
   const expiryDate = input.expiryDate ? new Date(input.expiryDate) : null
   const manufactureDate = input.manufactureDate ? new Date(input.manufactureDate) : null
-  const rows = await prisma.$queryRaw<MaterialRow[]>(Prisma.sql`
+  const rows = await prisma.$transaction(async (tx) => {
+    const updatedRows = await tx.$queryRaw<MaterialRow[]>(Prisma.sql`
     UPDATE materials
     SET
       name = ${input.name},
@@ -1323,7 +1524,36 @@ export async function updateMaterial(input: UpdateMaterialInput) {
       "updatedAt" AS "updatedAt",
       "businessId" AS "businessId"
   `)
-  return rows[0] ?? null
+    const updated = updatedRows[0] ?? null
+    if (updated) {
+      const derivedVariantAttributes = input.variantAttributes ?? (
+        input.size || input.color || input.material
+          ? {
+              ...(input.size ? { size: input.size } : {}),
+              ...(input.color ? { color: input.color } : {}),
+              ...(input.material ? { material: input.material } : {}),
+            }
+          : null
+      )
+      await upsertDefaultVariant(tx, {
+        businessId: input.businessId,
+        materialId: input.materialId,
+        name: input.name,
+        unit: input.unit,
+        purchasePrice: input.purchasePrice,
+        salePrice: input.salePrice,
+        minThreshold: input.minThreshold,
+        maxThreshold: input.maxThreshold ?? null,
+        barcode: input.barcode ?? null,
+        variantName: input.variantName ?? null,
+        variantAttributes: derivedVariantAttributes as Prisma.InputJsonValue | null,
+        metadata: input.metadata ?? null,
+        hasVariants: input.hasVariants ?? false,
+      })
+    }
+    return updated
+  })
+  return rows
 }
 
 export async function commitPurchaseBillScan(input: {

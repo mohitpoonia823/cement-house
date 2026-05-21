@@ -99,6 +99,9 @@ const CreateMaterialSchema = z.object({
   gstRate: z.number().min(0).max(100).optional(),
   isExempted: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  hasVariants: z.boolean().optional(),
+  variantName: z.string().trim().max(120).optional(),
+  variantAttributes: z.record(z.string(), z.unknown()).optional(),
   allowPastExpiry: z.boolean().optional(),
 })
 

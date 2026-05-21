@@ -846,13 +846,13 @@ export async function getAdminDashboardOverview() {
         (SELECT COUNT(*)::int FROM subscriptions WHERE status = 'ACTIVE') AS "activeSubscriptions",
         (SELECT COUNT(*)::int FROM subscriptions WHERE status = 'TRIAL') AS "trialSubscriptions",
         (SELECT COUNT(*)::int FROM subscriptions WHERE status = 'EXPIRED') AS "expiredSubscriptions",
-        (SELECT COUNT(*)::int FROM subscription_payments WHERE status = 'FAILED') AS "failedPaymentsCount",
+        (SELECT COUNT(*)::int FROM payment_transactions WHERE status = 'FAILED') AS "failedPaymentsCount",
         (SELECT COUNT(*)::int FROM users) AS "totalUsers"
     `,
     prisma.$queryRaw<Array<{ totalRevenue: number }>>`
       SELECT COALESCE(SUM(amount), 0)::double precision AS "totalRevenue"
-      FROM subscription_payments
-      WHERE status = 'SUCCESS'
+      FROM payment_transactions
+      WHERE status = 'SUCCEEDED'::"PaymentStatus"
     `,
   ])
 
@@ -903,9 +903,9 @@ export async function getAdminRevenueAnalytics() {
         d.day::text AS day,
         COALESCE(SUM(sp.amount), 0)::double precision AS revenue
       FROM days d
-      LEFT JOIN subscription_payments sp
+      LEFT JOIN payment_transactions sp
         ON date_trunc('day', sp."createdAt")::date = d.day
-       AND sp.status = 'SUCCESS'
+       AND sp.status = 'SUCCEEDED'::"PaymentStatus"
       GROUP BY d.day
       ORDER BY d.day ASC
     `,
@@ -918,8 +918,8 @@ export async function getAdminRevenueAnalytics() {
       SELECT
         to_char(date_trunc('month', "createdAt"), 'YYYY-MM') AS month,
         COALESCE(SUM(amount), 0)::double precision AS revenue
-      FROM subscription_payments
-      WHERE status = 'SUCCESS'
+      FROM payment_transactions
+      WHERE status = 'SUCCEEDED'::"PaymentStatus"
       GROUP BY date_trunc('month', "createdAt")
       ORDER BY date_trunc('month', "createdAt") ASC
     `,
@@ -932,9 +932,9 @@ export async function getAdminRevenueAnalytics() {
       SELECT
         p.name::text AS "planName",
         COALESCE(SUM(sp.amount), 0)::double precision AS revenue
-      FROM subscription_payments sp
-      INNER JOIN plans p ON p.id = sp."planId"
-      WHERE sp.status = 'SUCCESS'
+      FROM payment_transactions sp
+      INNER JOIN plans p ON p.id = (sp.metadata->>'planId')
+      WHERE sp.status = 'SUCCEEDED'::"PaymentStatus"
       GROUP BY p.name
       ORDER BY revenue DESC, p.name ASC
     `,
@@ -949,7 +949,10 @@ export async function listAdminPayments(input: {
   endDate?: Date
 }) {
   const filters: Prisma.Sql[] = [Prisma.sql`1 = 1`]
-  if (input.status) filters.push(Prisma.sql`sp.status = ${input.status}`)
+  if (input.status) {
+    const dbStatus = input.status === 'SUCCESS' ? 'SUCCEEDED' : input.status
+    filters.push(Prisma.sql`sp.status = ${dbStatus}::"PaymentStatus"`)
+  }
   if (input.startDate) filters.push(Prisma.sql`sp."createdAt" >= ${input.startDate}`)
   if (input.endDate) filters.push(Prisma.sql`sp."createdAt" <= ${input.endDate}`)
 
@@ -966,12 +969,12 @@ export async function listAdminPayments(input: {
     SELECT
       sp.id AS "paymentId",
       sp."businessId" AS "businessId",
-      p.name::text AS "planName",
+      COALESCE((sp.metadata->>'planName')::text, p.name::text, 'STARTER') AS "planName",
       sp.amount::double precision AS amount,
-      sp.status::text AS status,
+      CASE WHEN sp.status = 'SUCCEEDED'::"PaymentStatus" THEN 'SUCCESS' ELSE sp.status::text END AS status,
       sp."createdAt" AS "createdAt"
-    FROM subscription_payments sp
-    INNER JOIN plans p ON p.id = sp."planId"
+    FROM payment_transactions sp
+    LEFT JOIN plans p ON p.id = (sp.metadata->>'planId')
     WHERE ${Prisma.join(filters, ' AND ')}
     ORDER BY sp."createdAt" DESC
     LIMIT 500
@@ -1125,3 +1128,4 @@ export async function updateAdminPlanPricing(input: {
   `)
   return rows[0] ?? null
 }
+

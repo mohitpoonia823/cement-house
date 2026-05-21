@@ -11,9 +11,12 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
 import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
+import { useReferralPartners } from '@/hooks/useReferralPartners'
 
 type Product = {
   id: string
+  variantId?: string
+  variantName?: string
   name: string
   price: number
   unit: string
@@ -27,6 +30,7 @@ type Product = {
 
 type LineItem = {
   materialId: string
+  variantId?: string
   materialName: string
   unit: string
   quantity: number
@@ -69,14 +73,17 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
   const [shouldLoadCustomers, setShouldLoadCustomers] = useState(false)
   const [shouldLoadMaterials, setShouldLoadMaterials] = useState(false)
   const [shouldLoadLocations, setShouldLoadLocations] = useState(false)
+  const [shouldLoadPartners, setShouldLoadPartners] = useState(false)
   const { data: customers, isLoading: customersLoading } = useCustomers(undefined, { enabled: shouldLoadCustomers })
   const { data: materials, isLoading: materialsLoading } = useInventoryOptions({ enabled: shouldLoadMaterials })
   const { data: locations } = useLocations({ enabled: shouldLoadLocations })
+  const { data: referralPartners, isLoading: partnersLoading } = useReferralPartners(undefined, { enabled: shouldLoadPartners })
   const createOrder = useCreateOrder()
 
   const [customerId, setCustomerId] = useState('')
   const [deliveryDate, setDeliveryDate] = useState('')
   const [sourceLocationId, setSourceLocationId] = useState('')
+  const [referralPartnerId, setReferralPartnerId] = useState('')
   const [paymentMode, setPaymentMode] = useState('CASH')
   const [amountPaid, setAmountPaid] = useState(0)
   const [notes, setNotes] = useState('')
@@ -129,6 +136,8 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
 
   const products: Product[] = (materials ?? []).map((m: any) => ({
     id: String(m.id),
+    variantId: m.variantId ? String(m.variantId) : undefined,
+    variantName: m.variantName ? String(m.variantName) : undefined,
     name: String(m.name ?? ''),
     price: Number(m.salePrice ?? 0),
     unit: String(m.unit ?? ''),
@@ -165,9 +174,11 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
   useEffect(() => {
     const locationTimer = window.setTimeout(() => setShouldLoadLocations(true), 120)
     const customerTimer = window.setTimeout(() => setShouldLoadCustomers(true), 220)
+    const partnerTimer = window.setTimeout(() => setShouldLoadPartners(true), 260)
     return () => {
       window.clearTimeout(locationTimer)
       window.clearTimeout(customerTimer)
+      window.clearTimeout(partnerTimer)
     }
   }, [])
 
@@ -189,6 +200,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
             ? {
                 ...item,
                 materialId: product.id,
+                variantId: product.variantId,
                 materialName: product.name,
                 unit: product.unit,
                 unitPrice: Number(product.salePrice),
@@ -197,7 +209,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
                 gstRate: product.isExempted ? 0 : Number(product.gstRate),
                 isExempted: product.isExempted,
               }
-            : { ...item, materialId: value }
+            : { ...item, materialId: value, variantId: undefined }
         }
         return {
           ...item,
@@ -248,13 +260,14 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    if (!customerId) return setError(language === 'hi' ? 'ग्राहक चुनें' : 'Select a customer')
-    if (items.some((i) => !i.materialId)) return setError(language === 'hi' ? 'हर आइटम के लिए मटेरियल चुनें' : 'Select a material for each item')
-    if (items.some((i) => i.quantity <= 0)) return setError(language === 'hi' ? 'मात्रा 0 से अधिक होनी चाहिए' : 'Quantity must be greater than 0')
-    if (deliveryDate && deliveryDate < minDeliveryDate) return setError(language === 'hi' ? 'डिलीवरी तिथि ऑर्डर तिथि से पहले नहीं हो सकती' : 'Delivery date cannot be earlier than order creation date')
+    if (!customerId) return setError(language === 'hi' ? '?????? ?????' : 'Select a customer')
+    if (items.some((i) => !i.materialId)) return setError(language === 'hi' ? '?? ???? ?? ??? ??????? ?????' : 'Select a material for each item')
+    if (items.some((i) => i.quantity <= 0)) return setError(language === 'hi' ? '?????? 0 ?? ???? ???? ?????' : 'Quantity must be greater than 0')
+    if (deliveryDate && deliveryDate < minDeliveryDate) return setError(language === 'hi' ? '??????? ???? ????? ???? ?? ???? ???? ?? ????' : 'Delivery date cannot be earlier than order creation date')
     try {
       await createOrder.mutateAsync({
         customerId,
+        referralPartnerId: referralPartnerId || undefined,
         sourceLocationId: sourceLocationId || undefined,
         deliveryDate: deliveryDate || undefined,
         gstEnabled: gstBilling,
@@ -266,6 +279,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
         items: items.map((item) => ({
           productId: item.materialId,
           materialId: item.materialId,
+          variantId: item.variantId,
           quantity: Number(item.quantity),
           unitPrice: Number(item.unitPrice),
           purchasePrice: Number(item.purchasePrice),
@@ -282,7 +296,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
         })),
       })
       if (redirectOnSuccess) {
-        const successText = language === 'hi' ? 'ऑर्डर सफलतापूर्वक बनाया गया।' : 'Order created successfully'
+        const successText = language === 'hi' ? '????? ??????????? ????? ????' : 'Order created successfully'
         setSuccessMessage(successText)
         window.setTimeout(() => {
           router.push('/orders')
@@ -295,7 +309,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
         setError('Request timed out. Order may still be saved; please check Orders once before retrying.')
         return
       }
-      setError(err.response?.data?.error ?? (language === 'hi' ? 'ऑर्डर बनाना विफल रहा' : 'Failed to create order'))
+      setError(err.response?.data?.error ?? (language === 'hi' ? '????? ????? ???? ???' : 'Failed to create order'))
     }
   }
 
@@ -315,10 +329,10 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
         </div>
       ) : null}
       <Card>
-        <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? 'ऑर्डर विवरण' : 'Order details'}</div>
+        <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? '????? ?????' : 'Order details'}</div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? 'ग्राहक *' : 'Customer *'}</label>
+            <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? '?????? *' : 'Customer *'}</label>
             <select
               value={customerId}
               onFocus={() => setShouldLoadCustomers(true)}
@@ -328,8 +342,8 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
             >
               <option value="">
                 {customersLoading
-                  ? (language === 'hi' ? 'ग्राहक लोड हो रहे हैं...' : 'Loading customers...')
-                  : (language === 'hi' ? 'ग्राहक चुनें...' : 'Select customer...')}
+                  ? (language === 'hi' ? '?????? ??? ?? ??? ???...' : 'Loading customers...')
+                  : (language === 'hi' ? '?????? ?????...' : 'Select customer...')}
               </option>
               {(customers ?? []).map((c: any) => (
                 <option key={c.id} value={c.id}>
@@ -358,7 +372,25 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? 'डिलीवरी तिथि' : 'Delivery date'}</label>
+            <label className="mb-1 block text-xs text-stone-500">Referred by partner</label>
+            <select
+              value={referralPartnerId}
+              onFocus={() => setShouldLoadPartners(true)}
+              onChange={(e) => setReferralPartnerId(e.target.value)}
+              className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+            >
+              <option value="">
+                {partnersLoading ? 'Loading partners...' : 'No referral partner'}
+              </option>
+              {(referralPartners ?? []).map((partner: any) => (
+                <option key={partner.id} value={partner.id}>
+                  {partner.name} - {partner.role}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? '??????? ????' : 'Delivery date'}</label>
             <div className="relative">
               <input
                 type="date"
@@ -394,8 +426,8 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
 
         {selectedCustomer && selectedCustomer.balance > 0 && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-            {selectedCustomer.name} {language === 'hi' ? 'का बकाया बैलेंस' : 'has outstanding balance of'} {fmt(selectedCustomer.balance)}.
-            {selectedCustomer.balance >= Number(selectedCustomer.creditLimit) && (language === 'hi' ? ' क्रेडिट सीमा पूरी हो चुकी है।' : ' Credit limit reached.')}
+            {selectedCustomer.name} {language === 'hi' ? '?? ????? ??????' : 'has outstanding balance of'} {fmt(selectedCustomer.balance)}.
+            {selectedCustomer.balance >= Number(selectedCustomer.creditLimit) && (language === 'hi' ? ' ??????? ???? ???? ?? ???? ???' : ' Credit limit reached.')}
           </div>
         )}
       </Card>
@@ -417,20 +449,20 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
       ) : null}
 
       <Card>
-        <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? 'ऑर्डर आइटम्स' : 'Order items'}</div>
+        <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? '????? ??????' : 'Order items'}</div>
         {inStockProducts.length === 0 ? (
           <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
             {language === 'hi'
-              ? 'इस लोकेशन में कोई स्टॉक उपलब्ध नहीं है। कृपया दूसरी लोकेशन चुनें।'
+              ? '?? ?????? ??? ??? ????? ?????? ???? ??? ????? ????? ?????? ??????'
               : 'No stock is available in this location. Please choose another location.'}
           </div>
         ) : null}
         <div>
           <div className="mb-1 hidden min-w-full grid-cols-12 gap-2 px-1 text-[10px] text-stone-400 sm:grid sm:min-w-[640px]">
-            <div className="col-span-4">{language === 'hi' ? 'मटेरियल' : 'Material'}</div>
-            <div className="col-span-2">{language === 'hi' ? 'मात्रा' : 'Qty'}</div>
-            <div className="col-span-2">{language === 'hi' ? 'रेट (रु)' : 'Rate (Rs)'}</div>
-            <div className="col-span-3">{language === 'hi' ? 'राशि' : 'Amount'}</div>
+            <div className="col-span-4">{language === 'hi' ? '???????' : 'Material'}</div>
+            <div className="col-span-2">{language === 'hi' ? '??????' : 'Qty'}</div>
+            <div className="col-span-2">{language === 'hi' ? '??? (??)' : 'Rate (Rs)'}</div>
+            <div className="col-span-3">{language === 'hi' ? '????' : 'Amount'}</div>
             <div />
           </div>
           {items.map((item, idx) => (
@@ -445,8 +477,8 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
                 >
                   <option value="">
                     {materialsLoading
-                      ? (language === 'hi' ? 'मैटेरियल लोड हो रहे हैं...' : 'Loading materials...')
-                      : (language === 'hi' ? 'चुनें...' : 'Select...')}
+                      ? (language === 'hi' ? '???????? ??? ?? ??? ???...' : 'Loading materials...')
+                      : (language === 'hi' ? '?????...' : 'Select...')}
                   </option>
                   {products
                     .filter((m) => Number(m.stockQty) > 0 || m.id === item.materialId)
@@ -498,7 +530,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
                       type="text"
                       value={item.batchNumber ?? ''}
                       onChange={(e) => updateItem(idx, 'batchNumber', e.target.value)}
-                      placeholder={language === 'hi' ? 'बैच नंबर' : 'Batch number'}
+                      placeholder={language === 'hi' ? '??? ????' : 'Batch number'}
                       className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                     />
                   ) : null}
@@ -515,7 +547,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
                       type="text"
                       value={item.barcode ?? ''}
                       onChange={(e) => updateItem(idx, 'barcode', e.target.value)}
-                      placeholder={language === 'hi' ? 'बारकोड' : 'Barcode'}
+                      placeholder={language === 'hi' ? '??????' : 'Barcode'}
                       className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                     />
                   ) : null}
@@ -524,7 +556,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
                       type="text"
                       value={item.serialOrImei ?? ''}
                       onChange={(e) => updateItem(idx, 'serialOrImei', e.target.value)}
-                      placeholder={language === 'hi' ? 'सीरियल / IMEI' : 'Serial / IMEI'}
+                      placeholder={language === 'hi' ? '?????? / IMEI' : 'Serial / IMEI'}
                       className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                     />
                   ) : null}
@@ -601,17 +633,17 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
           ))}
         </div>
         <button type="button" onClick={addItem} className="mt-1 text-xs text-blue-600 hover:underline">
-          {language === 'hi' ? '+ आइटम जोड़ें' : '+ Add item'}
+          {language === 'hi' ? '+ ???? ??????' : '+ Add item'}
         </button>
 
         <div className="mt-4 flex items-center justify-between border-t border-stone-100 pt-3 dark:border-stone-800">
-          <div className="text-xs text-stone-500">{language === 'hi' ? 'ऑर्डर कुल' : 'Order total'}</div>
+          <div className="text-xs text-stone-500">{language === 'hi' ? '????? ???' : 'Order total'}</div>
           <div className="text-lg font-medium text-stone-900 dark:text-stone-100">{fmt(totalAmount)}</div>
         </div>
       </Card>
 
       <Card>
-        <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? 'भुगतान' : 'Payment'}</div>
+        <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? '??????' : 'Payment'}</div>
         <div className="mb-4 flex flex-wrap gap-2">
           {PAYMENT_MODES.map((m) => (
             <button
@@ -634,7 +666,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? 'अभी भुगतान राशि (रु)' : 'Amount paid now (Rs)'}</label>
+            <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? '??? ?????? ???? (??)' : 'Amount paid now (Rs)'}</label>
             <input
               type="number"
               value={amountPaid}
@@ -645,17 +677,17 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
             />
           </div>
           <div className="flex flex-col justify-end">
-            <div className="text-xs text-stone-500">{language === 'hi' ? 'शेष (उधार)' : 'Remaining (udhar)'}</div>
+            <div className="text-xs text-stone-500">{language === 'hi' ? '??? (????)' : 'Remaining (udhar)'}</div>
             <div className={`mt-1 text-base font-medium ${totalDue > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalDue)}</div>
           </div>
         </div>
         <div className="mt-3">
-          <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? 'नोट्स (वैकल्पिक)' : 'Notes (optional)'}</label>
+          <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? '????? (????????)' : 'Notes (optional)'}</label>
           <input
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder={language === 'hi' ? 'कोई विशेष निर्देश...' : 'Any special instructions...'}
+            placeholder={language === 'hi' ? '??? ????? ???????...' : 'Any special instructions...'}
             className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
           />
         </div>
@@ -669,14 +701,14 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
           disabled={createOrder.isPending}
           className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
         >
-          {createOrder.isPending ? (language === 'hi' ? 'सेव हो रहा है...' : 'Saving...') : (language === 'hi' ? 'ऑर्डर सेव करें और चालान बनाएं' : 'Save order & generate challan')}
+          {createOrder.isPending ? (language === 'hi' ? '??? ?? ??? ??...' : 'Saving...') : (language === 'hi' ? '????? ??? ???? ?? ????? ?????' : 'Save order & generate challan')}
         </button>
         <button
           type="button"
           onClick={handleCancel}
           className="rounded-lg border border-stone-200 px-5 py-2 text-sm transition-colors hover:bg-stone-50 dark:border-stone-700 dark:hover:bg-stone-800"
         >
-          {language === 'hi' ? 'रद्द करें' : 'Cancel'}
+          {language === 'hi' ? '???? ????' : 'Cancel'}
         </button>
       </div>
     </form>

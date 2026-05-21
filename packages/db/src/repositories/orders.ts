@@ -11,6 +11,9 @@ export interface OrderListItemRow {
   orderNumber: string
   invoiceNumber: string | null
   customerId: string
+  referralPartnerId: string | null
+  referralRewardAmount: number | null
+  referralRewardRate: number | null
   createdById: string
   orderDate: Date
   deliveryDate: Date | null
@@ -28,10 +31,12 @@ export interface OrderListItemRow {
   updatedAt: Date
   businessId: string
   customer: { name: string }
+  referralPartner: { id: string; name: string; role: string } | null
   items: Array<{
     id: string
     orderId: string
     materialId: string
+    variantId?: string | null
     quantity: number
     unitPrice: number
     purchasePrice: number
@@ -44,6 +49,9 @@ export interface OrderDetailRow {
   orderNumber: string
   invoiceNumber: string | null
   customerId: string
+  referralPartnerId: string | null
+  referralRewardAmount: number | null
+  referralRewardRate: number | null
   createdById: string
   orderDate: Date
   deliveryDate: Date | null
@@ -61,6 +69,7 @@ export interface OrderDetailRow {
   updatedAt: Date
   businessId: string
   customer: any
+  referralPartner: { id: string; name: string; role: string } | null
   items: any[]
   deliveries: any[]
 }
@@ -110,6 +119,9 @@ export async function listOrders(input: {
         o."orderNumber" AS "orderNumber",
         o."invoiceNumber" AS "invoiceNumber",
         o."customerId" AS "customerId",
+        o."referralPartnerId" AS "referralPartnerId",
+        o."referralRewardAmount"::double precision AS "referralRewardAmount",
+        o."referralRewardRate"::double precision AS "referralRewardRate",
         o."createdById" AS "createdById",
         o."orderDate" AS "orderDate",
         o."deliveryDate" AS "deliveryDate",
@@ -127,12 +139,17 @@ export async function listOrders(input: {
         o."updatedAt" AS "updatedAt",
         o."businessId" AS "businessId",
         json_build_object('name', c.name) AS customer,
+        CASE
+          WHEN rp.id IS NULL THEN NULL
+          ELSE json_build_object('id', rp.id, 'name', rp.name, 'role', rp.role)
+        END AS "referralPartner",
         COALESCE(
           (
             SELECT json_agg(json_build_object(
               'id', oi.id,
               'orderId', oi."orderId",
               'materialId', oi."materialId",
+              'variantId', oi."variantId",
               'quantity', oi.quantity::double precision,
               'unitPrice', oi."unitPrice"::double precision,
               'purchasePrice', oi."purchasePrice"::double precision,
@@ -145,6 +162,7 @@ export async function listOrders(input: {
         ) AS items
       FROM orders o
       INNER JOIN customers c ON c.id = o."customerId"
+      LEFT JOIN referral_partners rp ON rp.id = o."referralPartnerId"
       WHERE ${Prisma.join(where, ' AND ')}
       ORDER BY o."createdAt" DESC
       OFFSET ${skip}
@@ -170,6 +188,9 @@ export async function getOrderDetail(orderId: string, businessId: string) {
       o."orderNumber" AS "orderNumber",
       o."invoiceNumber" AS "invoiceNumber",
       o."customerId" AS "customerId",
+      o."referralPartnerId" AS "referralPartnerId",
+      o."referralRewardAmount"::double precision AS "referralRewardAmount",
+      o."referralRewardRate"::double precision AS "referralRewardRate",
       o."createdById" AS "createdById",
       o."orderDate" AS "orderDate",
       o."deliveryDate" AS "deliveryDate",
@@ -203,12 +224,17 @@ export async function getOrderDetail(orderId: string, businessId: string) {
         'updatedAt', c."updatedAt",
         'businessId', c."businessId"
       ) AS customer,
+      CASE
+        WHEN rp.id IS NULL THEN NULL
+        ELSE json_build_object('id', rp.id, 'name', rp.name, 'role', rp.role)
+      END AS "referralPartner",
       COALESCE(
         (
           SELECT json_agg(json_build_object(
             'id', oi.id,
             'orderId', oi."orderId",
             'materialId', oi."materialId",
+            'variantId', oi."variantId",
             'quantity', oi.quantity::double precision,
             'unitPrice', oi."unitPrice"::double precision,
             'purchasePrice', oi."purchasePrice"::double precision,
@@ -234,10 +260,20 @@ export async function getOrderDetail(orderId: string, businessId: string) {
               'createdAt', m."createdAt",
               'updatedAt', m."updatedAt",
               'businessId', m."businessId"
-            )
+            ),
+            'variant', CASE
+              WHEN pv.id IS NULL THEN NULL
+              ELSE json_build_object(
+                'id', pv.id,
+                'name', pv.name,
+                'unit', pv.unit,
+                'attributes', pv.attributes
+              )
+            END
           ))
           FROM order_items oi
           INNER JOIN materials m ON m.id = oi."materialId"
+          LEFT JOIN product_variants pv ON pv.id = oi."variantId"
           WHERE oi."orderId" = o.id
         ),
         '[]'::json
@@ -264,6 +300,7 @@ export async function getOrderDetail(orderId: string, businessId: string) {
       ) AS deliveries
     FROM orders o
     INNER JOIN customers c ON c.id = o."customerId"
+    LEFT JOIN referral_partners rp ON rp.id = o."referralPartnerId"
     WHERE o.id = ${orderId}
       AND o."businessId" = ${businessId}
       AND o."isDeleted" = false
@@ -302,6 +339,7 @@ export async function getOrderForChallan(orderId: string, businessId: string) {
             'id', oi.id,
             'orderId', oi."orderId",
             'materialId', oi."materialId",
+            'variantId', oi."variantId",
             'quantity', oi.quantity::double precision,
             'unitPrice', oi."unitPrice"::double precision,
             'purchasePrice', oi."purchasePrice"::double precision,
@@ -310,10 +348,20 @@ export async function getOrderForChallan(orderId: string, businessId: string) {
               'id', m.id,
               'name', m.name,
               'unit', m.unit
-            )
+            ),
+            'variant', CASE
+              WHEN pv.id IS NULL THEN NULL
+              ELSE json_build_object(
+                'id', pv.id,
+                'name', pv.name,
+                'unit', pv.unit,
+                'attributes', pv.attributes
+              )
+            END
           ))
           FROM order_items oi
           INNER JOIN materials m ON m.id = oi."materialId"
+          LEFT JOIN product_variants pv ON pv.id = oi."variantId"
           WHERE oi."orderId" = o.id
         ),
         '[]'::json
@@ -373,6 +421,9 @@ export async function createOrder(input: {
   orderNumber: string
   invoiceNumber?: string
   customerId: string
+  referralPartnerId?: string
+  referralRewardAmount?: number
+  referralRewardRate?: number
   createdById: string
   paymentMode: 'CASH' | 'UPI' | 'CHEQUE' | 'CREDIT' | 'PARTIAL'
   amountPaid: number
@@ -400,6 +451,7 @@ export async function createOrder(input: {
   allowNegativeStock?: boolean
   items: Array<{
     materialId: string
+    variantId?: string
     quantity: number
     unitPrice: number
     purchasePrice: number
@@ -439,6 +491,9 @@ export async function createOrder(input: {
         "orderNumber",
         "invoiceNumber",
         "customerId",
+        "referralPartnerId",
+        "referralRewardAmount",
+        "referralRewardRate",
         "createdById",
         "paymentMode",
         "amountPaid",
@@ -473,6 +528,9 @@ export async function createOrder(input: {
         ${input.orderNumber},
         ${input.invoiceNumber ?? input.orderNumber},
         ${input.customerId},
+        ${input.referralPartnerId ?? null},
+        ${input.referralRewardAmount ?? null},
+        ${input.referralRewardRate ?? null},
         ${input.createdById},
         ${input.paymentMode}::"PaymentMode",
         ${input.amountPaid},
@@ -521,12 +579,35 @@ export async function createOrder(input: {
       throw new Error('One or more selected materials were not found')
     }
 
+    const variantIds = [...new Set(input.items.map((item) => item.variantId).filter(Boolean) as string[])]
+    const variantMaterialMap = new Map<string, string>()
+    if (variantIds.length > 0) {
+      const variantRows = await tx.$queryRaw<Array<{ id: string; materialId: string }>>(Prisma.sql`
+        SELECT id, "materialId" AS "materialId"
+        FROM product_variants
+        WHERE "businessId" = ${input.businessId}
+          AND "isActive" = true
+          AND id IN (${Prisma.join(variantIds)})
+      `)
+      if (variantRows.length !== variantIds.length) {
+        throw new Error('One or more selected variants were not found')
+      }
+      for (const row of variantRows) variantMaterialMap.set(row.id, row.materialId)
+    }
+
     const orderItemValues = input.items.map((item) => {
+      if (item.variantId) {
+        const variantMaterialId = variantMaterialMap.get(item.variantId)
+        if (!variantMaterialId || variantMaterialId !== item.materialId) {
+          throw new Error('Selected variant does not belong to selected material')
+        }
+      }
       const lineTotal = item.lineTotal ?? (item.quantity * item.unitPrice)
       return Prisma.sql`(
         ${randomUUID()},
         ${createdOrderId},
         ${item.materialId},
+        ${item.variantId ?? null},
         ${item.quantity},
         ${item.hsnCode ?? null},
         ${item.gstRate ?? null},
@@ -546,6 +627,7 @@ export async function createOrder(input: {
         id,
         "orderId",
         "materialId",
+        "variantId",
         quantity,
         "hsnCode",
         "gstRate",
@@ -692,6 +774,7 @@ export async function appendItemToOrder(input: {
   orderId: string
   businessId: string
   materialId: string
+  variantId?: string
   quantity: number
   unitPrice: number
   purchasePrice: number
@@ -731,6 +814,19 @@ export async function appendItemToOrder(input: {
     const material = mats[0]
     if (!material) throw new Error('Material not found for this business')
 
+    if (input.variantId) {
+      const variantRows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id
+        FROM product_variants
+        WHERE id = ${input.variantId}
+          AND "businessId" = ${input.businessId}
+          AND "materialId" = ${input.materialId}
+          AND "isActive" = true
+        LIMIT 1
+      `)
+      if (variantRows.length === 0) throw new Error('Variant not found for selected material')
+    }
+
     const lineTotal = input.lineTotal ?? (input.quantity * input.unitPrice)
     const orderItemId = randomUUID()
     await tx.$executeRaw(Prisma.sql`
@@ -738,6 +834,7 @@ export async function appendItemToOrder(input: {
         id,
         "orderId",
         "materialId",
+        "variantId",
         quantity,
         "hsnCode",
         "gstRate",
@@ -754,6 +851,7 @@ export async function appendItemToOrder(input: {
         ${orderItemId},
         ${input.orderId},
         ${input.materialId},
+        ${input.variantId ?? null},
         ${input.quantity},
         ${input.hsnCode ?? null},
         ${input.gstRate ?? null},

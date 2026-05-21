@@ -31,9 +31,26 @@ export default function OrderDetailPage() {
   const [downloadingChallan, setDownloadingChallan] = useState(false)
   const [showAddItem, setShowAddItem] = useState(false)
   const [addingItem, setAddingItem] = useState(false)
-  const [newItem, setNewItem] = useState({ materialId: '', quantity: 1, unitPrice: 0, purchasePrice: 0 })
+  const [newItem, setNewItem] = useState({ materialId: '', variantId: '', quantity: 1, unitPrice: 0, purchasePrice: 0 })
   const { data: materials } = useInventory()
   const { user } = useAuthStore()
+
+  function formatVariantAttributes(attrs: any) {
+    if (!attrs || typeof attrs !== 'object' || Array.isArray(attrs)) return ''
+    const entries = Object.entries(attrs as Record<string, unknown>)
+      .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+      .slice(0, 3)
+      .map(([k, v]) => `${k}: ${String(v)}`)
+    return entries.join(', ')
+  }
+
+  function materialVariantLabel(item: any) {
+    const materialName = item?.material?.name ?? 'Item'
+    const variantName = item?.variant?.name
+    const attrs = formatVariantAttributes(item?.variant?.attributes)
+    if (!variantName || String(variantName).toLowerCase() === 'default') return materialName
+    return attrs ? `${materialName} · ${variantName} (${attrs})` : `${materialName} · ${variantName}`
+  }
 
   async function updateStatus(status: string) {
     setUpdating(true)
@@ -50,11 +67,14 @@ export default function OrderDetailPage() {
     if (!newItem.materialId || newItem.quantity <= 0) return
     setAddingItem(true)
     try {
-      await api.post(`/api/orders/${id}/items`, newItem)
+      await api.post(`/api/orders/${id}/items`, {
+        ...newItem,
+        variantId: newItem.variantId || undefined,
+      })
       qc.invalidateQueries({ queryKey: ['orders', id] })
       qc.invalidateQueries({ queryKey: ['orders'] })
       setShowAddItem(false)
-      setNewItem({ materialId: '', quantity: 1, unitPrice: 0, purchasePrice: 0 })
+      setNewItem({ materialId: '', variantId: '', quantity: 1, unitPrice: 0, purchasePrice: 0 })
     } finally { setAddingItem(false) }
   }
 
@@ -195,13 +215,13 @@ export default function OrderDetailPage() {
                 return (
                   <tr key={item.id} className="border-b border-stone-50 dark:border-stone-800 last:border-0">
                     <td className="py-2.5 pr-4 font-medium text-stone-800 dark:text-stone-200">
-                      {item.material?.name}
+                      {materialVariantLabel(item)}
                     </td>
                     <td className="py-2.5 pr-4 text-stone-600 dark:text-stone-400">
-                      {Number(item.quantity).toFixed(2)} {item.material?.unit}
+                      {Number(item.quantity).toFixed(2)} {(item.variant?.unit ?? item.material?.unit)}
                     </td>
                     <td className="py-2.5 pr-4 text-stone-600 dark:text-stone-400">
-                      {fmt(Number(item.unitPrice))}/{item.material?.unit}
+                      {fmt(Number(item.unitPrice))}/{(item.variant?.unit ?? item.material?.unit)}
                     </td>
                     <td className="py-2.5 pr-4 font-medium">{fmt(Number(item.lineTotal))}</td>
                     <td className="py-2.5 pr-4">
@@ -303,9 +323,9 @@ export default function OrderDetailPage() {
                 <tbody>
                   {order.items?.map((item: any) => (
                     <tr key={item.id} className="border-t border-stone-50 dark:border-stone-800">
-                      <td className="py-1.5 pr-2 font-medium text-stone-800 dark:text-stone-200 break-words">{item.material?.name}</td>
+                      <td className="py-1.5 pr-2 font-medium text-stone-800 dark:text-stone-200 break-words">{materialVariantLabel(item)}</td>
                       <td className="py-1.5 text-right">{Number(item.quantity).toFixed(2)}</td>
-                      <td className="py-1.5 text-right text-stone-500">{item.material?.unit}</td>
+                      <td className="py-1.5 text-right text-stone-500">{item.variant?.unit ?? item.material?.unit}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -379,16 +399,29 @@ export default function OrderDetailPage() {
                 <select value={newItem.materialId} onChange={e => {
                   const mat = materials?.find((m: any) => m.id === e.target.value)
                   if (mat) {
-                    setNewItem({ ...newItem, materialId: mat.id, unitPrice: Number(mat.salePrice), purchasePrice: Number(mat.purchasePrice) })
+                    setNewItem({
+                      ...newItem,
+                      materialId: mat.id,
+                      variantId: String(mat.defaultVariantId ?? mat.variantId ?? ''),
+                      unitPrice: Number(mat.salePrice),
+                      purchasePrice: Number(mat.purchasePrice),
+                    })
                   } else {
-                    setNewItem({ ...newItem, materialId: '' })
+                    setNewItem({ ...newItem, materialId: '', variantId: '' })
                   }
                 }}
                   className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required>
                   <option value="">Select material…</option>
                   {(materials ?? []).map((m: any) => (
-                    <option key={m.id} value={m.id}>{m.name} ({m.stockQty} {m.unit} in stock)</option>
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                      {m.defaultVariantName && String(m.defaultVariantName).toLowerCase() !== 'default' ? ` · ${m.defaultVariantName}` : ''}
+                      {m.variantAttributes && typeof m.variantAttributes === 'object'
+                        ? ` (${formatVariantAttributes(m.variantAttributes)})`
+                        : ''}
+                      {` (${m.stockQty} ${m.unit} in stock)`}
+                    </option>
                   ))}
                 </select>
               </div>

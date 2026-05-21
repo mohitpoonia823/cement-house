@@ -144,6 +144,32 @@ export async function getPlanByName(name: PlanName) {
   return rows[0] ?? null
 }
 
+export async function getDefaultPaidPlan() {
+  const rows = await prisma.$queryRaw<PlanRow[]>`
+    SELECT
+      id,
+      name::text AS name,
+      "priceMonthly"::double precision AS "priceMonthly",
+      "priceYearly"::double precision AS "priceYearly",
+      description,
+      "isActive" AS "isActive",
+      features
+    FROM plans
+    WHERE "isActive" = TRUE
+      AND name <> 'FREE'
+    ORDER BY
+      CASE name
+        WHEN 'BASIC' THEN 1
+        WHEN 'PRO' THEN 2
+        WHEN 'ENTERPRISE' THEN 3
+        ELSE 50
+      END ASC,
+      "priceMonthly" ASC
+    LIMIT 1
+  `
+  return rows[0] ?? null
+}
+
 export async function getCurrentSubscriptionByBusiness(businessId: string) {
   await activateDueQueuedSubscriptionPayment(businessId)
   const rows = await prisma.$queryRaw<Array<{
@@ -310,12 +336,17 @@ export async function createPendingSubscriptionPayment(input: {
 }) {
   const id = randomUUID()
   await prisma.$executeRaw`
-    INSERT INTO subscription_payments (
-      id, "businessId", "planId", "razorpayOrderId", amount, interval, status, metadata, "createdAt", "updatedAt"
+    INSERT INTO payment_transactions (
+      id, "businessId", provider, interval, amount, currency, status, reference, metadata, "createdAt", "updatedAt"
     )
     VALUES (
-      ${id}, ${input.businessId}, ${input.planId}, ${input.razorpayOrderId},
-      ${input.amount}, ${input.interval}, 'PENDING', ${input.metadata ?? {} as Prisma.JsonObject}, NOW(), NOW()
+      ${id}, ${input.businessId}, 'DUMMY'::"PaymentProvider", ${input.interval}::"BillingInterval",
+      ${input.amount}, 'INR', 'PENDING'::"PaymentStatus", ${input.razorpayOrderId},
+      ${{
+        ...(input.metadata ?? {}),
+        planId: input.planId,
+        razorpayOrderId: input.razorpayOrderId,
+      } as Prisma.JsonObject}, NOW(), NOW()
     )
   `
   return id
@@ -332,16 +363,16 @@ export async function getNextSubscriptionWindowStart(businessId: string, now = n
         AND b."subscriptionEndsAt" > ${now}
       UNION ALL
       SELECT (sp.metadata->>'plannedEndAt')::timestamptz AS end_at
-      FROM subscription_payments sp
+      FROM payment_transactions sp
       WHERE sp."businessId" = ${businessId}
-        AND sp.status IN ('PENDING', 'SUCCESS')
+        AND sp.status IN ('PENDING'::"PaymentStatus", 'SUCCEEDED'::"PaymentStatus")
         AND sp.metadata ? 'plannedEndAt'
         AND (sp.metadata->>'plannedEndAt')::timestamptz > ${now}
       UNION ALL
       SELECT (sp.metadata->>'queuedEndAt')::timestamptz AS end_at
-      FROM subscription_payments sp
+      FROM payment_transactions sp
       WHERE sp."businessId" = ${businessId}
-        AND sp.status = 'SUCCESS'
+        AND sp.status = 'SUCCEEDED'::"PaymentStatus"
         AND COALESCE((sp.metadata->>'queued')::boolean, false) = true
         AND sp.metadata ? 'queuedEndAt'
         AND (sp.metadata->>'queuedEndAt')::timestamptz > ${now}
@@ -365,11 +396,11 @@ export async function getLatestPendingSubscriptionPaymentByBusiness(businessId: 
       sp.id,
       sp.interval::text AS interval,
       sp."createdAt" AS "createdAt",
-      sp."razorpayOrderId" AS "razorpayOrderId",
+      COALESCE(sp.metadata->>'razorpayOrderId', sp.reference) AS "razorpayOrderId",
       sp.metadata
-    FROM subscription_payments sp
+    FROM payment_transactions sp
     WHERE sp."businessId" = ${businessId}
-      AND sp.status = 'PENDING'
+      AND sp.status = 'PENDING'::"PaymentStatus"
     ORDER BY sp."createdAt" DESC
     LIMIT 1
   `
@@ -448,16 +479,16 @@ export async function processRazorpayWebhookEvent(input: {
       SELECT
         sp.id,
         sp."businessId" AS "businessId",
-        sp."planId" AS "planId",
+        (sp.metadata->>'planId') AS "planId",
         sp.interval::text AS interval,
-        sp.status::text AS status,
+        CASE WHEN sp.status = 'SUCCEEDED'::"PaymentStatus" THEN 'SUCCESS' ELSE sp.status::text END AS status,
         p.name::text AS "planName",
         p."priceMonthly"::double precision AS "priceMonthly",
         p."priceYearly"::double precision AS "priceYearly",
         sp.metadata
-      FROM subscription_payments sp
-      INNER JOIN plans p ON p.id = sp."planId"
-      WHERE sp."razorpayOrderId" = ${input.razorpayOrderId}
+      FROM payment_transactions sp
+      INNER JOIN plans p ON p.id = (sp.metadata->>'planId')
+      WHERE COALESCE(sp.metadata->>'razorpayOrderId', sp.reference) = ${input.razorpayOrderId}
       LIMIT 1
     `
     const payment = payments[0]
@@ -480,8 +511,13 @@ export async function processRazorpayWebhookEvent(input: {
 
     if (input.eventType === 'payment.failed') {
       await tx.$executeRaw`
-        UPDATE subscription_payments
-        SET status = 'FAILED', "razorpayPaymentId" = COALESCE(${input.razorpayPaymentId}, "razorpayPaymentId"), "updatedAt" = NOW()
+        UPDATE payment_transactions
+        SET
+          status = 'FAILED'::"PaymentStatus",
+          metadata = COALESCE(metadata, '{}'::jsonb) || ${{
+            razorpayPaymentId: input.razorpayPaymentId,
+          } as Prisma.JsonObject}::jsonb,
+          "updatedAt" = NOW()
         WHERE id = ${payment.id}
       `
       await tx.$executeRaw`
@@ -532,10 +568,9 @@ export async function processRazorpayWebhookEvent(input: {
 
     if (shouldQueue) {
       await tx.$executeRaw`
-        UPDATE subscription_payments
+        UPDATE payment_transactions
         SET
-          status = 'SUCCESS',
-          "subscriptionId" = NULL,
+          status = 'SUCCEEDED'::"PaymentStatus",
           metadata = COALESCE(metadata, '{}'::jsonb) || ${{
             queued: true,
             queuedStartAt: windowStart.toISOString(),
@@ -544,8 +579,9 @@ export async function processRazorpayWebhookEvent(input: {
             queuedPlanName: payment.planName,
             plannedStartAt: windowStart.toISOString(),
             plannedEndAt: windowEnd.toISOString(),
+            subscriptionId: null,
+            razorpayPaymentId: input.razorpayPaymentId,
           } as Prisma.JsonObject}::jsonb,
-          "razorpayPaymentId" = COALESCE(${input.razorpayPaymentId}, "razorpayPaymentId"),
           "updatedAt" = NOW()
         WHERE id = ${payment.id}
       `
@@ -567,18 +603,18 @@ export async function processRazorpayWebhookEvent(input: {
       `
 
       await tx.$executeRaw`
-        UPDATE subscription_payments
+        UPDATE payment_transactions
         SET
-          status = 'SUCCESS',
-          "subscriptionId" = ${subscriptionId},
+          status = 'SUCCEEDED'::"PaymentStatus",
           metadata = COALESCE(metadata, '{}'::jsonb) || ${{
             queued: false,
             activeStartAt: windowStart.toISOString(),
             activeEndAt: windowEnd.toISOString(),
             plannedStartAt: windowStart.toISOString(),
             plannedEndAt: windowEnd.toISOString(),
+            subscriptionId,
+            razorpayPaymentId: input.razorpayPaymentId,
           } as Prisma.JsonObject}::jsonb,
-          "razorpayPaymentId" = COALESCE(${input.razorpayPaymentId}, "razorpayPaymentId"),
           "updatedAt" = NOW()
         WHERE id = ${payment.id}
       `
@@ -623,17 +659,17 @@ async function activateDueQueuedSubscriptionPayment(businessId: string) {
       SELECT
         sp.id,
         sp."businessId" AS "businessId",
-        sp."planId" AS "planId",
+        (sp.metadata->>'planId') AS "planId",
         sp.interval::text AS interval,
         p.name::text AS "planName",
         p."priceMonthly"::double precision AS "priceMonthly",
         p."priceYearly"::double precision AS "priceYearly",
         sp.metadata
-      FROM subscription_payments sp
-      INNER JOIN plans p ON p.id = sp."planId"
+      FROM payment_transactions sp
+      INNER JOIN plans p ON p.id = (sp.metadata->>'planId')
       WHERE sp."businessId" = ${businessId}
-        AND sp.status = 'SUCCESS'
-        AND sp."subscriptionId" IS NULL
+        AND sp.status = 'SUCCEEDED'::"PaymentStatus"
+        AND COALESCE(sp.metadata->>'subscriptionId', '') = ''
         AND COALESCE((sp.metadata->>'queued')::boolean, false) = true
         AND (sp.metadata->>'queuedStartAt')::timestamptz <= NOW()
       ORDER BY (sp.metadata->>'queuedStartAt')::timestamptz ASC
@@ -666,10 +702,10 @@ async function activateDueQueuedSubscriptionPayment(businessId: string) {
     `
 
     await tx.$executeRaw`
-      UPDATE subscription_payments
+      UPDATE payment_transactions
       SET
-        "subscriptionId" = ${subscriptionId},
         metadata = COALESCE(metadata, '{}'::jsonb) || ${{
+          subscriptionId,
           queued: false,
           appliedAt: new Date().toISOString(),
           plannedStartAt: startAt.toISOString(),
@@ -712,19 +748,19 @@ export async function listSubscriptionPaymentTimelineByBusiness(businessId: stri
   }>>`
     SELECT
       sp.id,
-      sp.status::text AS status,
+      CASE WHEN sp.status = 'SUCCEEDED'::"PaymentStatus" THEN 'SUCCESS' ELSE sp.status::text END AS status,
       sp.interval::text AS interval,
       sp.amount::double precision AS amount,
-      p.name::text AS "planName",
+      COALESCE((sp.metadata->>'planName')::text, p.name::text) AS "planName",
       sp."createdAt" AS "createdAt",
       sp."updatedAt" AS "updatedAt",
-      NULL::timestamptz AS "paidAt",
-      sp."razorpayOrderId" AS "razorpayOrderId",
-      sp."razorpayPaymentId" AS "razorpayPaymentId",
-      sp."subscriptionId" AS "subscriptionId",
+      sp."paidAt" AS "paidAt",
+      COALESCE(sp.metadata->>'razorpayOrderId', sp.reference) AS "razorpayOrderId",
+      (sp.metadata->>'razorpayPaymentId')::text AS "razorpayPaymentId",
+      (sp.metadata->>'subscriptionId')::text AS "subscriptionId",
       sp.metadata
-    FROM subscription_payments sp
-    INNER JOIN plans p ON p.id = sp."planId"
+    FROM payment_transactions sp
+    LEFT JOIN plans p ON p.id = (sp.metadata->>'planId')
     WHERE sp."businessId" = ${businessId}
     ORDER BY sp."createdAt" DESC
     LIMIT 20
@@ -795,3 +831,5 @@ export async function getUsageSummary(businessId: string) {
     invoicesThisMonth: monthInvoicesRows[0]?.count ?? 0,
   }
 }
+
+

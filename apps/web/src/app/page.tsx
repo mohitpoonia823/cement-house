@@ -76,7 +76,7 @@ export default function HomePage() {
             <div className="mt-1 text-[10px] text-slate-600">Inventory restocked · 18m ago</div>
             <div className="mt-1 text-[10px] text-slate-600">New customer · 42m ago</div>
           </div>
-        </div>`r`n        <div className="pointer-events-none absolute left-[104px] top-[123px] hidden h-[390px] w-px border-l border-dashed border-indigo-300/70 xl:block" />
+        </div>        <div className="pointer-events-none absolute left-[104px] top-[123px] hidden h-[390px] w-px border-l border-dashed border-indigo-300/70 xl:block" />
         <div className="pointer-events-none absolute right-[104px] top-[123px] hidden h-[390px] w-px border-l border-dashed border-indigo-300/70 xl:block" />
 
         <div className="relative">
@@ -270,6 +270,9 @@ export default function HomePage() {
                 </div>
               </div>
             </div>
+          </div>
+          <div className="mt-8 border-t border-slate-200/80 pt-4 text-center text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400 sm:mt-10">
+            © {new Date().getFullYear()} NexaHub. All rights reserved.
           </div>
         </div>
       </footer>

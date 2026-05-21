@@ -8,15 +8,24 @@ function clearBusinessGetCaches() {
     cacheKey.includes('|/api/inventory|') ||
     cacheKey.includes('|/api/ledger|') ||
     cacheKey.includes('|/api/customers|') ||
-    cacheKey.includes('|/api/reports|')
+    cacheKey.includes('|/api/reports|') ||
+    cacheKey.includes('|/api/referral-partners|')
   )
 }
 
 export function useOrders(filters?: { status?: string; customerId?: string }) {
   return useQuery({
     queryKey: ['orders', filters],
-    queryFn: () => api.get('/api/orders', { params: filters }).then((r) => r.data.data),
-    staleTime: 30_000,
+    queryFn: () =>
+      api
+        .get('/api/orders', {
+          params: filters,
+          headers: { 'Cache-Control': 'no-cache' },
+          meta: { skipCache: true },
+        } as any)
+        .then((r) => r.data.data),
+    staleTime: 0,
+    refetchOnMount: 'always',
     refetchOnWindowFocus: false,
     retry: 1,
   })
