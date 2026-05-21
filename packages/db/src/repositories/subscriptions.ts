@@ -76,6 +76,30 @@ export interface PendingSubscriptionPaymentRow {
   plannedEndAt: Date | null
 }
 
+const requiredBillingTables = [
+  'plans',
+  'plan_limits',
+  'subscriptions',
+  'payment_transactions',
+] as const
+
+export async function assertBillingSchemaReady() {
+  const rows = await prisma.$queryRaw<Array<{ tableName: string }>>`
+    SELECT table_name::text AS "tableName"
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name IN ('plans', 'plan_limits', 'subscriptions', 'payment_transactions')
+  `
+  const existing = new Set(rows.map((row) => row.tableName))
+  const missing = requiredBillingTables.filter((tableName) => !existing.has(tableName))
+  if (missing.length === 0) return
+
+  throw new Error(
+    `Billing schema is incomplete. Missing tables: ${missing.join(', ')}. ` +
+      `Run "pnpm db:sync" using the same DATABASE_URL as the API process, then restart API.`,
+  )
+}
+
 export async function listActivePlans() {
   const rows = await prisma.$queryRaw<Array<{
     id: string

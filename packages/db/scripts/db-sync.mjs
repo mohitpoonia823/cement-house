@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -20,17 +21,18 @@ function run(command, args) {
   }
 }
 
-run('prisma', ['migrate', 'dev'])
+run('prisma', ['migrate', 'deploy'])
 
-const sqlMigrations = [
-  '011_add_plan_subscription_system.sql',
-  '013_add_super_admin_dashboard_indexes.sql',
-  '015_add_state_code_fields.sql',
-]
+const sqlMigrationsDir = path.join(dbPkgDir, 'migrations')
+const sqlMigrations = fs
+  .readdirSync(sqlMigrationsDir)
+  .filter((file) => /^\d+_.+\.sql$/i.test(file))
+  .sort((a, b) => a.localeCompare(b))
 
 for (const migrationFile of sqlMigrations) {
-  const fullPath = path.join(dbPkgDir, 'migrations', migrationFile)
+  const fullPath = path.join(sqlMigrationsDir, migrationFile)
   run('prisma', ['db', 'execute', '--schema', schemaPath, '--file', fullPath])
 }
 
-console.log('\nDB sync complete.')
+run('node', [path.join(dbPkgDir, 'scripts', 'verify-schema.mjs')])
+console.log('\nDB sync complete and verified.')

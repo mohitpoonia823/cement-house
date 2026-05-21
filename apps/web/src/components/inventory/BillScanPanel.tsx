@@ -687,7 +687,7 @@ export function BillScanPanel({
                 <button
                   type="button"
                   disabled={commitBill.isPending}
-                  onClick={resetCurrentScan}
+                  onClick={() => resetCurrentScan()}
                   className="rounded-lg border border-stone-200 px-3 py-2 text-xs hover:bg-stone-50 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800"
                 >
                   {t('Scan another', 'दूसरा बिल स्कैन करें')}

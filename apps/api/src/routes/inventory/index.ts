@@ -750,6 +750,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
     const createPayload = {
       ...normalized,
       metadata: (normalized.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
+      variantAttributes: (normalized.variantAttributes ?? undefined) as Prisma.InputJsonValue | undefined,
     }
     delete (createPayload as any).allowPastExpiry
     const material = await inventoryRepository.createMaterial({
@@ -775,6 +776,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
     const updatePayload = {
       ...payload,
       metadata: (payload.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
+      variantAttributes: (payload.variantAttributes ?? undefined) as Prisma.InputJsonValue | undefined,
     }
     delete (updatePayload as any).allowPastExpiry
     const material = await inventoryRepository.updateMaterial({

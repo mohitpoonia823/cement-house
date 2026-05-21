@@ -2,6 +2,7 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import jwt from '@fastify/jwt'
+import { subscriptionsRepository } from '@cement-house/db'
 
 import { authRoutes } from './routes/auth'
 import { orderRoutes, orderChallanRoute } from './routes/orders'
@@ -29,6 +30,7 @@ await app.register(cors, {
   exposedHeaders: ['Content-Disposition'],
 })
 await app.register(jwt, { secret: process.env.JWT_SECRET! })
+await subscriptionsRepository.assertBillingSchemaReady()
 
 // ── Public ───────────────────────────────────────────────────────────────────
 app.register(authRoutes, { prefix: '/api/auth' })
