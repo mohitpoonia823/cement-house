@@ -13,19 +13,16 @@ function clearBusinessGetCaches() {
   )
 }
 
-export function useOrders(filters?: { status?: string; customerId?: string }) {
+export function useOrders(filters?: { status?: string; customerId?: string; page?: number }) {
   return useQuery({
     queryKey: ['orders', filters],
     queryFn: () =>
       api
-        .get('/api/orders', {
-          params: filters,
-          headers: { 'Cache-Control': 'no-cache' },
-          meta: { skipCache: true },
-        } as any)
+        .get('/api/orders', { params: filters })
         .then((r) => r.data.data),
-    staleTime: 0,
-    refetchOnMount: 'always',
+    // Keep the previous page visible while the next one loads (no flicker on paging).
+    placeholderData: (previousData) => previousData,
+    staleTime: 30_000,
     refetchOnWindowFocus: false,
     retry: 1,
   })

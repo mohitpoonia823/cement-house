@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { prisma } from '../client'
-import { adjustMaterialLocationStock, resolveSourceLocationId, syncMaterialTotalStock } from './multi-location'
+import { adjustMaterialLocationStock, resolveSourceLocationId } from './multi-location'
 
 const ORDER_TX_MAX_WAIT_MS = 10_000
 const ORDER_TX_TIMEOUT_MS = 120_000
@@ -643,22 +643,83 @@ export async function createOrder(input: {
       ) VALUES ${Prisma.join(orderItemValues)}
     `)
 
+    // ── Stock deduction (batched) ────────────────────────────────────────────
+    // Read the source-location quantity for every affected material once, deduct
+    // progressively in JS (a material can appear on multiple lines via variants,
+    // so per-line stockAfter must stay sequential), then persist with set-based
+    // writes instead of a SELECT+UPDATE round-trip per line. Preserves the exact
+    // negative-stock guard and stockAfter snapshots of the previous per-item loop.
+    const existingStockRows = await tx.$queryRaw<Array<{ materialId: string; quantity: number }>>(Prisma.sql`
+      SELECT "materialId" AS "materialId", quantity::double precision AS quantity
+      FROM material_stock
+      WHERE "businessId" = ${input.businessId}
+        AND "locationId" = ${sourceLocationId}
+        AND "materialId" IN (${Prisma.join(materialIds)})
+    `)
+    const runningQty = new Map<string, number>()
+    const existingStockMaterials = new Set<string>()
+    for (const row of existingStockRows) {
+      runningQty.set(row.materialId, Number(row.quantity))
+      existingStockMaterials.add(row.materialId)
+    }
+
     const movementRows: Array<{ materialId: string; quantity: number; stockAfter: number }> = []
     for (const item of input.items) {
       const quantity = Number(item.deductionQty ?? item.quantity)
-      const stockAfter = await adjustMaterialLocationStock(tx, {
-        businessId: input.businessId,
-        materialId: item.materialId,
-        locationId: sourceLocationId,
-        deltaQty: -quantity,
-        allowNegativeStock: input.allowNegativeStock,
-        skipTotalSync: true,
-      })
+      const stockAfter = (runningQty.get(item.materialId) ?? 0) - quantity
+      if (!input.allowNegativeStock && stockAfter < 0) {
+        throw new Error('Insufficient stock in selected location')
+      }
+      runningQty.set(item.materialId, stockAfter)
       movementRows.push({ materialId: item.materialId, quantity, stockAfter })
     }
-    for (const materialId of materialIds) {
-      await syncMaterialTotalStock(tx, input.businessId, materialId)
+
+    // Persist per-location quantities: UPDATE the rows that already exist, INSERT the rest.
+    const updateMaterials = materialIds.filter((id) => existingStockMaterials.has(id))
+    const insertMaterials = materialIds.filter((id) => !existingStockMaterials.has(id))
+
+    if (updateMaterials.length > 0) {
+      const updateValues = updateMaterials.map((id) => Prisma.sql`(${id}::text, ${runningQty.get(id) ?? 0}::numeric)`)
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE material_stock ms
+        SET quantity = v.qty, "updatedAt" = NOW()
+        FROM (VALUES ${Prisma.join(updateValues)}) AS v("materialId", qty)
+        WHERE ms."businessId" = ${input.businessId}
+          AND ms."locationId" = ${sourceLocationId}
+          AND ms."materialId" = v."materialId"
+      `)
     }
+
+    if (insertMaterials.length > 0) {
+      const insertValues = insertMaterials.map((id) => Prisma.sql`(
+        ${randomUUID()},
+        ${input.businessId},
+        ${id},
+        ${sourceLocationId},
+        ${runningQty.get(id) ?? 0},
+        NOW(),
+        NOW()
+      )`)
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO material_stock (id, "businessId", "materialId", "locationId", quantity, "createdAt", "updatedAt")
+        VALUES ${Prisma.join(insertValues)}
+      `)
+    }
+
+    // Recompute each affected material's total stock across locations in one statement.
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE materials m
+      SET
+        "stockQty" = COALESCE((
+          SELECT SUM(ms.quantity)
+          FROM material_stock ms
+          WHERE ms."businessId" = ${input.businessId}
+            AND ms."materialId" = m.id
+        ), 0),
+        "updatedAt" = NOW()
+      WHERE m."businessId" = ${input.businessId}
+        AND m.id IN (${Prisma.join(materialIds)})
+    `)
 
     const movementValues = movementRows.map((row) => Prisma.sql`(
       ${randomUUID()},

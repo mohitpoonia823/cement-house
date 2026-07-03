@@ -20,6 +20,27 @@ const SendSelectedSchema = z.object({
   customerIds: z.array(z.string().uuid()).min(1),
 })
 
+const REMINDER_SEND_CONCURRENCY = 8
+
+/**
+ * Runs `fn` over `items` with at most `limit` in flight at once, preserving the
+ * order of results. Keeps the WhatsApp API calls + inserts parallel without
+ * firing hundreds of simultaneous requests.
+ */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let cursor = 0
+  async function worker() {
+    while (cursor < items.length) {
+      const current = cursor++
+      results[current] = await fn(items[current])
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker())
+  await Promise.all(workers)
+  return results
+}
+
 async function sendWhatsAppTemplate(phone: string, templateName: string, params: (string | number)[]) {
   const res = await fetch(
     `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
@@ -117,19 +138,26 @@ export async function reminderRoutes(app: FastifyInstance) {
     )
     const snapshotMap = new Map(snapshots.map((entry) => [entry.customerId, entry]))
 
-    const results: Array<{ customer: string; balance: number; days: number; sent: boolean }> = []
+    // Select who is due first, then fan out the sends/inserts with bounded concurrency.
+    const eligible = customers
+      .filter((customer) => {
+        if (!customer.remindersEnabled) return false
+        const snapshot = snapshotMap.get(customer.id)
+        const balance = Number(snapshot?.balance ?? 0)
+        if (balance <= 0) return false
+        const oldest = snapshot?.oldestDebitAt
+        if (!oldest) return false
+        const days = Math.floor((Date.now() - new Date(oldest).getTime()) / 86_400_000)
+        return days >= minDays
+      })
+      .map((customer) => {
+        const snapshot = snapshotMap.get(customer.id)!
+        const balance = Number(snapshot.balance ?? 0)
+        const days = Math.floor((Date.now() - new Date(snapshot.oldestDebitAt as Date).getTime()) / 86_400_000)
+        return { customer, balance, days }
+      })
 
-    for (const customer of customers) {
-      if (!customer.remindersEnabled) continue
-      const snapshot = snapshotMap.get(customer.id)
-      const balance = Number(snapshot?.balance ?? 0)
-      if (balance <= 0) continue
-
-      const oldest = snapshot?.oldestDebitAt
-      if (!oldest) continue
-      const days = Math.floor((Date.now() - new Date(oldest).getTime()) / 86_400_000)
-      if (days < minDays) continue
-
+    const results = await mapWithConcurrency(eligible, REMINDER_SEND_CONCURRENCY, async ({ customer, balance, days }) => {
       const todayStr = new Date().toLocaleDateString('en-GB')
       const message = WA_TEMPLATES.paymentReminder(customer.name, balance, days, todayStr)
 
@@ -161,8 +189,8 @@ export async function reminderRoutes(app: FastifyInstance) {
         },
       })
 
-      results.push({ customer: customer.name, balance, days, sent })
-    }
+      return { customer: customer.name, balance, days, sent }
+    })
 
     return { success: true, data: { sent: results.length, results } }
   })
@@ -181,16 +209,17 @@ export async function reminderRoutes(app: FastifyInstance) {
     )
     const snapshotMap = new Map(snapshots.map((entry) => [entry.customerId, entry]))
 
-    const results: Array<{ customer: string; balance: number; sent: boolean }> = []
+    const eligible = customers
+      .map((customer) => {
+        const snapshot = snapshotMap.get(customer.id)
+        const balance = Number(snapshot?.balance ?? 0)
+        const oldest = snapshot?.oldestDebitAt
+        const days = oldest ? Math.floor((Date.now() - new Date(oldest).getTime()) / 86_400_000) : 0
+        return { customer, balance, days }
+      })
+      .filter(({ balance }) => balance > 0)
 
-    for (const customer of customers) {
-      const snapshot = snapshotMap.get(customer.id)
-      const balance = Number(snapshot?.balance ?? 0)
-      if (balance <= 0) continue
-
-      const oldest = snapshot?.oldestDebitAt
-      const days = oldest ? Math.floor((Date.now() - new Date(oldest).getTime()) / 86_400_000) : 0
-
+    const results = await mapWithConcurrency(eligible, REMINDER_SEND_CONCURRENCY, async ({ customer, balance, days }) => {
       const todayStr = new Date().toLocaleDateString('en-GB')
       const message = WA_TEMPLATES.paymentReminder(customer.name, balance, days, todayStr)
 
@@ -222,8 +251,8 @@ export async function reminderRoutes(app: FastifyInstance) {
         },
       })
 
-      results.push({ customer: customer.name, balance, sent })
-    }
+      return { customer: customer.name, balance, sent }
+    })
 
     return { success: true, data: { sent: results.length, results } }
   })

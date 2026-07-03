@@ -6,7 +6,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { useLedger, useLedgerSummary, useRecordPayment } from '@/hooks/useLedger'
 import { api } from '@/lib/api'
 import { fmt, fmtDate } from '@/lib/utils'
-import { useState, Suspense } from 'react'
+import { useMemo, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useI18n } from '@/lib/i18n'
 
@@ -38,9 +38,23 @@ function KhataContent() {
   const { data: ledger, isLoading: lLoading } = useLedger(selectedId)
   const recordPayment = useRecordPayment()
 
-  const filtered = (summary ?? []).filter((c: any) => c.customerName.toLowerCase().includes(search.toLowerCase()))
-  const selected = (summary ?? []).find((c: any) => c.customerId === selectedId)
+  const filtered = useMemo(
+    () => (summary ?? []).filter((c: any) => c.customerName.toLowerCase().includes(search.toLowerCase())),
+    [summary, search]
+  )
+  const selected = useMemo(
+    () => (summary ?? []).find((c: any) => c.customerId === selectedId),
+    [summary, selectedId]
+  )
   const initialLoading = sLoading && !summary
+  const customersWithDues = useMemo(
+    () => (summary ?? []).filter((c: any) => c.balance > 0).length,
+    [summary]
+  )
+  const openBalance = useMemo(
+    () => (summary ?? []).reduce((sum: number, c: any) => sum + Math.max(0, Number(c.balance)), 0),
+    [summary]
+  )
 
   async function handlePay(e: React.FormEvent) {
     e.preventDefault()
@@ -106,14 +120,14 @@ function KhataContent() {
       </div>
 
       <MetricGrid className="mb-6 hidden md:grid">
-        <MetricCard label={t('Customers with dues', 'बकाया वाले ग्राहक')} value={initialLoading ? '—' : String((summary ?? []).filter((c: any) => c.balance > 0).length)} hint={initialLoading ? 'Loading...' : t('Accounts needing follow-up', 'जिन खातों को फॉलो-अप चाहिए')} tone="warning" />
-        <MetricCard label={t('Open balance', 'ओपन बैलेंस')} value={initialLoading ? '—' : fmt((summary ?? []).reduce((sum: number, c: any) => sum + Math.max(0, Number(c.balance)), 0))} hint={initialLoading ? 'Loading...' : t('Net receivables across the ledger', 'लेजर में कुल प्राप्तियां')} tone="danger" />
+        <MetricCard label={t('Customers with dues', 'बकाया वाले ग्राहक')} value={initialLoading ? '—' : String(customersWithDues)} hint={initialLoading ? 'Loading...' : t('Accounts needing follow-up', 'जिन खातों को फॉलो-अप चाहिए')} tone="warning" />
+        <MetricCard label={t('Open balance', 'ओपन बैलेंस')} value={initialLoading ? '—' : fmt(openBalance)} hint={initialLoading ? 'Loading...' : t('Net receivables across the ledger', 'लेजर में कुल प्राप्तियां')} tone="danger" />
         <MetricCard label={t('Search results', 'सर्च परिणाम')} value={initialLoading ? '—' : String(filtered.length)} hint={initialLoading ? 'Loading...' : t('Filtered customer list', 'फिल्टर की गई ग्राहक सूची')} />
         <MetricCard label={t('Selected account', 'चयनित खाता')} value={initialLoading ? '—' : (selected?.customerName ?? t('None', 'कोई नहीं'))} hint={selected ? `${t('Current balance', 'वर्तमान बैलेंस')} ${fmt(Math.abs(selected.balance ?? 0))}` : t('Pick a party to review entries', 'एंट्री देखने के लिए पार्टी चुनें')} tone="brand" />
       </MetricGrid>
       <div className="mb-4 grid grid-cols-2 gap-3 md:hidden">
-        <MetricCard label={t('Customers with dues', 'बकाया वाले ग्राहक')} value={initialLoading ? '—' : String((summary ?? []).filter((c: any) => c.balance > 0).length)} hint={initialLoading ? 'Loading...' : t('Accounts needing follow-up', 'जिन खातों को फॉलो-अप चाहिए')} tone="warning" />
-        <MetricCard label={t('Open balance', 'ओपन बैलेंस')} value={initialLoading ? '—' : fmt((summary ?? []).reduce((sum: number, c: any) => sum + Math.max(0, Number(c.balance)), 0))} hint={initialLoading ? 'Loading...' : t('Net receivables across the ledger', 'लेजर में कुल प्राप्तियां')} tone="danger" />
+        <MetricCard label={t('Customers with dues', 'बकाया वाले ग्राहक')} value={initialLoading ? '—' : String(customersWithDues)} hint={initialLoading ? 'Loading...' : t('Accounts needing follow-up', 'जिन खातों को फॉलो-अप चाहिए')} tone="warning" />
+        <MetricCard label={t('Open balance', 'ओपन बैलेंस')} value={initialLoading ? '—' : fmt(openBalance)} hint={initialLoading ? 'Loading...' : t('Net receivables across the ledger', 'लेजर में कुल प्राप्तियां')} tone="danger" />
         <MetricCard label={t('Search results', 'सर्च परिणाम')} value={initialLoading ? '—' : String(filtered.length)} hint={initialLoading ? 'Loading...' : t('Filtered customer list', 'फिल्टर की गई ग्राहक सूची')} />
         <MetricCard label={t('Selected account', 'चयनित खाता')} value={initialLoading ? '—' : (selected?.customerName ?? t('None', 'कोई नहीं'))} hint={selected ? `${t('Current balance', 'वर्तमान बैलेंस')} ${fmt(Math.abs(selected.balance ?? 0))}` : t('Pick a party to review entries', 'एंट्री देखने के लिए पार्टी चुनें')} tone="brand" />
       </div>

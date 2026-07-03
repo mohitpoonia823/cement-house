@@ -17,6 +17,7 @@ export function useDashboard(params: DashboardQueryInput = {}) {
     placeholderData: (previousData) => previousData,
     staleTime: 30_000,
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     retry: (failureCount, error: any) => {
       const status = Number(error?.response?.status ?? 0)

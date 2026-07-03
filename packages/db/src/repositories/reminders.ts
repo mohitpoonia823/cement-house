@@ -118,6 +118,42 @@ export async function getLedgerSnapshotsByCustomerIds(businessId: string, custom
   `)
 }
 
+export interface GlobalOverdueCustomerRow {
+  customerId: string
+  name: string
+  phone: string
+  balance: number
+  oldestDebitAt: Date | null
+}
+
+/**
+ * Cross-tenant aggregate for the nightly reminder cron. Computes each active
+ * customer's balance (debit − credit) and oldest open debit entirely in SQL,
+ * returning only customers with a positive balance — so the worker never has to
+ * load the whole ledger_entries table into memory.
+ */
+export async function getGlobalOverdueCustomers() {
+  return prisma.$queryRaw<GlobalOverdueCustomerRow[]>`
+    SELECT
+      c.id AS "customerId",
+      c.name AS name,
+      c.phone AS phone,
+      (
+        COALESCE(SUM(CASE WHEN le.type = 'DEBIT'::"LedgerEntryType" THEN le.amount ELSE 0 END), 0)
+        - COALESCE(SUM(CASE WHEN le.type = 'CREDIT'::"LedgerEntryType" THEN le.amount ELSE 0 END), 0)
+      )::double precision AS balance,
+      MIN(CASE WHEN le.type = 'DEBIT'::"LedgerEntryType" THEN le."createdAt" ELSE NULL END) AS "oldestDebitAt"
+    FROM customers c
+    INNER JOIN ledger_entries le ON le."customerId" = c.id
+    WHERE c."isActive" = true
+    GROUP BY c.id, c.name, c.phone
+    HAVING (
+      COALESCE(SUM(CASE WHEN le.type = 'DEBIT'::"LedgerEntryType" THEN le.amount ELSE 0 END), 0)
+      - COALESCE(SUM(CASE WHEN le.type = 'CREDIT'::"LedgerEntryType" THEN le.amount ELSE 0 END), 0)
+    ) > 0
+  `
+}
+
 export async function createReminder(input: {
   customerId: string
   channel: 'WHATSAPP' | 'SMS'

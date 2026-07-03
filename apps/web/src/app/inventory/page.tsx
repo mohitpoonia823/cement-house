@@ -236,7 +236,10 @@ function InventoryContent() {
     [unitOptions, unitPreset.preferred]
   )
   const allSelected = list.length > 0 && selected.size === list.length
-  const activeLocations = (locations ?? []).filter((loc: any) => loc.isActive)
+  const activeLocations = useMemo(
+    () => (locations ?? []).filter((loc: any) => loc.isActive),
+    [locations]
+  )
   const availableTransferQty = useMemo(() => {
     if (!transferFromLocationId || !transferMaterialId) return 0
     const row = (sourceStockByLocation ?? []).find(
@@ -488,7 +491,15 @@ function InventoryContent() {
     }
   }
 
-  const selectedMat = list.find((m: any) => m.id === selectedId)
+  const selectedMat = useMemo(() => list.find((m: any) => m.id === selectedId), [list, selectedId])
+  const lowOrOutOfStockCount = useMemo(
+    () => list.filter((m: any) => m.stockStatus !== 'OK').length,
+    [list]
+  )
+  const inventoryValue = useMemo(
+    () => list.reduce((sum: number, m: any) => sum + Number(m.stockQty) * Number(m.purchasePrice), 0),
+    [list]
+  )
 
   function openAddItemForm() {
     setShowAddNew(true)
@@ -935,14 +946,14 @@ function InventoryContent() {
 
       <MetricGrid className="mb-6 hidden md:grid">
         <MetricCard label={t(`Active ${terms.material.toLowerCase()}s`, 'à¤¸à¤•à¥à¤°à¤¿à¤¯ à¤®à¤Ÿà¥‡à¤°à¤¿à¤¯à¤²', `Active ${terms.material.toLowerCase()}s`)} value={initialLoading ? '—' : String(list.length)} hint={t('Live catalog count', 'à¤²à¤¾à¤‡à¤µ à¤•à¥ˆà¤Ÿà¤²à¥‰à¤— à¤¸à¤‚à¤–à¥à¤¯à¤¾')} />
-        <MetricCard label={t('Low / out of stock', 'à¤²à¥‹ / à¤†à¤‰à¤Ÿ à¤‘à¤« à¤¸à¥à¤Ÿà¥‰à¤•')} value={initialLoading ? '—' : String(list.filter((m: any) => m.stockStatus !== 'OK').length)} hint={t('Items needing replenishment', 'à¤œà¤¿à¤¨ à¤†à¤‡à¤Ÿà¤® à¤•à¥‹ à¤°à¥€à¤ªà¥à¤²à¥‡à¤¨à¤¿à¤¶à¤®à¥‡à¤‚à¤Ÿ à¤šà¤¾à¤¹à¤¿à¤')} tone="danger" />
-        <MetricCard label={t(`${terms.inventory} value`, 'à¤‡à¤¨à¥à¤µà¥‡à¤‚à¤Ÿà¥à¤°à¥€ à¤µà¥ˆà¤²à¥à¤¯à¥‚', `${terms.inventory} value`)} value={initialLoading ? '—' : fmt(list.reduce((sum: number, m: any) => sum + Number(m.stockQty) * Number(m.purchasePrice), 0))} hint={t('Estimated purchase-side stock value', 'à¤…à¤¨à¥à¤®à¤¾à¤¨à¤¿à¤¤ à¤–à¤°à¥€à¤¦-à¤†à¤§à¤¾à¤°à¤¿à¤¤ à¤¸à¥à¤Ÿà¥‰à¤• à¤®à¥‚à¤²à¥à¤¯')} tone="brand" />
+        <MetricCard label={t('Low / out of stock', 'à¤²à¥‹ / à¤†à¤‰à¤Ÿ à¤‘à¤« à¤¸à¥à¤Ÿà¥‰à¤•')} value={initialLoading ? '—' : String(lowOrOutOfStockCount)} hint={t('Items needing replenishment', 'à¤œà¤¿à¤¨ à¤†à¤‡à¤Ÿà¤® à¤•à¥‹ à¤°à¥€à¤ªà¥à¤²à¥‡à¤¨à¤¿à¤¶à¤®à¥‡à¤‚à¤Ÿ à¤šà¤¾à¤¹à¤¿à¤')} tone="danger" />
+        <MetricCard label={t(`${terms.inventory} value`, 'à¤‡à¤¨à¥à¤µà¥‡à¤‚à¤Ÿà¥à¤°à¥€ à¤µà¥ˆà¤²à¥à¤¯à¥‚', `${terms.inventory} value`)} value={initialLoading ? '—' : fmt(inventoryValue)} hint={t('Estimated purchase-side stock value', 'à¤…à¤¨à¥à¤®à¤¾à¤¨à¤¿à¤¤ à¤–à¤°à¥€à¤¦-à¤†à¤§à¤¾à¤°à¤¿à¤¤ à¤¸à¥à¤Ÿà¥‰à¤• à¤®à¥‚à¤²à¥à¤¯')} tone="brand" />
         <MetricCard label={t(`Selected ${terms.material.toLowerCase()}`, 'à¤šà¤¯à¤¨à¤¿à¤¤ à¤®à¤Ÿà¥‡à¤°à¤¿à¤¯à¤²', `Selected ${terms.material.toLowerCase()}`)} value={selectedMat?.name ?? t('None', 'à¤•à¥‹à¤ˆ à¤¨à¤¹à¥€à¤‚')} hint={selectedMat ? `${Number(selectedMat.stockQty).toFixed(1)} ${selectedMat.unit} ${t('available', 'à¤‰à¤ªà¤²à¤¬à¥à¤§')}` : t('Open a card for movement details', 'à¤®à¥‚à¤µà¤®à¥‡à¤‚à¤Ÿ à¤µà¤¿à¤µà¤°à¤£ à¤•à¥‡ à¤²à¤¿à¤ à¤•à¤¾à¤°à¥à¤¡ à¤šà¥à¤¨à¥‡à¤‚')} tone="default" />
       </MetricGrid>
       <div className="mb-4 grid grid-cols-2 gap-3 md:hidden">
         <MetricCard label={t(`Active ${terms.material.toLowerCase()}s`, 'à¤¸à¤•à¥à¤°à¤¿à¤¯ à¤®à¤Ÿà¥‡à¤°à¤¿à¤¯à¤²', `Active ${terms.material.toLowerCase()}s`)} value={initialLoading ? '—' : String(list.length)} hint={t('Live catalog count', 'à¤²à¤¾à¤‡à¤µ à¤•à¥ˆà¤Ÿà¤²à¥‰à¤— à¤¸à¤‚à¤–à¥à¤¯à¤¾')} />
-        <MetricCard label={t('Low / out of stock', 'à¤²à¥‹ / à¤†à¤‰à¤Ÿ à¤‘à¤« à¤¸à¥à¤Ÿà¥‰à¤•')} value={initialLoading ? '—' : String(list.filter((m: any) => m.stockStatus !== 'OK').length)} hint={t('Items needing replenishment', 'à¤œà¤¿à¤¨ à¤†à¤‡à¤Ÿà¤® à¤•à¥‹ à¤°à¥€à¤ªà¥à¤²à¥‡à¤¨à¤¿à¤¶à¤®à¥‡à¤‚à¤Ÿ à¤šà¤¾à¤¹à¤¿à¤')} tone="danger" />
-        <MetricCard label={t(`${terms.inventory} value`, 'à¤‡à¤¨à¥à¤µà¥‡à¤‚à¤Ÿà¥à¤°à¥€ à¤µà¥ˆà¤²à¥à¤¯à¥‚', `${terms.inventory} value`)} value={initialLoading ? '—' : fmt(list.reduce((sum: number, m: any) => sum + Number(m.stockQty) * Number(m.purchasePrice), 0))} hint={t('Estimated purchase-side stock value', 'à¤…à¤¨à¥à¤®à¤¾à¤¨à¤¿à¤¤ à¤–à¤°à¥€à¤¦-à¤†à¤§à¤¾à¤°à¤¿à¤¤ à¤¸à¥à¤Ÿà¥‰à¤• à¤®à¥‚à¤²à¥à¤¯')} tone="brand" />
+        <MetricCard label={t('Low / out of stock', 'à¤²à¥‹ / à¤†à¤‰à¤Ÿ à¤‘à¤« à¤¸à¥à¤Ÿà¥‰à¤•')} value={initialLoading ? '—' : String(lowOrOutOfStockCount)} hint={t('Items needing replenishment', 'à¤œà¤¿à¤¨ à¤†à¤‡à¤Ÿà¤® à¤•à¥‹ à¤°à¥€à¤ªà¥à¤²à¥‡à¤¨à¤¿à¤¶à¤®à¥‡à¤‚à¤Ÿ à¤šà¤¾à¤¹à¤¿à¤')} tone="danger" />
+        <MetricCard label={t(`${terms.inventory} value`, 'à¤‡à¤¨à¥à¤µà¥‡à¤‚à¤Ÿà¥à¤°à¥€ à¤µà¥ˆà¤²à¥à¤¯à¥‚', `${terms.inventory} value`)} value={initialLoading ? '—' : fmt(inventoryValue)} hint={t('Estimated purchase-side stock value', 'à¤…à¤¨à¥à¤®à¤¾à¤¨à¤¿à¤¤ à¤–à¤°à¥€à¤¦-à¤†à¤§à¤¾à¤°à¤¿à¤¤ à¤¸à¥à¤Ÿà¥‰à¤• à¤®à¥‚à¤²à¥à¤¯')} tone="brand" />
         <MetricCard label={t(`Selected ${terms.material.toLowerCase()}`, 'à¤šà¤¯à¤¨à¤¿à¤¤ à¤®à¤Ÿà¥‡à¤°à¤¿à¤¯à¤²', `Selected ${terms.material.toLowerCase()}`)} value={selectedMat?.name ?? t('None', 'à¤•à¥‹à¤ˆ à¤¨à¤¹à¥€à¤‚')} hint={selectedMat ? `${Number(selectedMat.stockQty).toFixed(1)} ${selectedMat.unit} ${t('available', 'à¤‰à¤ªà¤²à¤¬à¥à¤§')}` : t('Open a card for movement details', 'à¤®à¥‚à¤µà¤®à¥‡à¤‚à¤Ÿ à¤µà¤¿à¤µà¤°à¤£ à¤•à¥‡ à¤²à¤¿à¤ à¤•à¤¾à¤°à¥à¤¡ à¤šà¥à¤¨à¥‡à¤‚')} tone="default" />
       </div>
 

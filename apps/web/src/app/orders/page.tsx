@@ -120,7 +120,10 @@ function OrdersContent() {
     }),
     [language]
   )
-  const { data, isLoading } = useOrders({ status: status === 'ALL' ? undefined : status } as any)
+  const [page, setPage] = useState(1)
+  // Reset to the first page whenever the status filter changes.
+  useEffect(() => { setPage(1) }, [status])
+  const { data, isLoading } = useOrders({ status: status === 'ALL' ? undefined : status, page } as any)
   const deleteOrder = useDeleteOrder()
   const bulkDelete = useBulkDeleteOrders()
   const updateStatus = useUpdateOrderStatus()
@@ -201,6 +204,14 @@ function OrdersContent() {
     const more = unique.length - shown.length
     return more > 0 ? `${shown.join(', ')} +${more}` : shown.join(', ')
   }
+
+  const orderPreviewById = useMemo(() => {
+    const map = new Map<string, { items: string; variants: string }>()
+    for (const order of orders) {
+      map.set(order.id, { items: orderItemsPreview(order), variants: orderVariantsPreview(order) })
+    }
+    return map
+  }, [orders])
 
   useEffect(() => {
     if (searchParams.get('openNewOrder') === '1') {
@@ -577,8 +588,8 @@ function OrdersContent() {
                     <div className="text-right font-medium text-slate-800 dark:text-slate-200">{o.customer?.name ?? '-'}</div>
                     <div className="text-slate-500 dark:text-slate-400">{tr.columns.items}</div>
                     <div className="text-right font-medium text-slate-800 dark:text-slate-200">{o.items?.length ?? 0}</div>
-                    <div className="col-span-2 text-right text-[10px] text-slate-500 dark:text-slate-400" title={orderItemsPreview(o)}>
-                      {orderItemsPreview(o)}
+                    <div className="col-span-2 text-right text-[10px] text-slate-500 dark:text-slate-400" title={orderPreviewById.get(o.id)?.items ?? orderItemsPreview(o)}>
+                      {orderPreviewById.get(o.id)?.items ?? orderItemsPreview(o)}
                     </div>
                     <div className="text-slate-500 dark:text-slate-400">{tr.columns.amount}</div>
                     <div className="text-right font-medium text-slate-900 dark:text-slate-100">{fmt(Number(o.totalAmount))}</div>
@@ -694,12 +705,12 @@ function OrdersContent() {
                       <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300">{fmtDate(o.orderDate ?? o.createdAt)}</td>
                       <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300">{o.deliveryDate ? fmtDate(o.deliveryDate) : '-'}</td>
                       <td className="py-2.5 pr-3 font-medium text-stone-800 dark:text-stone-200">{o.customer?.name}</td>
-                      <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300" title={orderItemsPreview(o)}>
+                      <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300" title={orderPreviewById.get(o.id)?.items ?? orderItemsPreview(o)}>
                         <div>{o.items?.length}</div>
-                        <div className="max-w-[260px] truncate text-[10px] text-slate-400 dark:text-slate-500">{orderItemsPreview(o)}</div>
+                        <div className="max-w-[260px] truncate text-[10px] text-slate-400 dark:text-slate-500">{orderPreviewById.get(o.id)?.items ?? orderItemsPreview(o)}</div>
                       </td>
-                      <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300" title={orderVariantsPreview(o)}>
-                        <div className="max-w-[220px] truncate text-[10px] text-slate-500 dark:text-slate-400">{orderVariantsPreview(o)}</div>
+                      <td className="py-2.5 pr-3 text-stone-500 dark:text-slate-300" title={orderPreviewById.get(o.id)?.variants ?? orderVariantsPreview(o)}>
+                        <div className="max-w-[220px] truncate text-[10px] text-slate-500 dark:text-slate-400">{orderPreviewById.get(o.id)?.variants ?? orderVariantsPreview(o)}</div>
                       </td>
                       <td className="py-2.5 pr-3 font-medium">{fmt(Number(o.totalAmount))}</td>
                       <td className="py-2.5 pr-3 text-green-700 dark:text-green-400">{fmt(Number(o.amountPaid))}</td>
@@ -862,7 +873,36 @@ function OrdersContent() {
         </div>
       ) : null}
 
-      {data?.total > 0 && <div className="mt-3 text-right text-xs text-stone-400">{data.total} {tr.totalOrdersSuffix}</div>}
+      {data?.total > 0 && (() => {
+        const pageSize = data.pageSize || 20
+        const totalPages = Math.max(1, Math.ceil(data.total / pageSize))
+        return (
+          <div className="mt-3 flex items-center justify-between gap-3 text-xs text-stone-400">
+            <span>{data.total} {tr.totalOrdersSuffix}</span>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  {t('Prev', 'पिछला', 'Prev')}
+                </button>
+                <span className="tabular-nums text-slate-500 dark:text-slate-400">{t('Page', 'पेज', 'Page')} {page} / {totalPages}</span>
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  {t('Next', 'अगला', 'Next')}
+                </button>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {showNewOrderModal && (
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/45 p-3 xl:hidden" onClick={() => setShowNewOrderModal(false)}>

@@ -620,6 +620,8 @@ model LedgerEntry {
   @@index([businessId, customerId, createdAt])
   @@index([customerId, type])
   @@index([businessId, type, createdAt])
+  // Covers the dominant balance-rollup pattern: WHERE businessId GROUP BY customerId, SUM by type.
+  @@index([businessId, customerId, type])
   @@index([orderId])
   @@map("ledger_entries")
 }

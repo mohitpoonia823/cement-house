@@ -21,6 +21,8 @@ const RiskTagSchema = z.enum(['RELIABLE', 'WATCH', 'BLOCKED'])
 const ListCustomersQuerySchema = z.object({
   search: z.string().trim().optional(),
   riskTag: RiskTagSchema.optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(100).optional(),
 })
 
 const CustomerIdParamsSchema = z.object({
@@ -63,6 +65,45 @@ export async function customerRoutes(app: FastifyInstance) {
     const bizId = getBizId(req)
     const query = ListCustomersQuerySchema.safeParse(req.query)
     if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+
+    // Paginated path (opt-in via ?page). Returns { items, total, page, pageSize, ...metrics }.
+    // The array path below is preserved for consumers that need every row (dashboard).
+    if (query.data.page !== undefined) {
+      const page = query.data.page
+      const pageSize = query.data.pageSize ?? 20
+      const pagedKey = `${bizId}:paged:${page}:${pageSize}:${query.data.search ?? ''}:${query.data.riskTag ?? ''}`
+      const pagedNow = Date.now()
+      const cachedPaged = customersListCache.get(pagedKey)
+      if (cachedPaged && cachedPaged.expiresAt > pagedNow) {
+        return { success: true, data: cachedPaged.value }
+      }
+      const inflightPaged = customersListInFlight.get(pagedKey)
+      if (inflightPaged) {
+        return { success: true, data: await inflightPaged }
+      }
+      const computePaged = customersRepository
+        .listActiveCustomersWithStatsPaged({
+          businessId: bizId,
+          search: query.data.search,
+          riskTag: query.data.riskTag,
+          page,
+          pageSize,
+        })
+        .then((res) => ({
+          items: res.items.map((customer) => ({ ...customer, _count: { orders: customer.orderCount } })),
+          total: res.total,
+          page,
+          pageSize,
+          outstandingTotal: res.outstandingTotal,
+          highRiskCount: res.highRiskCount,
+          relationshipCount: res.relationshipCount,
+        }))
+        .finally(() => customersListInFlight.delete(pagedKey))
+      customersListInFlight.set(pagedKey, computePaged)
+      const dataPaged = await computePaged
+      customersListCache.set(pagedKey, { expiresAt: Date.now() + CUSTOMERS_LIST_CACHE_TTL_MS, value: dataPaged })
+      return { success: true, data: dataPaged }
+    }
 
     const cacheKey = `${bizId}:${query.data.search ?? ''}:${query.data.riskTag ?? ''}`
     const now = Date.now()

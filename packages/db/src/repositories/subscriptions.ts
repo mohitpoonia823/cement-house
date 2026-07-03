@@ -669,6 +669,22 @@ export async function processRazorpayWebhookEvent(input: {
 }
 
 async function activateDueQueuedSubscriptionPayment(businessId: string) {
+  // getCurrentSubscriptionByBusiness runs on common read paths (auth, usage checks),
+  // so avoid opening a transaction on every call. This cheap indexed pre-check returns
+  // nothing in the overwhelmingly common "nothing due" case; the transaction below
+  // re-verifies the same predicate, so there is no race.
+  const candidate = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT sp.id
+    FROM payment_transactions sp
+    WHERE sp."businessId" = ${businessId}
+      AND sp.status = 'SUCCEEDED'::"PaymentStatus"
+      AND COALESCE(sp.metadata->>'subscriptionId', '') = ''
+      AND COALESCE((sp.metadata->>'queued')::boolean, false) = true
+      AND (sp.metadata->>'queuedStartAt')::timestamptz <= NOW()
+    LIMIT 1
+  `
+  if (candidate.length === 0) return
+
   await prisma.$transaction(async (tx) => {
     const dueQueued = await tx.$queryRaw<Array<{
       id: string

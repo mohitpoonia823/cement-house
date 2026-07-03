@@ -5,7 +5,7 @@
 import cron from 'node-cron'
 import { Queue } from 'bullmq'
 import IORedis from 'ioredis'
-import { prisma } from '@cement-house/db'
+import { remindersRepository } from '@cement-house/db'
 import { daysSince } from '@cement-house/utils'
 import { processReminderJob } from './processors/reminder'
 import { processDailyReport } from './processors/daily-report'
@@ -26,39 +26,31 @@ const reminderQueue = new Queue('reminders', { connection: redis })
 cron.schedule('0 20 * * *', async () => {
   console.log('[cron] Checking overdue ledger balances...')
 
-  const customers = await prisma.customer.findMany({ where: { isActive: true } })
-  const customerIds = customers.map((customer) => customer.id)
-  const entries = customerIds.length > 0
-    ? await prisma.ledgerEntry.findMany({
-      where: { customerId: { in: customerIds } },
-      select: { customerId: true, type: true, amount: true, createdAt: true },
-    })
-    : []
-  const ledgerMap = new Map<string, { balance: number; oldestDebitAt: Date | null }>()
-  for (const entry of entries) {
-    const current = ledgerMap.get(entry.customerId) ?? { balance: 0, oldestDebitAt: null }
-    const amount = Number(entry.amount ?? 0)
-    if (entry.type === 'DEBIT') {
-      current.balance += amount
-      if (!current.oldestDebitAt || entry.createdAt < current.oldestDebitAt) current.oldestDebitAt = entry.createdAt
-    } else {
-      current.balance -= amount
-    }
-    ledgerMap.set(entry.customerId, current)
-  }
+  // Balances + oldest open debit are computed in SQL; only customers with a
+  // positive balance come back, so we never pull the whole ledger into memory.
+  const overdue = await remindersRepository.getGlobalOverdueCustomers()
 
-  for (const customer of customers) {
-    const snapshot = ledgerMap.get(customer.id)
-    const balance = Number(snapshot?.balance ?? 0)
-    if (balance <= 0) continue
-
-    const oldest = snapshot?.oldestDebitAt
+  for (const customer of overdue) {
+    const oldest = customer.oldestDebitAt
     if (!oldest) continue
-    const days = daysSince(oldest)
+    const days = daysSince(new Date(oldest))
 
     // Queue reminders at 7, 15, 30-day thresholds
     if (days === 7 || days === 15 || days === 30) {
-      await reminderQueue.add('send-reminder', { customerId: customer.id, balance, days, phone: customer.phone, name: customer.name })
+      // Deterministic jobId → BullMQ dedupes if the cron re-fires or the worker
+      // restarts mid-run, preventing duplicate WhatsApp messages to a customer.
+      const dayKey = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+      await reminderQueue.add(
+        'send-reminder',
+        { customerId: customer.customerId, balance: customer.balance, days, phone: customer.phone, name: customer.name },
+        {
+          jobId: `reminder:${customer.customerId}:${days}:${dayKey}`,
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+          removeOnComplete: { count: 1000 },
+          removeOnFail: { count: 5000 },
+        }
+      )
     }
   }
 })
@@ -70,8 +62,15 @@ cron.schedule('30 20 * * *', () => processDailyReport())
 cron.schedule('0 */6 * * *', () => processStockAlert())
 
 // ── Worker: process queued reminder jobs ──────────────────────────────────────
+// concurrency drains the queue faster; removeOn* bounds Redis growth — important
+// because this instance is shared with the app cache and must stay `noeviction`.
 import { Worker } from 'bullmq'
-new Worker('reminders', processReminderJob, { connection: redis })
+new Worker('reminders', processReminderJob, {
+  connection: redis,
+  concurrency: 5,
+  removeOnComplete: { count: 1000 },
+  removeOnFail: { count: 5000 },
+})
 
 // ── Health-check HTTP server (so Render free tier can run this as a Web Service)
 import { createServer } from 'node:http'

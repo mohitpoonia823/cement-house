@@ -18,6 +18,26 @@ export function useCustomers(
   })
 }
 
+// Server-paginated customer list. Returns { items, total, page, pageSize, outstandingTotal,
+// highRiskCount, relationshipCount }. Keep useCustomers (full array) for the dashboard.
+export function useCustomersPaged(
+  filters?: { search?: string; riskTag?: string; page?: number; pageSize?: number }
+) {
+  return useQuery({
+    queryKey: ['customers', 'paged', filters],
+    queryFn: () =>
+      api
+        .get('/api/customers', { params: { ...filters, page: filters?.page ?? 1 } })
+        .then((r) => r.data.data),
+    placeholderData: (previousData) => previousData,
+    staleTime: 30_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 1,
+  })
+}
+
 export function useCustomer(id: string) {
   return useQuery({
     queryKey: ['customers', id],

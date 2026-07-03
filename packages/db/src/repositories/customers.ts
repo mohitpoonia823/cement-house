@@ -211,6 +211,143 @@ export async function listActiveCustomersWithStats(input: ListCustomersInput) {
   `)
 }
 
+/**
+ * Server-paginated variant of listActiveCustomersWithStats. Returns one page of
+ * rows PLUS business-wide aggregate metrics (outstanding total, high-risk count,
+ * relationship count) computed over the FULL filtered set — so the customer
+ * page's summary cards stay whole-business, not per-page. The original array
+ * function above is left untouched for consumers that need every row (dashboard).
+ */
+export async function listActiveCustomersWithStatsPaged(
+  input: ListCustomersInput & { page: number; pageSize: number }
+) {
+  const filters: Prisma.Sql[] = [Prisma.sql`c."businessId" = ${input.businessId}`, Prisma.sql`c."isActive" = true`]
+  if (input.riskTag) filters.push(Prisma.sql`c."riskTag" = ${input.riskTag}::"RiskTag"`)
+  if (input.search) filters.push(Prisma.sql`c.name ILIKE ${`%${input.search}%`}`)
+  const skip = (input.page - 1) * input.pageSize
+
+  // Whole-business metrics over the full filtered set (mirrors the per-customer math below).
+  const metricRows = await prisma.$queryRaw<Array<{
+    total: number
+    outstandingTotal: number
+    highRiskCount: number
+    relationshipCount: number
+  }>>(Prisma.sql`
+    WITH filtered_customers AS (
+      SELECT c.id, c."riskTag"::text AS "riskTag"
+      FROM customers c
+      WHERE ${Prisma.join(filters, ' AND ')}
+    ),
+    per_customer AS (
+      SELECT
+        fc.id,
+        fc."riskTag",
+        COALESCE(o.order_count, 0)::int AS "orderCount",
+        (COALESCE(l.debit, 0) - COALESCE(l.credit, 0))::double precision AS balance
+      FROM filtered_customers fc
+      LEFT JOIN (
+        SELECT "customerId", COUNT(*) FILTER (WHERE "isDeleted" = false) AS order_count
+        FROM orders
+        WHERE "businessId" = ${input.businessId}
+          AND "customerId" IN (SELECT id FROM filtered_customers)
+        GROUP BY "customerId"
+      ) o ON o."customerId" = fc.id
+      LEFT JOIN (
+        SELECT
+          "customerId",
+          SUM(CASE WHEN type = 'DEBIT'::"LedgerEntryType" THEN amount ELSE 0 END)::double precision AS debit,
+          SUM(CASE WHEN type = 'CREDIT'::"LedgerEntryType" THEN amount ELSE 0 END)::double precision AS credit
+        FROM ledger_entries
+        WHERE "businessId" = ${input.businessId}
+          AND "customerId" IN (SELECT id FROM filtered_customers)
+        GROUP BY "customerId"
+      ) l ON l."customerId" = fc.id
+    )
+    SELECT
+      COUNT(*)::int AS total,
+      COALESCE(SUM(GREATEST(0, balance)), 0)::double precision AS "outstandingTotal",
+      COUNT(*) FILTER (WHERE "riskTag" <> 'RELIABLE')::int AS "highRiskCount",
+      COALESCE(SUM("orderCount"), 0)::int AS "relationshipCount"
+    FROM per_customer
+  `)
+  const metrics = metricRows[0] ?? { total: 0, outstandingTotal: 0, highRiskCount: 0, relationshipCount: 0 }
+
+  // One page of rows. The CTE is limited first so the joins only run for the page.
+  const items = await prisma.$queryRaw<CustomerListRow[]>(Prisma.sql`
+    WITH filtered_customers AS (
+      SELECT
+        c.id,
+        c.name,
+        c.phone,
+        c."altPhone" AS "altPhone",
+        c.address,
+        c."siteAddress" AS "siteAddress",
+        c.gstin,
+        c."stateCode" AS "stateCode",
+        c."creditLimit"::double precision AS "creditLimit",
+        c."riskTag"::text AS "riskTag",
+        c.notes,
+        c."isActive" AS "isActive",
+        c."remindersEnabled" AS "remindersEnabled",
+        c."createdAt" AS "createdAt",
+        c."updatedAt" AS "updatedAt",
+        c."businessId" AS "businessId"
+      FROM customers c
+      WHERE ${Prisma.join(filters, ' AND ')}
+      ORDER BY c.name ASC, c.id ASC
+      LIMIT ${input.pageSize} OFFSET ${skip}
+    )
+    SELECT
+      fc.id,
+      fc.name,
+      fc.phone,
+      fc."altPhone" AS "altPhone",
+      fc.address,
+      fc."siteAddress" AS "siteAddress",
+      fc.gstin,
+      fc."stateCode" AS "stateCode",
+      fc."creditLimit"::double precision AS "creditLimit",
+      fc."riskTag"::text AS "riskTag",
+      fc.notes,
+      fc."isActive" AS "isActive",
+      fc."remindersEnabled" AS "remindersEnabled",
+      fc."createdAt" AS "createdAt",
+      fc."updatedAt" AS "updatedAt",
+      fc."businessId" AS "businessId",
+      COALESCE(o.order_count, 0)::int AS "orderCount",
+      (COALESCE(l.debit, 0) - COALESCE(l.credit, 0))::double precision AS balance
+    FROM filtered_customers fc
+    LEFT JOIN (
+      SELECT
+        "customerId",
+        COUNT(*) FILTER (WHERE "isDeleted" = false) AS order_count
+      FROM orders
+      WHERE "businessId" = ${input.businessId}
+        AND "customerId" IN (SELECT id FROM filtered_customers)
+      GROUP BY "customerId"
+    ) o ON o."customerId" = fc.id
+    LEFT JOIN (
+      SELECT
+        "customerId",
+        SUM(CASE WHEN type = 'DEBIT'::"LedgerEntryType" THEN amount ELSE 0 END)::double precision AS debit,
+        SUM(CASE WHEN type = 'CREDIT'::"LedgerEntryType" THEN amount ELSE 0 END)::double precision AS credit
+      FROM ledger_entries
+      WHERE "businessId" = ${input.businessId}
+        AND "customerId" IN (SELECT id FROM filtered_customers)
+      GROUP BY "customerId"
+    ) l ON l."customerId" = fc.id
+    ORDER BY fc.name ASC, fc.id ASC
+  `)
+
+  return {
+    items,
+    total: metrics.total,
+    outstandingTotal: metrics.outstandingTotal,
+    highRiskCount: metrics.highRiskCount,
+    relationshipCount: metrics.relationshipCount,
+  }
+}
+
 export async function getCustomerById(customerId: string, businessId: string) {
   const rows = await prisma.$queryRaw<CustomerRow[]>(Prisma.sql`
     ${customerSelectSql()}

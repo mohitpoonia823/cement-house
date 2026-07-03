@@ -4,7 +4,7 @@ import { Card, MetricCard, MetricGrid, SectionHeader } from '@/components/ui/Car
 import { Badge, statusBadge } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/Spinner'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { useCustomers, useCreateCustomer, useUpdateCustomer, useDeleteCustomer, useBulkDeleteCustomers, useSendReminders } from '@/hooks/useCustomers'
+import { useCustomersPaged, useCreateCustomer, useUpdateCustomer, useDeleteCustomer, useBulkDeleteCustomers, useSendReminders } from '@/hooks/useCustomers'
 import { fmt } from '@/lib/utils'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
@@ -69,18 +69,23 @@ export default function CustomersPage() {
   const [riskTag, setRiskTag] = useState('ALL')
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
 
-  const { data: customers, isLoading } = useCustomers({
+  const { data, isLoading } = useCustomersPaged({
     riskTag: riskTag === 'ALL' ? undefined : riskTag,
     search: search || undefined,
+    page,
   })
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(searchInput.trim()), 250)
     return () => window.clearTimeout(timer)
   }, [searchInput])
+
+  // Back to page 1 whenever the filter or search term changes.
+  useEffect(() => { setPage(1) }, [riskTag, search])
 
   const createCustomer = useCreateCustomer()
   const updateCustomer = useUpdateCustomer()
@@ -93,11 +98,13 @@ export default function CustomersPage() {
   const [formError, setFormError] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
-  const list = customers ?? []
+  const list = data?.items ?? []
   const allSelected = list.length > 0 && selected.size === list.length
-  const outstandingTotal = list.reduce((sum: number, c: any) => sum + Math.max(0, Number(c.balance)), 0)
-  const highRiskCount = list.filter((c: any) => c.riskTag !== 'RELIABLE').length
-  const relationshipCount = list.reduce((sum: number, c: any) => sum + Number(c.orderCount), 0)
+  // Whole-business metrics come from the server (computed over the full filtered set),
+  // so they stay correct even though the row list is paginated.
+  const outstandingTotal = Number(data?.outstandingTotal ?? 0)
+  const highRiskCount = Number(data?.highRiskCount ?? 0)
+  const relationshipCount = Number(data?.relationshipCount ?? 0)
 
   function toggleOne(id: string) {
     setSelected((prev) => {
@@ -593,6 +600,38 @@ export default function CustomersPage() {
           </>
         )}
       </Card>
+
+      {(data?.total ?? 0) > 0 && (() => {
+        const pageSize = data?.pageSize || 20
+        const total = data?.total ?? 0
+        const totalPages = Math.max(1, Math.ceil(total / pageSize))
+        return (
+          <div className="mt-3 flex items-center justify-between gap-3 text-xs text-stone-400">
+            <span>{total} {t('customers', 'ग्राहक')}</span>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  {t('Prev', 'पिछला')}
+                </button>
+                <span className="tabular-nums text-slate-500 dark:text-slate-400">{t('Page', 'पेज')} {page} / {totalPages}</span>
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  {t('Next', 'अगला')}
+                </button>
+              </div>
+            )}
+          </div>
+        )
+      })()}
     </AppShell>
   )
 }
