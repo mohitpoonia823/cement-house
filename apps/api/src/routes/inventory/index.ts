@@ -98,6 +98,7 @@ const CreateMaterialSchema = z.object({
   hsnCode: z.string().trim().max(30).optional(),
   gstRate: z.number().min(0).max(100).optional(),
   isExempted: z.boolean().optional(),
+  billingBasis: z.enum(['QUANTITY', 'WEIGHT']).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   hasVariants: z.boolean().optional(),
   variantName: z.string().trim().max(120).optional(),
@@ -191,6 +192,7 @@ function withTaxMetadata<T extends z.infer<typeof CreateMaterialSchema>>(payload
       ...(payload.hsnCode !== undefined ? { hsnCode: payload.hsnCode } : {}),
       ...(payload.gstRate !== undefined ? { gstRate: payload.gstRate } : {}),
       ...(payload.isExempted !== undefined ? { isExempted: payload.isExempted } : {}),
+      ...(payload.billingBasis !== undefined ? { billingBasis: payload.billingBasis } : {}),
     },
   }
   return next as T

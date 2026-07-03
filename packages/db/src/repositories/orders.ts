@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { prisma } from '../client'
 import { adjustMaterialLocationStock, resolveSourceLocationId } from './multi-location'
+import { postSaleVoucher, postCustomerReceiptVoucher } from './accounting'
 
 const ORDER_TX_MAX_WAIT_MS = 10_000
 const ORDER_TX_TIMEOUT_MS = 120_000
@@ -775,6 +776,28 @@ export async function createOrder(input: {
       )
     `)
 
+    // Mirror the sale into the double-entry ledger (Dr Customer, Cr Sales/GST).
+    const custNameRows = await tx.$queryRaw<Array<{ name: string }>>(Prisma.sql`
+      SELECT name FROM customers WHERE id = ${input.customerId} AND "businessId" = ${input.businessId} LIMIT 1
+    `)
+    const customerName = custNameRows[0]?.name ?? 'Customer'
+    await postSaleVoucher(tx, {
+      businessId: input.businessId,
+      createdById: input.createdById,
+      customerId: input.customerId,
+      customerName,
+      orderId: createdOrderId,
+      orderNumber: input.orderNumber,
+      date: new Date(),
+      taxableAmount: input.taxableAmount ?? input.totalAmount,
+      cgstTotal: input.cgstTotal ?? 0,
+      sgstTotal: input.sgstTotal ?? 0,
+      igstTotal: input.igstTotal ?? 0,
+      otherCharges: (input.transportCharges ?? 0) + (input.loadingCharges ?? 0),
+      invoiceDiscount: input.invoiceDiscount ?? 0,
+      grandTotal: input.grandTotal ?? input.totalAmount,
+    })
+
     if (input.amountPaid > 0) {
       const creditLedgerEntryId = randomUUID()
       await tx.$executeRaw(Prisma.sql`
@@ -802,6 +825,19 @@ export async function createOrder(input: {
           ${input.businessId}
         )
       `)
+      // Mirror the with-order payment as a receipt (Dr Cash/Bank, Cr Customer).
+      await postCustomerReceiptVoucher(tx, {
+        businessId: input.businessId,
+        createdById: input.createdById,
+        customerId: input.customerId,
+        customerName,
+        amount: input.amountPaid,
+        paymentMode: input.paymentMode,
+        date: new Date(),
+        orderId: createdOrderId,
+        ledgerEntryId: creditLedgerEntryId,
+        narration: `Payment with order ${input.orderNumber}`,
+      })
     }
 
     return created

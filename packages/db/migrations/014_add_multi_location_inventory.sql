@@ -81,6 +81,8 @@ CREATE INDEX IF NOT EXISTS stock_transfer_items_material_idx
 ALTER TABLE orders
   ADD COLUMN IF NOT EXISTS "sourceLocationId" TEXT;
 ALTER TABLE orders
+  DROP CONSTRAINT IF EXISTS orders_source_location_fk;
+ALTER TABLE orders
   ADD CONSTRAINT orders_source_location_fk
   FOREIGN KEY ("sourceLocationId") REFERENCES locations(id);
 CREATE INDEX IF NOT EXISTS orders_business_source_location_created_idx

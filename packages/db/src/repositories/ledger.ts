@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../client'
+import { postCustomerReceiptVoucher } from './accounting'
 
 export interface LedgerEntryWithOrderRow {
   id: string
@@ -146,6 +147,26 @@ export async function recordPaymentAndApply(input: RecordPaymentInput) {
 
     const ledger = inserted[0]
 
+    // Mirror the receipt into the double-entry ledger (Dr Cash/Bank, Cr Customer).
+    const custRows = await tx.$queryRaw<Array<{ name: string }>>(Prisma.sql`
+      SELECT name FROM customers WHERE id = ${input.customerId} AND "businessId" = ${input.businessId} LIMIT 1
+    `)
+    if (input.paymentMode !== 'CREDIT') {
+      await postCustomerReceiptVoucher(tx, {
+        businessId: input.businessId,
+        createdById: input.recordedById,
+        customerId: input.customerId,
+        customerName: custRows[0]?.name ?? 'Customer',
+        amount: input.amount,
+        paymentMode: input.paymentMode,
+        date: new Date(),
+        reference: input.reference ?? null,
+        orderId: input.orderId ?? null,
+        ledgerEntryId: ledger.id,
+        narration: input.notes ?? null,
+      })
+    }
+
     if (input.orderId) {
       await tx.$executeRaw(Prisma.sql`
         UPDATE orders
@@ -190,7 +211,7 @@ export async function recordPaymentAndApply(input: RecordPaymentInput) {
     }
 
     return ledger
-  })
+  }, { maxWait: 15_000, timeout: 60_000 })
 }
 
 export async function getCustomerBasicById(customerId: string, businessId: string) {

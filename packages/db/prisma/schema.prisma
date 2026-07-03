@@ -141,6 +141,35 @@ enum ReferralRewardType {
 }
 
 // ─────────────────────────────────────────
+// ACCOUNTING — double-entry bookkeeping (Tally-style)
+// ─────────────────────────────────────────
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  INCOME
+  EXPENSE
+  EQUITY
+}
+
+enum VoucherType {
+  OPENING     // opening balance carried forward
+  PURCHASE    // supplier bill  → Dr Purchases/Input GST, Cr Supplier
+  PAYMENT     // paid a supplier → Dr Supplier, Cr Cash/Bank
+  RECEIPT     // money received  → Dr Cash/Bank, Cr party
+  SALE        // customer invoice (reserved for future migration)
+  CONTRA      // cash ↔ bank
+  JOURNAL     // manual adjustment
+  EXPENSE     // direct/indirect expense
+}
+
+enum PurchaseStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+// ─────────────────────────────────────────
 // BUSINESS — each cement house / tenant
 // ─────────────────────────────────────────
 
@@ -190,6 +219,10 @@ model Business {
   materialStocks MaterialStock[]
   stockTransfers StockTransfer[]
   productVariants ProductVariant[]
+  suppliers      Supplier[]
+  ledgerAccounts LedgerAccount[]
+  journalEntries JournalEntry[]
+  purchases      Purchase[]
 
   @@index([isActive, subscriptionStatus])
   @@map("businesses")
@@ -222,6 +255,8 @@ model User {
   stockMovements   StockMovement[] @relation("StockRecordedBy")
   auditLogs        AuditLog[]      @relation("AuditActor")
   stockTransfersCreated StockTransfer[]
+  journalEntries   JournalEntry[]  @relation("JournalRecordedBy")
+  purchasesCreated Purchase[]      @relation("PurchaseCreatedBy")
 
   @@index([businessId, role, isActive])
   @@index([lastSeenAt])
@@ -313,6 +348,7 @@ model Material {
   locationStocks  MaterialStock[]
   transferItems   StockTransferItem[]
   variants        ProductVariant[]
+  purchaseItems   PurchaseItem[]
 
   @@index([businessId, isActive, name])
   @@index([businessId, isActive, stockQty])
@@ -794,4 +830,184 @@ model PaymentTransaction {
 
   @@index([businessId, createdAt])
   @@map("payment_transactions")
+}
+
+// ─────────────────────────────────────────
+// SUPPLIERS — vendors / sundry creditors
+// ─────────────────────────────────────────
+
+model Supplier {
+  id             String   @id @default(uuid())
+  name           String   // e.g. "UltraTech Depot", "Shyam Steel"
+  phone          String?
+  altPhone       String?
+  address        String?
+  gstin          String?
+  stateCode      String?
+  openingBalance Decimal  @default(0) @db.Decimal(12, 2) // amount already owed at onboarding
+  notes          String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Tenant
+  business       Business @relation(fields: [businessId], references: [id])
+  businessId     String
+
+  // Relations
+  account        LedgerAccount?
+  purchases      Purchase[]
+  journalEntries JournalEntry[]
+
+  @@index([businessId, isActive, name])
+  @@index([businessId, phone])
+  @@map("suppliers")
+}
+
+// ─────────────────────────────────────────
+// LEDGER ACCOUNTS — chart of accounts
+// Party ledgers (one per supplier) + system accounts
+// (Purchases, Input GST, Cash, Bank, Capital, Round Off)
+// ─────────────────────────────────────────
+
+model LedgerAccount {
+  id             String      @id @default(uuid())
+  name           String
+  type           AccountType
+  group          String      // "Sundry Creditors", "Duties & Taxes", "Cash-in-hand", "Bank Accounts", ...
+  code           String?
+  isSystem       Boolean     @default(false)
+  openingBalance Decimal     @default(0) @db.Decimal(14, 2)
+  openingIsDebit Boolean     @default(true)
+  isActive       Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  // Tenant
+  business       Business    @relation(fields: [businessId], references: [id])
+  businessId     String
+
+  // A party ledger points back to its supplier or customer.
+  supplier       Supplier?   @relation(fields: [supplierId], references: [id])
+  supplierId     String?     @unique
+  customerId     String?     @unique
+
+  lines          JournalLine[]
+
+  @@unique([businessId, name])
+  @@index([businessId, type, group])
+  @@map("ledger_accounts")
+}
+
+// ─────────────────────────────────────────
+// JOURNAL ENTRIES — vouchers (balanced debit = credit)
+// ─────────────────────────────────────────
+
+model JournalEntry {
+  id            String       @id @default(uuid())
+  voucherType   VoucherType
+  voucherNumber String       // PUR-2026-0001, PAY-2026-0001, ...
+  date          DateTime     @default(now())
+  narration     String?
+  reference     String?      // UPI txn, cheque no, supplier invoice no
+  createdAt     DateTime     @default(now())
+
+  // Tenant
+  business      Business     @relation(fields: [businessId], references: [id])
+  businessId    String
+
+  supplier      Supplier?    @relation(fields: [supplierId], references: [id])
+  supplierId    String?
+  purchase      Purchase?    @relation(fields: [purchaseId], references: [id])
+  purchaseId    String?      @unique
+  customerId    String?      // party ledger link for SALE / RECEIPT vouchers
+  orderId       String?      // source order for SALE vouchers (idempotency)
+  createdBy     User         @relation("JournalRecordedBy", fields: [createdById], references: [id])
+  createdById   String
+
+  lines         JournalLine[]
+
+  @@unique([businessId, voucherNumber])
+  @@index([businessId, voucherType, date])
+  @@index([businessId, supplierId, date])
+  @@index([businessId, customerId, date])
+  @@index([orderId])
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id        String        @id @default(uuid())
+  entry     JournalEntry  @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  entryId   String
+  account   LedgerAccount @relation(fields: [accountId], references: [id])
+  accountId String
+  debit     Decimal       @default(0) @db.Decimal(14, 2)
+  credit    Decimal       @default(0) @db.Decimal(14, 2)
+
+  @@index([entryId])
+  @@index([accountId])
+  @@map("journal_lines")
+}
+
+// ─────────────────────────────────────────
+// PURCHASES — supplier bills / vendor invoices
+// ─────────────────────────────────────────
+
+model Purchase {
+  id                    String         @id @default(uuid())
+  purchaseNumber        String         // PB-2026-0001
+  supplierInvoiceNumber String?
+  invoiceDate           DateTime       @default(now())
+  subtotal              Decimal        @default(0) @db.Decimal(14, 2)
+  discountTotal         Decimal        @default(0) @db.Decimal(14, 2)
+  taxableAmount         Decimal        @default(0) @db.Decimal(14, 2)
+  cgstTotal             Decimal        @default(0) @db.Decimal(14, 2)
+  sgstTotal             Decimal        @default(0) @db.Decimal(14, 2)
+  igstTotal             Decimal        @default(0) @db.Decimal(14, 2)
+  gstTotal              Decimal        @default(0) @db.Decimal(14, 2)
+  roundOff              Decimal        @default(0) @db.Decimal(10, 2)
+  grandTotal            Decimal        @default(0) @db.Decimal(14, 2)
+  paidAmount            Decimal        @default(0) @db.Decimal(14, 2)
+  notes                 String?
+  status                PurchaseStatus @default(CONFIRMED)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  // Tenant
+  business      Business @relation(fields: [businessId], references: [id])
+  businessId    String
+
+  supplier      Supplier @relation(fields: [supplierId], references: [id])
+  supplierId    String
+  createdBy     User     @relation("PurchaseCreatedBy", fields: [createdById], references: [id])
+  createdById   String
+
+  items         PurchaseItem[]
+  journalEntry  JournalEntry?
+
+  @@unique([businessId, purchaseNumber])
+  @@index([businessId, supplierId, invoiceDate])
+  @@index([businessId, invoiceDate])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id             String    @id @default(uuid())
+  purchase       Purchase  @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  purchaseId     String
+  material       Material? @relation(fields: [materialId], references: [id])
+  materialId     String?
+  description    String?
+  quantity       Decimal   @db.Decimal(12, 3)
+  unitCost       Decimal   @db.Decimal(12, 2)
+  hsnCode        String?
+  gstRate        Decimal?  @db.Decimal(5, 2)
+  taxableAmount  Decimal   @default(0) @db.Decimal(14, 2)
+  gstAmount      Decimal   @default(0) @db.Decimal(14, 2)
+  discountAmount Decimal   @default(0) @db.Decimal(14, 2)
+  lineTotal      Decimal   @db.Decimal(14, 2)
+
+  @@index([purchaseId])
+  @@index([materialId])
+  @@map("purchase_items")
 }

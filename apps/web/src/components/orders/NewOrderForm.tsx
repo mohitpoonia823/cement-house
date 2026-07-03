@@ -13,6 +13,8 @@ import { useI18n } from '@/lib/i18n'
 import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 import { useReferralPartners } from '@/hooks/useReferralPartners'
 
+type BillingBasis = 'QUANTITY' | 'WEIGHT'
+
 type Product = {
   id: string
   variantId?: string
@@ -26,6 +28,7 @@ type Product = {
   purchasePrice: number
   salePrice: number
   stockQty: number
+  billingBasis: BillingBasis
 }
 
 type LineItem = {
@@ -40,6 +43,7 @@ type LineItem = {
   gstRate: number
   hsnCode: string
   isExempted: boolean
+  billingBasis: BillingBasis
   batchNumber?: string
   expiryDate?: string
   barcode?: string
@@ -50,6 +54,19 @@ type LineItem = {
 }
 
 const PAYMENT_MODES = ['CASH', 'UPI', 'CHEQUE', 'CREDIT', 'PARTIAL']
+
+// The quantity a line is actually billed on: net weight for weight-sold products
+// (when a positive weight is entered), otherwise the entered quantity. Mirrors the
+// server's billing engine so the on-screen total matches what gets saved.
+function billedQuantity(item: Pick<LineItem, 'billingBasis' | 'quantity' | 'grossWeight' | 'tareWeight' | 'netWeight'>) {
+  if (item.billingBasis === 'WEIGHT') {
+    const gross = Number(item.grossWeight ?? 0)
+    const tare = Number(item.tareWeight ?? 0)
+    const net = Number(item.netWeight ?? 0) || Math.max(0, gross - tare)
+    if (net > 0) return net
+  }
+  return Number(item.quantity)
+}
 
 function todayDateInput() {
   const now = new Date()
@@ -99,6 +116,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
       gstRate: 0,
       hsnCode: '',
       isExempted: false,
+      billingBasis: 'QUANTITY',
       batchNumber: '',
       expiryDate: '',
       barcode: '',
@@ -125,7 +143,8 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
   const showSerial = hasFeature('serialTracking')
   const showWeight = hasFeature('weightBasedBilling')
   const showGst = hasFeature('gstBilling')
-  const showAdvancedLineFields = showBatch || showExpiry || showBarcode || showSerial || showWeight
+  const anyWeightBasis = items.some((i) => i.billingBasis === 'WEIGHT')
+  const showAdvancedLineFields = showBatch || showExpiry || showBarcode || showSerial || showWeight || anyWeightBasis
   const sourceStockByMaterial = useMemo(() => {
     const map = new Map<string, number>()
     for (const row of sourceStockRows ?? []) {
@@ -147,6 +166,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
     purchasePrice: Number(m.purchasePrice ?? 0),
     salePrice: Number(m.salePrice ?? 0),
     stockQty: Number(sourceStockByMaterial.get(String(m.id)) ?? 0),
+    billingBasis: String(m.billingBasis).toUpperCase() === 'WEIGHT' ? 'WEIGHT' : 'QUANTITY',
   }))
   const inStockProducts = useMemo(
     () => products.filter((product) => Number(product.stockQty) > 0),
@@ -156,7 +176,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
     () =>
       computeOrderPreview(
         items.map((item) => ({
-          quantity: Number(item.quantity),
+          quantity: billedQuantity(item),
           unitPrice: Number(item.unitPrice),
           discountAmount: Number(item.discountAmount ?? 0),
           gstRate: Number(item.gstRate ?? 0),
@@ -208,8 +228,9 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
                 hsnCode: product.hsnCode,
                 gstRate: product.isExempted ? 0 : Number(product.gstRate),
                 isExempted: product.isExempted,
+                billingBasis: product.billingBasis,
               }
-            : { ...item, materialId: value, variantId: undefined }
+            : { ...item, materialId: value, variantId: undefined, billingBasis: 'QUANTITY' }
         }
         return {
           ...item,
@@ -242,6 +263,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
         gstRate: 0,
         hsnCode: '',
         isExempted: false,
+        billingBasis: 'QUANTITY',
         batchNumber: '',
         expiryDate: '',
         barcode: '',
@@ -263,6 +285,12 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
     if (!customerId) return setError(language === 'hi' ? '?????? ?????' : 'Select a customer')
     if (items.some((i) => !i.materialId)) return setError(language === 'hi' ? '?? ???? ?? ??? ??????? ?????' : 'Select a material for each item')
     if (items.some((i) => i.quantity <= 0)) return setError(language === 'hi' ? '?????? 0 ?? ???? ???? ?????' : 'Quantity must be greater than 0')
+    const effectiveNet = (i: LineItem) => Number(i.netWeight ?? 0) || Math.max(0, Number(i.grossWeight ?? 0) - Number(i.tareWeight ?? 0))
+    const missingWeightIdx = items.findIndex((i) => i.billingBasis === 'WEIGHT' && !(effectiveNet(i) > 0))
+    if (missingWeightIdx >= 0) {
+      const name = items[missingWeightIdx].materialName || `item ${missingWeightIdx + 1}`
+      return setError(`Enter a net weight for ${name} — it is sold by weight`)
+    }
     if (deliveryDate && deliveryDate < minDeliveryDate) return setError(language === 'hi' ? '??????? ???? ????? ???? ?? ???? ???? ?? ????' : 'Delivery date cannot be earlier than order creation date')
     try {
       await createOrder.mutateAsync({
@@ -275,6 +303,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
         customerGstin: selectedCustomer?.gstin ?? null,
         paymentMode,
         amountPaid,
+        expectedTotal: totalAmount,
         notes,
         items: items.map((item) => ({
           productId: item.materialId,
@@ -283,6 +312,7 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
           quantity: Number(item.quantity),
           unitPrice: Number(item.unitPrice),
           purchasePrice: Number(item.purchasePrice),
+          billingBasis: item.billingBasis,
           discountAmount: Number(item.discountAmount ?? 0),
           discount: Number(item.discountAmount ?? 0),
           hsnCode: item.hsnCode || undefined,
@@ -524,82 +554,116 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
               </div>
               </div>
               {showAdvancedLineFields ? (
-                <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
-                  {showBatch ? (
-                    <input
-                      type="text"
-                      value={item.batchNumber ?? ''}
-                      onChange={(e) => updateItem(idx, 'batchNumber', e.target.value)}
-                      placeholder={language === 'hi' ? '??? ????' : 'Batch number'}
-                      className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                    />
+                <div className="mt-3 space-y-3 border-t border-stone-100 pt-3 dark:border-slate-800">
+                  {(showBatch || showExpiry || showBarcode || showSerial) ? (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                      {showBatch ? (
+                        <div>
+                          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-stone-500">
+                            {language === 'hi' ? '??? ????' : 'Batch'}
+                          </label>
+                          <input
+                            type="text"
+                            value={item.batchNumber ?? ''}
+                            onChange={(e) => updateItem(idx, 'batchNumber', e.target.value)}
+                            placeholder={language === 'hi' ? '??? ????' : 'Batch number'}
+                            className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                          />
+                        </div>
+                      ) : null}
+                      {showExpiry ? (
+                        <div>
+                          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-stone-500">
+                            {language === 'hi' ? '?????? ????' : 'Expiry'}
+                          </label>
+                          <input
+                            type="date"
+                            value={item.expiryDate ?? ''}
+                            onChange={(e) => updateItem(idx, 'expiryDate', e.target.value)}
+                            className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                          />
+                        </div>
+                      ) : null}
+                      {showBarcode ? (
+                        <div>
+                          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-stone-500">
+                            {language === 'hi' ? '??????' : 'Barcode'}
+                          </label>
+                          <input
+                            type="text"
+                            value={item.barcode ?? ''}
+                            onChange={(e) => updateItem(idx, 'barcode', e.target.value)}
+                            placeholder={language === 'hi' ? '??????' : 'Barcode'}
+                            className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                          />
+                        </div>
+                      ) : null}
+                      {showSerial ? (
+                        <div>
+                          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-stone-500">
+                            {language === 'hi' ? '?????? / IMEI' : 'Serial / IMEI'}
+                          </label>
+                          <input
+                            type="text"
+                            value={item.serialOrImei ?? ''}
+                            onChange={(e) => updateItem(idx, 'serialOrImei', e.target.value)}
+                            placeholder={language === 'hi' ? '?????? / IMEI' : 'Serial / IMEI'}
+                            className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                          />
+                        </div>
+                      ) : null}
+                    </div>
                   ) : null}
-                  {showExpiry ? (
-                    <input
-                      type="date"
-                      value={item.expiryDate ?? ''}
-                      onChange={(e) => updateItem(idx, 'expiryDate', e.target.value)}
-                      className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                    />
-                  ) : null}
-                  {showBarcode ? (
-                    <input
-                      type="text"
-                      value={item.barcode ?? ''}
-                      onChange={(e) => updateItem(idx, 'barcode', e.target.value)}
-                      placeholder={language === 'hi' ? '??????' : 'Barcode'}
-                      className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                    />
-                  ) : null}
-                  {showSerial ? (
-                    <input
-                      type="text"
-                      value={item.serialOrImei ?? ''}
-                      onChange={(e) => updateItem(idx, 'serialOrImei', e.target.value)}
-                      placeholder={language === 'hi' ? '?????? / IMEI' : 'Serial / IMEI'}
-                      className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                    />
-                  ) : null}
-                  {showWeight ? (
-                    <div className="grid grid-cols-3 gap-2">
-                      <div>
-                        <label className="mb-1 block whitespace-nowrap text-[10px] font-medium uppercase tracking-wide text-stone-500">
-                          Gross WT
-                        </label>
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          value={item.grossWeight ?? 0}
-                          onChange={(e) => updateItem(idx, 'grossWeight', e.target.value)}
-                          className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                        />
+                  {showWeight || item.billingBasis === 'WEIGHT' ? (
+                    <div>
+                      <div className="mb-1.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-stone-500">
+                        {language === 'hi' ? '???' : 'Weight'}
+                        {item.billingBasis === 'WEIGHT' ? (
+                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                            {language === 'hi' ? '??? ?? ??????? ??' : 'Billed by net weight — required'}
+                          </span>
+                        ) : null}
                       </div>
-                      <div>
-                        <label className="mb-1 block whitespace-nowrap text-[10px] font-medium uppercase tracking-wide text-stone-500">
-                          Tare WT
-                        </label>
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          value={item.tareWeight ?? 0}
-                          onChange={(e) => updateItem(idx, 'tareWeight', e.target.value)}
-                          className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                        />
-                      </div>
-                      <div>
-                        <label className="mb-1 block whitespace-nowrap text-[10px] font-medium uppercase tracking-wide text-stone-500">
-                          Net WT
-                        </label>
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          value={item.netWeight ?? 0}
-                          onChange={(e) => updateItem(idx, 'netWeight', e.target.value)}
-                          className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                        />
+                      <div className="grid grid-cols-3 gap-2 sm:max-w-md">
+                        <div>
+                          <label className="mb-1 block truncate text-[10px] text-stone-400">
+                            {language === 'hi' ? '???? ???' : 'Gross'}
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={item.grossWeight ?? 0}
+                            onChange={(e) => updateItem(idx, 'grossWeight', e.target.value)}
+                            className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block truncate text-[10px] text-stone-400">
+                            {language === 'hi' ? '???? ???' : 'Tare'}
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={item.tareWeight ?? 0}
+                            onChange={(e) => updateItem(idx, 'tareWeight', e.target.value)}
+                            className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block truncate text-[10px] text-stone-400">
+                            {language === 'hi' ? '??? ???' : 'Net'}
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={item.netWeight ?? 0}
+                            onChange={(e) => updateItem(idx, 'netWeight', e.target.value)}
+                            className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                          />
+                        </div>
                       </div>
                     </div>
                   ) : null}

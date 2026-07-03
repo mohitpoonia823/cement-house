@@ -16,6 +16,9 @@ export interface BillingLineInput {
   quantity: number
   unitPrice: number
   purchasePrice?: number
+  // How this line is billed. Defaults to the business-level weight flag when absent
+  // (back-compat); when present, the product's own basis wins.
+  billingBasis?: 'QUANTITY' | 'WEIGHT'
   discount?: number
   gstRate?: number
   barcode?: string
@@ -99,6 +102,23 @@ function bool(flag: unknown) {
   return flag === true
 }
 
+// The positive net weight for a line, or undefined if none was entered.
+function resolveNetWeight(item: BillingLineInput): number | undefined {
+  const grossWeight = item.grossWeight != null ? Number(item.grossWeight) : undefined
+  const tareWeight = item.tareWeight != null ? Number(item.tareWeight) : undefined
+  const raw = item.netWeight != null
+    ? Number(item.netWeight)
+    : (grossWeight != null && tareWeight != null ? Math.max(0, grossWeight - tareWeight) : undefined)
+  return raw != null && raw > 0 ? raw : undefined
+}
+
+// Per-line billing basis: the product's own setting wins; otherwise fall back to
+// the legacy business-wide weight flag.
+function resolveBasis(item: BillingLineInput, isWeightBilling: boolean): 'QUANTITY' | 'WEIGHT' {
+  if (item.billingBasis === 'WEIGHT' || item.billingBasis === 'QUANTITY') return item.billingBasis
+  return isWeightBilling ? 'WEIGHT' : 'QUANTITY'
+}
+
 export function calculateInvoice(input: BillingInput): BillingComputed {
   const flags = input.featureFlags ?? {}
   const isWeightBilling = bool(flags.weightBilling)
@@ -113,8 +133,12 @@ export function calculateInvoice(input: BillingInput): BillingComputed {
     const purchasePrice = Number(item.purchasePrice ?? 0)
     const grossWeight = item.grossWeight != null ? Number(item.grossWeight) : undefined
     const tareWeight = item.tareWeight != null ? Number(item.tareWeight) : undefined
-    const netWeight = item.netWeight != null ? Number(item.netWeight) : (grossWeight != null && tareWeight != null ? Math.max(0, grossWeight - tareWeight) : undefined)
-    const deductionQty = isWeightBilling ? Number(netWeight ?? qty) : qty
+    const netWeight = resolveNetWeight(item)
+    // Bill by weight only for weight-basis lines that carry a positive net weight;
+    // otherwise bill by quantity. WEIGHT lines missing a weight are rejected upfront
+    // by validateInvoiceInput, so this fallback never silently under-bills a real sale.
+    const basis = resolveBasis(item, isWeightBilling)
+    const deductionQty = basis === 'WEIGHT' && netWeight != null ? netWeight : qty
     const itemSubtotal = round2(deductionQty * unitPrice)
 
     subtotal += itemSubtotal
@@ -202,13 +226,20 @@ export function validateInvoiceInput(input: BillingInput): string | null {
   if ((input.invoiceDiscount ?? 0) < 0) return 'invoiceDiscount cannot be negative'
 
   const flags = input.featureFlags ?? {}
-  for (const item of input.items) {
+  const isWeightBilling = bool(flags.weightBilling)
+  for (const [index, item] of input.items.entries()) {
     if (item.quantity <= 0) return 'quantity must be greater than 0'
     if (item.unitPrice < 0) return 'unitPrice cannot be negative'
     if ((item.purchasePrice ?? 0) < 0) return 'purchasePrice cannot be negative'
     if ((item.discount ?? 0) < 0) return 'item discount cannot be negative'
     if ((item.gstRate ?? 0) < 0) return 'gstRate cannot be negative'
     if ((item.grossWeight ?? 0) < 0 || (item.tareWeight ?? 0) < 0 || (item.netWeight ?? 0) < 0) return 'weight fields cannot be negative'
+
+    // A weight-billed line must carry a positive net weight, otherwise the invoice
+    // total would silently collapse. Fail loudly instead of guessing.
+    if (resolveBasis(item, isWeightBilling) === 'WEIGHT' && resolveNetWeight(item) == null) {
+      return `Enter a net weight for line ${index + 1} — it is sold by weight`
+    }
 
     if (flags.batchTracking && !item.batchNumber) return 'batchNumber is required when batch tracking is enabled'
     if (flags.expiryTracking && !item.expiryDate) return 'expiryDate is required when expiry tracking is enabled'

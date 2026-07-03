@@ -28,7 +28,7 @@ export function useLedgerSummary() {
 export function useRecordPayment() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: any) => api.post('/api/ledger/payment', data).then(r => r.data.data),
+    mutationFn: (data: any) => api.post('/api/ledger/payment', data, { timeout: 60_000 }).then(r => r.data.data),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ['ledger', vars.customerId] })
       qc.invalidateQueries({ queryKey: ['ledger', 'summary'] })

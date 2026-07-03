@@ -42,6 +42,7 @@ export interface MaterialRow {
   hsnCode: string | null
   gstRate: number | null
   isExempted: boolean
+  billingBasis?: 'QUANTITY' | 'WEIGHT'
   metadata: Prisma.JsonValue | null
   isActive: boolean
   createdAt: Date
@@ -71,6 +72,13 @@ export interface OrderFormMaterialRow {
   hsnCode: string | null
   gstRate: number
   isExempted: boolean
+  billingBasis: 'QUANTITY' | 'WEIGHT'
+}
+
+// A product is billed either by piece/quantity or by net weight. Stored on the
+// material's metadata (like hsnCode/gstRate) so it needs no dedicated column.
+export function normalizeBillingBasis(value: unknown): 'QUANTITY' | 'WEIGHT' {
+  return String(value ?? '').toUpperCase() === 'WEIGHT' ? 'WEIGHT' : 'QUANTITY'
 }
 
 function materialTaxFieldsFromMetadata(metadata: Prisma.JsonValue | null) {
@@ -85,6 +93,7 @@ function materialTaxFieldsFromMetadata(metadata: Prisma.JsonValue | null) {
     hsnCode: rawHsn || null,
     gstRate,
     isExempted,
+    billingBasis: normalizeBillingBasis(bag.billingBasis),
   }
 }
 
@@ -772,7 +781,8 @@ export async function listOrderFormMaterials(businessId: string) {
       CASE
         WHEN LOWER(COALESCE(m.metadata->>'isExempted', 'false')) = 'true' THEN true
         ELSE false
-      END AS "isExempted"
+      END AS "isExempted",
+      UPPER(COALESCE(m.metadata->>'billingBasis', 'QUANTITY')) AS "billingBasis"
     FROM materials m
     LEFT JOIN product_variants pv
       ON pv."businessId" = m."businessId" AND pv."materialId" = m.id AND pv."isDefault" = true AND pv."isActive" = true
@@ -784,6 +794,7 @@ export async function listOrderFormMaterials(businessId: string) {
     ...row,
     gstRate: Number(row.gstRate ?? 0),
     isExempted: row.isExempted === true || Number(row.gstRate ?? 0) === 0,
+    billingBasis: normalizeBillingBasis(row.billingBasis),
   }))
 }
 

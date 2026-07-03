@@ -102,6 +102,7 @@ function sanitizeMaterialPayload(
       delete next.grossWeight
       delete next.tareWeight
       delete next.netWeight
+      delete next.billingBasis
     }
     if (!capabilities.canJewellery) {
       delete next.purity
@@ -187,13 +188,13 @@ function InventoryContent() {
     name: '', category: '', unit: unitPreset.defaultUnit, stockQty: '', minThreshold: '', maxThreshold: '', purchasePrice: '', salePrice: '',
     barcode: '', batchNumber: '', expiryDate: '', manufactureDate: '', manufacturer: '', rackLocation: '',
     size: '', color: '', material: '', weight: '', purity: '', makingCharges: '', serialNumber: '', imeiNumber: '',
-    grossWeight: '', tareWeight: '', netWeight: '', metadataText: '{}', allowPastExpiry: false
+    grossWeight: '', tareWeight: '', netWeight: '', billingBasis: 'QUANTITY', metadataText: '{}', allowPastExpiry: false
   })
   const [editForm, setEditForm] = useState({
     id: '', name: '', category: '', unit: unitPreset.defaultUnit, stockQty: '', minThreshold: '', maxThreshold: '', purchasePrice: '', salePrice: '',
     barcode: '', batchNumber: '', expiryDate: '', manufactureDate: '', manufacturer: '', rackLocation: '',
     size: '', color: '', material: '', weight: '', purity: '', makingCharges: '', serialNumber: '', imeiNumber: '',
-    grossWeight: '', tareWeight: '', netWeight: '', metadataText: '{}', allowPastExpiry: false
+    grossWeight: '', tareWeight: '', netWeight: '', billingBasis: 'QUANTITY', metadataText: '{}', allowPastExpiry: false
   })
   const [newError, setNewError] = useState('')
   const [editError, setEditError] = useState('')
@@ -398,7 +399,7 @@ function InventoryContent() {
         name: '', category: '', unit: unitPreset.defaultUnit, stockQty: '', minThreshold: '', maxThreshold: '', purchasePrice: '', salePrice: '',
         barcode: '', batchNumber: '', expiryDate: '', manufactureDate: '', manufacturer: '', rackLocation: '',
         size: '', color: '', material: '', weight: '', purity: '', makingCharges: '', serialNumber: '', imeiNumber: '',
-        grossWeight: '', tareWeight: '', netWeight: '', metadataText: '{}', allowPastExpiry: false
+        grossWeight: '', tareWeight: '', netWeight: '', billingBasis: 'QUANTITY', metadataText: '{}', allowPastExpiry: false
       })
     } catch (err: any) {
       const message = parseMaterialError(err, `Failed to create ${terms.material.toLowerCase()}`)
@@ -666,6 +667,7 @@ function InventoryContent() {
       grossWeight: selectedMat.grossWeight == null ? '' : String(selectedMat.grossWeight),
       tareWeight: selectedMat.tareWeight == null ? '' : String(selectedMat.tareWeight),
       netWeight: selectedMat.netWeight == null ? '' : String(selectedMat.netWeight),
+      billingBasis: String(selectedMat.billingBasis ?? '').toUpperCase() === 'WEIGHT' ? 'WEIGHT' : 'QUANTITY',
       metadataText: selectedMat.metadata ? JSON.stringify(selectedMat.metadata, null, 2) : '{}',
       allowPastExpiry: false,
     })
@@ -774,6 +776,30 @@ function InventoryContent() {
       </div>
 
       {canWeight ? <div className={sectionTitleClass}>Weight details</div> : null}
+      {canWeight ? (
+        <div className="mb-3">
+          <label className="block text-xs text-stone-500 mb-1">Sold by</label>
+          <div className="flex flex-wrap gap-2">
+            {(['QUANTITY', 'WEIGHT'] as const).map((b) => (
+              <button
+                key={b}
+                type="button"
+                onClick={() => setForm((p: any) => ({ ...p, billingBasis: b }))}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                  (form.billingBasis ?? 'QUANTITY') === b
+                    ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-900/30 dark:text-blue-300'
+                    : 'border-stone-200 text-stone-600 hover:border-stone-300 dark:border-slate-600 dark:text-slate-300'
+                }`}
+              >
+                {b === 'QUANTITY' ? 'Quantity / piece' : 'Net weight'}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] text-stone-400">
+            Weight-sold items require a net weight on every order line and are billed on that weight (e.g. TMT bars, loose aggregate). Piece-sold items bill on quantity (e.g. cement bags).
+          </p>
+        </div>
+      ) : null}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {canWeight ? (
           <>

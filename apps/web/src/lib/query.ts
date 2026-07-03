@@ -8,7 +8,7 @@ export const QUERY_DEFAULTS = {
   refetchOnReconnect: true,
 } as const
 
-export function invalidateBusinessData(qc: QueryClient, domains: Array<'orders' | 'inventory' | 'ledger' | 'customers' | 'dashboard' | 'deliveries' | 'reports' | 'locations' | 'stock-by-location' | 'stock-transfers' | 'reminders' | 'staff'>) {
+export function invalidateBusinessData(qc: QueryClient, domains: Array<'orders' | 'inventory' | 'ledger' | 'customers' | 'dashboard' | 'deliveries' | 'reports' | 'locations' | 'stock-by-location' | 'stock-transfers' | 'reminders' | 'staff' | 'suppliers'>) {
   for (const key of domains) {
     qc.invalidateQueries({ queryKey: [key] })
   }

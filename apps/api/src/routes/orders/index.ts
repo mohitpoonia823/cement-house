@@ -56,13 +56,17 @@ const CreateOrderSchema = z.object({
   allowNegativeStock: z.boolean().optional(),
   paymentMode: z.enum(['CASH', 'UPI', 'CHEQUE', 'CREDIT', 'PARTIAL']),
   amountPaid: z.number().min(0),
+  // The grand total the client showed the user. If it disagrees with the server's
+  // recompute, we reject rather than silently save a different amount.
+  expectedTotal: z.number().min(0).optional(),
   notes: z.string().optional(),
   items: z.array(z.object({
     materialId: z.string().uuid(),
-    variantId: z.string().uuid().optional(),
+    variantId: z.string().min(1).optional(),
     quantity: z.number().positive(),
     unitPrice: z.number().min(0),
     purchasePrice: z.number().min(0),
+    billingBasis: z.enum(['QUANTITY', 'WEIGHT']).optional(),
     discount: z.number().min(0).optional(),
     hsnCode: z.string().trim().max(30).optional(),
     gstRate: z.number().min(0).max(100).optional(),
@@ -79,7 +83,7 @@ const CreateOrderSchema = z.object({
 
 const AddItemSchema = z.object({
   materialId: z.string().uuid(),
-  variantId: z.string().uuid().optional(),
+  variantId: z.string().min(1).optional(),
   quantity: z.number().positive(),
   unitPrice: z.number().min(0),
   purchasePrice: z.number().min(0),
@@ -234,6 +238,7 @@ export async function orderRoutes(app: FastifyInstance) {
       loadingCharges,
       allowAdvancePayment,
       allowNegativeStock,
+      expectedTotal,
     } = body.data
     if (deliveryDate) {
       const parsedDeliveryDate = new Date(`${deliveryDate}T00:00:00`)
@@ -275,6 +280,17 @@ export async function orderRoutes(app: FastifyInstance) {
       allowAdvancePayment,
       featureFlags: user.featureFlags ?? {},
     })
+
+    // Guardrail: the amount the client showed the user must match what the server
+    // recomputes. Catches any client/server billing divergence before it becomes a
+    // wrong invoice (e.g. quantity-vs-weight basis mismatches).
+    if (expectedTotal != null && Math.abs(expectedTotal - computed.grandTotal) > 1) {
+      return reply.status(409).send({
+        success: false,
+        code: 'TOTAL_MISMATCH',
+        error: `Invoice total changed (shown ₹${expectedTotal.toLocaleString('en-IN')}, recalculated ₹${computed.grandTotal.toLocaleString('en-IN')}). Please review the order and try again.`,
+      })
+    }
 
     const totalAmount = computed.grandTotal
     let referralRewardAmount: number | undefined
