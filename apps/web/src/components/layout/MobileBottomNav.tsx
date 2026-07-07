@@ -73,6 +73,48 @@ function iconFor(href: string) {
       </svg>
     )
   }
+  if (href === '/delivery') {
+    return (
+      <svg {...common}>
+        <path d="M3 7h11v8H3zM14 10h3l4 3v2h-7M7 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm10 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (href === '/suppliers') {
+    return (
+      <svg {...common}>
+        <path d="M3 21h18M5 21V10.5l5 3v-3l5 3V4h4v17M8 17h2m4 0h2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (href === '/expenses') {
+    return (
+      <svg {...common}>
+        <path d="M3 7h18v10H3zM12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM6 10v.01M18 14v.01" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (href === '/books') {
+    return (
+      <svg {...common}>
+        <path d="M12 6.5C10.4 5.2 8.4 4.5 6 4.5H3v14h3c2.4 0 4.4.7 6 2 1.6-1.3 3.6-2 6-2h3v-14h-3c-2.4 0-4.4.7-6 2Zm0 0v14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (href === '/financials') {
+    return (
+      <svg {...common}>
+        <path d="M3 20h18M4 16l5-5.5 4 3.5 6.5-7.5M14.5 6.5H20V12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (href === '/gst') {
+    return (
+      <svg {...common}>
+        <path d="M18.5 5.5 5.5 18.5M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm8 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
   if (href === '/settings') {
     return (
       <svg {...common}>

@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { accountingRepository, reportsRepository } from '@cement-house/db'
+import { accountingRepository, inventoryRepository, reportsRepository } from '@cement-house/db'
 import { z } from 'zod'
 import { requireOwner, getBizId } from '../../middleware/auth'
 import { streamAnalyticsSnapshot } from '../../services/pdf'
@@ -1045,6 +1045,61 @@ export async function reportRoutes(app: FastifyInstance) {
             row.permissions,
           ]),
         'Workspace snapshot'
+      )
+    }
+
+    if (page === 'suppliers') {
+      const suppliers = await accountingRepository.listSuppliersWithBalance({ businessId: bizId })
+      return sendTabularExport(
+        'suppliers-snapshot.csv',
+        ['Supplier', 'Phone', 'GSTIN', 'Status', 'Balance Payable'],
+        suppliers.map((supplier) => [
+            supplier.name,
+            supplier.phone ?? '',
+            supplier.gstin ?? '',
+            supplier.isActive ? 'ACTIVE' : 'INACTIVE',
+            supplier.balance,
+          ]),
+        'Suppliers snapshot'
+      )
+    }
+
+    if (page === 'expenses') {
+      const vouchers = await accountingRepository.listVouchers({ businessId: bizId, types: ['EXPENSE', 'CONTRA'], limit: 500 })
+      return sendTabularExport(
+        'cash-expenses-snapshot.csv',
+        ['Date', 'Voucher Number', 'Type', 'Amount', 'Narration', 'Reference'],
+        vouchers.map((voucher) => [
+            voucher.date.toISOString().slice(0, 10),
+            voucher.voucherNumber,
+            voucher.voucherType,
+            voucher.amount,
+            voucher.narration ?? '',
+            voucher.reference ?? '',
+          ]),
+        'Cash & expenses snapshot'
+      )
+    }
+
+    if (page === 'imported-bills') {
+      const scans = await inventoryRepository.listPurchaseBillScans(bizId, 300)
+      return sendTabularExport(
+        'imported-bills-snapshot.csv',
+        ['Created At', 'Invoice Date', 'Supplier', 'Invoice Number', 'Status', 'Lines', 'Applied', 'Subtotal', 'Tax', 'Total Amount', 'Confidence'],
+        scans.map((scan: any) => [
+            scan.createdAt ? new Date(scan.createdAt).toISOString().slice(0, 10) : '',
+            scan.invoiceDate ? new Date(scan.invoiceDate).toISOString().slice(0, 10) : '',
+            scan.supplierName ?? '',
+            scan.invoiceNumber ?? '',
+            scan.status,
+            scan.lineCount ?? 0,
+            scan.appliedCount ?? 0,
+            scan.subtotal ?? 0,
+            scan.taxAmount ?? 0,
+            scan.totalAmount ?? 0,
+            scan.confidence ?? 0,
+          ]),
+        'Imported bills snapshot'
       )
     }
 

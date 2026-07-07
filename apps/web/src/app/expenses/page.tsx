@@ -7,6 +7,7 @@ import { fmt, fmtDate } from '@/lib/utils'
 import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
 import { useAuthStore } from '@/store/auth'
+import { ExportCsvButton } from '@/components/common/ExportCsvButton'
 
 const NEW_HEAD = '__new__'
 
@@ -138,6 +139,7 @@ export default function ExpensesPage() {
         {isOwner && (
           <button onClick={() => { setShowOpening((v) => !v); setShowExpense(false); setShowContra(false); setFormError(''); setOpeningMsg('') }} className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900">{t('Set opening balances', 'शुरुआती बैलेंस सेट करें')}</button>
         )}
+        <ExportCsvButton page="expenses" label={t('Export expenses', 'खर्च एक्सपोर्ट करें')} className="ml-auto rounded-xl" />
       </div>
 
       {showOpening && isOwner && (

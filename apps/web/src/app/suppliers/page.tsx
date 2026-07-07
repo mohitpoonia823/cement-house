@@ -14,6 +14,7 @@ import { useInventoryOptions } from '@/hooks/useInventory'
 import { fmt, fmtDate } from '@/lib/utils'
 import { useMemo, useState, Suspense } from 'react'
 import { useI18n } from '@/lib/i18n'
+import { ExportCsvButton } from '@/components/common/ExportCsvButton'
 
 const PAYMENT_MODES = ['CASH', 'UPI', 'CHEQUE', 'BANK']
 
@@ -170,12 +171,14 @@ function SuppliersContent() {
             'Track what you owe each supplier. Every bill and payment posts a balanced double-entry voucher.',
             'हर सप्लायर को देय राशि ट्रैक करें। हर बिल और भुगतान एक संतुलित डबल-एंट्री वाउचर पोस्ट करता है।',
           )}
+          action={<ExportCsvButton page="suppliers" label={t('Export suppliers', 'सप्लायर एक्सपोर्ट करें')} />}
         />
       </div>
       <div className="mb-4 md:hidden">
         <h1 className="text-2xl font-semibold text-slate-950 dark:text-white">
           {t('Suppliers and payables', 'सप्लायर और देय राशि')}
         </h1>
+        <ExportCsvButton page="suppliers" label={t('Export suppliers', 'सप्लायर एक्सपोर्ट करें')} className="mt-3" />
       </div>
 
       <MetricGrid className="mb-6">

@@ -16,6 +16,7 @@ import { useI18n } from '@/lib/i18n'
 import { businessTerms } from '@/lib/business-terms'
 import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 import { useFeedback } from '@/components/ui/FeedbackProvider'
+import { ExportCsvButton } from '@/components/common/ExportCsvButton'
 
 const RevenueRhythmChart = dynamic(
   () => import('@/components/dashboard/DashboardCharts').then((mod) => mod.RevenueRhythmChart),
@@ -256,6 +257,16 @@ function DashboardContent() {
               ) : null}
             </div>
           ) : null}
+          <ExportCsvButton
+            page="dashboard"
+            label={tr('Export snapshot', 'स्नैपशॉट एक्सपोर्ट करें', 'Snapshot export karo')}
+            params={{
+              range: activeRange,
+              startDate: activeRange === 'custom' ? (startDateParam || customStartDate) : undefined,
+              endDate: activeRange === 'custom' ? (endDateParam || customEndDate) : undefined,
+            }}
+            className="mt-3"
+          />
         </Card>
       </div>
       <>
@@ -282,6 +293,15 @@ function DashboardContent() {
                   {option.value === 'custom' ? tr('Custom', 'कस्टम', 'Custom') : option.label}
                 </button>
               ))}
+              <ExportCsvButton
+                page="dashboard"
+                label={tr('Export snapshot', 'स्नैपशॉट एक्सपोर्ट करें', 'Snapshot export karo')}
+                params={{
+                  range: activeRange,
+                  startDate: activeRange === 'custom' ? (startDateParam || customStartDate) : undefined,
+                  endDate: activeRange === 'custom' ? (endDateParam || customEndDate) : undefined,
+                }}
+              />
             </div>
 
             <div className="flex flex-wrap items-center gap-2 md:justify-end">

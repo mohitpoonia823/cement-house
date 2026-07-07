@@ -496,6 +496,12 @@ export default function SettingsPage() {
     setCheckoutOpen(true)
   }
 
+  // Warm the Razorpay SDK while the user reviews the checkout modal, so the
+  // Pay click opens the gateway popup without a script-download stall.
+  useEffect(() => {
+    if (checkoutOpen) ensureRazorpayLoaded().catch(() => undefined)
+  }, [checkoutOpen])
+
   async function handleCheckoutConfirm() {
     try {
       setIsConfirmingPayment(true)

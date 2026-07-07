@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import { Prisma, subscriptionsRepository } from '@cement-house/db'
 
@@ -6,7 +6,10 @@ type RawBodyRequest = { rawBody?: string }
 
 function verifyRazorpayWebhook(rawBody: string, signature: string, secret: string) {
   const digest = createHmac('sha256', secret).update(rawBody).digest('hex')
-  return digest === signature
+  const digestBuf = Buffer.from(digest, 'utf8')
+  const signatureBuf = Buffer.from(signature, 'utf8')
+  if (digestBuf.length !== signatureBuf.length) return false
+  return timingSafeEqual(digestBuf, signatureBuf)
 }
 
 export async function razorpayWebhookRoutes(app: FastifyInstance) {

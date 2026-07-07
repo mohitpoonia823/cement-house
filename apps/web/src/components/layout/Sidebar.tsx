@@ -80,6 +80,48 @@ function MenuIcon({ href, className = '' }: { href: string; className?: string }
       </svg>
     )
   }
+  if (href === '/suppliers') {
+    return (
+      <svg {...common}>
+        <path d="M3 21h18M5 21V10.5l5 3v-3l5 3V4h4v17M8 17h2m4 0h2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (href === '/expenses') {
+    return (
+      <svg {...common}>
+        <path d="M3 7h18v10H3zM12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM6 10v.01M18 14v.01" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (href === '/books') {
+    return (
+      <svg {...common}>
+        <path d="M12 6.5C10.4 5.2 8.4 4.5 6 4.5H3v14h3c2.4 0 4.4.7 6 2 1.6-1.3 3.6-2 6-2h3v-14h-3c-2.4 0-4.4.7-6 2Zm0 0v14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (href === '/financials') {
+    return (
+      <svg {...common}>
+        <path d="M3 20h18M4 16l5-5.5 4 3.5 6.5-7.5M14.5 6.5H20V12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (href === '/gst') {
+    return (
+      <svg {...common}>
+        <path d="M18.5 5.5 5.5 18.5M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm8 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (href === '/settings') {
+    return (
+      <svg {...common}>
+        <path d="M10.3 4.3a1 1 0 0 1 1.4 0l.6.6a1 1 0 0 0 1 .24l.8-.2a1 1 0 0 1 1.2.7l.2.8a1 1 0 0 0 .7.7l.8.2a1 1 0 0 1 .7 1.2l-.2.8a1 1 0 0 0 .24 1l.6.6a1 1 0 0 1 0 1.4l-.6.6a1 1 0 0 0-.24 1l.2.8a1 1 0 0 1-.7 1.2l-.8.2a1 1 0 0 0-.7.7l-.2.8a1 1 0 0 1-1.2.7l-.8-.2a1 1 0 0 0-1 .24l-.6.6a1 1 0 0 1-1.4 0l-.6-.6a1 1 0 0 0-1-.24l-.8.2a1 1 0 0 1-1.2-.7l-.2-.8a1 1 0 0 0-.7-.7l-.8-.2a1 1 0 0 1-.7-1.2l.2-.8a1 1 0 0 0-.24-1l-.6-.6a1 1 0 0 1 0-1.4l.6-.6a1 1 0 0 0 .24-1l-.2-.8a1 1 0 0 1 .7-1.2l.8-.2a1 1 0 0 0 .7-.7l.2-.8a1 1 0 0 1 1.2-.7l.8.2a1 1 0 0 0 1-.24zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
   return (
     <svg {...common}>
       <path d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -99,6 +141,11 @@ function iconAccentClasses(href: string, active: boolean) {
   if (href === '/reports') return 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200'
   if (href === '/tickets') return 'bg-lime-100 text-lime-700 dark:bg-lime-900/40 dark:text-lime-200'
   if (href === '/partners') return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-200'
+  if (href === '/suppliers') return 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-200'
+  if (href === '/expenses') return 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-200'
+  if (href === '/books') return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200'
+  if (href === '/financials') return 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200'
+  if (href === '/gst') return 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-200'
   return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
 }
 

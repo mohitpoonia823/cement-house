@@ -8,6 +8,7 @@ import { useTodayDeliveries, useConfirmDelivery } from '@/hooks/useDelivery'
 import { useState } from 'react'
 import { useI18n } from '@/lib/i18n'
 import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
+import { ExportCsvButton } from '@/components/common/ExportCsvButton'
 
 export default function DeliveryPage() {
   const { language } = useI18n()
@@ -42,6 +43,12 @@ export default function DeliveryPage() {
         eyebrow={language === 'hi' ? 'फुलफिलमेंट एनालिटिक्स' : 'Fulfilment analytics'}
         title={language === 'hi' ? 'डिलीवरी बोर्ड' : 'Delivery board'}
         description={language === 'hi' ? 'आज के डिस्पैच को ट्रैक करें, जल्दी कन्फर्म करें, और चालान विज़िबिलिटी बनाए रखें।' : language === 'hinglish' ? 'Aaj ka dispatch track karo, jaldi confirm karo aur challan visibility clear rakho.' : 'Watch today’s dispatch pipeline, confirm arrivals fast, and keep challan visibility front and center.'}
+        action={
+          <ExportCsvButton
+            page="delivery"
+            label={language === 'hi' ? 'डिलीवरी एक्सपोर्ट करें' : language === 'hinglish' ? 'Deliveries export karo' : 'Export deliveries'}
+          />
+        }
       />
 
       {data && (

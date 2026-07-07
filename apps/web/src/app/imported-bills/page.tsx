@@ -11,6 +11,7 @@ import { useI18n } from '@/lib/i18n'
 import { fmt } from '@/lib/utils'
 import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 import Link from 'next/link'
+import { ExportCsvButton } from '@/components/common/ExportCsvButton'
 
 function statusBadge(status: string) {
   if (status === 'COMMITTED') return 'success'
@@ -163,6 +164,10 @@ export default function ImportedBillsPage() {
                 />
               </>
             )}
+            <ExportCsvButton
+              page="imported-bills"
+              label={language === 'hi' ? 'बिल एक्सपोर्ट करें' : language === 'hinglish' ? 'Bills export karo' : 'Export bills'}
+            />
           </div>
         </div>
       </Card>

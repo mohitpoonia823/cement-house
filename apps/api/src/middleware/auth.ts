@@ -7,6 +7,54 @@ const lastSeenWriteByUser = new Map<string, number>()
 const ACCESS_CONTEXT_TTL_MS = 15_000
 const accessContextCache = new Map<string, { expiresAt: number; value: CachedAccessContext }>()
 const accessContextInFlight = new Map<string, Promise<CachedAccessContext>>()
+const AUTH_USER_TTL_MS = 10_000
+const AUTH_USER_CACHE_SWEEP_SIZE = 5000
+type AuthUserRow = Awaited<ReturnType<typeof loadAuthUserFresh>>
+const authUserCache = new Map<string, { expiresAt: number; value: NonNullable<AuthUserRow> }>()
+const authUserInFlight = new Map<string, Promise<AuthUserRow>>()
+
+function loadAuthUserFresh(userId: string) {
+  return prisma.user.findUnique({
+    where: { id: userId },
+    include: { business: true },
+  })
+}
+
+async function loadAuthUser(userId: string): Promise<AuthUserRow> {
+  const cached = authUserCache.get(userId)
+  if (cached && cached.expiresAt > Date.now()) return cached.value
+
+  let work = authUserInFlight.get(userId)
+  if (!work) {
+    work = loadAuthUserFresh(userId).finally(() => authUserInFlight.delete(userId))
+    authUserInFlight.set(userId, work)
+  }
+  const user = await work
+  // Only cache found users; misses (deleted users) must keep failing fresh.
+  if (user) {
+    if (authUserCache.size >= AUTH_USER_CACHE_SWEEP_SIZE) {
+      const now = Date.now()
+      for (const [key, entry] of authUserCache) if (entry.expiresAt <= now) authUserCache.delete(key)
+    }
+    authUserCache.set(userId, { expiresAt: Date.now() + AUTH_USER_TTL_MS, value: user })
+  }
+  return user
+}
+
+/** Drop cached auth state for one user so permission/profile changes apply on their next request. */
+export function invalidateAuthCachesForUser(userId: string) {
+  authUserCache.delete(userId)
+  authUserInFlight.delete(userId)
+  for (const key of accessContextCache.keys()) if (key.startsWith(`${userId}:`)) accessContextCache.delete(key)
+  for (const key of accessContextInFlight.keys()) if (key.startsWith(`${userId}:`)) accessContextInFlight.delete(key)
+}
+
+/** Drop cached auth state for every user of a business (subscription/module changes). */
+export function invalidateAuthCachesForBusiness(businessId: string) {
+  for (const [key, entry] of authUserCache) if (entry.value.businessId === businessId) authUserCache.delete(key)
+  for (const key of accessContextCache.keys()) if (key.includes(`:${businessId}:`)) accessContextCache.delete(key)
+  for (const key of accessContextInFlight.keys()) if (key.includes(`:${businessId}:`)) accessContextInFlight.delete(key)
+}
 
 type CachedAccessContext = {
   accessLocked: boolean
@@ -55,10 +103,7 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
   try {
     await req.jwtVerify()
     const jwtUser = req.user as { id: string; businessId?: string | null }
-    const user = await prisma.user.findUnique({
-      where: { id: jwtUser.id },
-      include: { business: true },
-    })
+    const user = await loadAuthUser(jwtUser.id)
 
     const isSuperAdmin = user?.role === 'SUPER_ADMIN'
     const tenantMismatch = !isSuperAdmin && user?.businessId !== (jwtUser.businessId ?? null)

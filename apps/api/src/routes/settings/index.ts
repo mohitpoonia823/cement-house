@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
-import { createHmac } from 'node:crypto'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 import { settingsRepository, subscriptionsRepository } from '@cement-house/db'
 import {
@@ -11,7 +11,7 @@ import {
   normalizeCustomModules,
   validateCustomBusinessSelection,
 } from '@cement-house/utils'
-import { getBizId, requireOwner } from '../../middleware/auth'
+import { getBizId, invalidateAuthCachesForBusiness, invalidateAuthCachesForUser, requireOwner } from '../../middleware/auth'
 import { ensureUsageAllowed, getSubscriptionAccessContext } from '../../services/subscription-access'
 import {
   type BusinessWithBilling,
@@ -208,6 +208,13 @@ function getRazorpayConfig() {
     keyId,
     keySecret,
   }
+}
+
+function signaturesMatch(expected: string, provided: string) {
+  const expectedBuf = Buffer.from(expected, 'utf8')
+  const providedBuf = Buffer.from(provided, 'utf8')
+  if (expectedBuf.length !== providedBuf.length) return false
+  return timingSafeEqual(expectedBuf, providedBuf)
 }
 
 function shouldAutoActivateOnVerifyInTest() {
@@ -596,7 +603,6 @@ export async function settingsRoutes(app: FastifyInstance) {
     const body = SubscriptionCheckoutInitiateSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: 'Invalid subscription input' })
 
-    const platform = await ensurePlatformSettings()
     const razorpay = getRazorpayConfig()
     if (!razorpay.enabled) {
       return reply.status(400).send({
@@ -605,11 +611,14 @@ export async function settingsRoutes(app: FastifyInstance) {
       })
     }
 
-    const business = await settingsRepository.getSettingsBusinessById(bizId)
+    const [platform, business, paymentMethod, plan, pending] = await Promise.all([
+      ensurePlatformSettings(),
+      settingsRepository.getSettingsBusinessById(bizId),
+      settingsRepository.getDefaultPaymentMethodByBusiness(bizId),
+      subscriptionsRepository.getDefaultPaidPlan(),
+      subscriptionsRepository.getLatestPendingSubscriptionPaymentByBusiness(bizId),
+    ])
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
-
-    const paymentMethod = await settingsRepository.getDefaultPaymentMethodByBusiness(bizId)
-    const plan = await subscriptionsRepository.getDefaultPaidPlan()
     if (!plan) return reply.status(400).send({ success: false, error: 'No active paid plan is configured' })
 
     const accessBusiness: BusinessWithBilling = {
@@ -627,7 +636,6 @@ export async function settingsRoutes(app: FastifyInstance) {
     }
     const access = computeBusinessAccess(accessBusiness, platform)
 
-    const pending = await subscriptionsRepository.getLatestPendingSubscriptionPaymentByBusiness(bizId)
     if (pending) {
       const pendingAgeMs = Date.now() - new Date(pending.createdAt).getTime()
       const pendingLockMs = 20 * 60 * 1000
@@ -661,23 +669,33 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     const receipt = `sub_${bizId.slice(0, 10)}_${Date.now()}`
     const externalStart = Date.now()
-    const orderResponse = await fetch('https://api.razorpay.com/v1/orders', {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${Buffer.from(`${razorpay.keyId}:${razorpay.keySecret}`).toString('base64')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        amount: amountInPaise,
-        currency: platform.currency || 'INR',
-        receipt,
-        notes: {
-          businessId: bizId,
-          interval: body.data.interval,
-          planName: plan.name,
+    let orderResponse: Response
+    try {
+      orderResponse = await fetch('https://api.razorpay.com/v1/orders', {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${razorpay.keyId}:${razorpay.keySecret}`).toString('base64')}`,
+          'Content-Type': 'application/json',
         },
-      }),
-    })
+        body: JSON.stringify({
+          amount: amountInPaise,
+          currency: platform.currency || 'INR',
+          receipt,
+          notes: {
+            businessId: bizId,
+            interval: body.data.interval,
+            planName: plan.name,
+          },
+        }),
+        signal: AbortSignal.timeout(15_000),
+      })
+    } catch (error) {
+      req.log.error({ route: '/api/settings/subscription/checkout/initiate', bizId, err: error, externalMs: Date.now() - externalStart }, 'razorpay order request failed')
+      return reply.status(504).send({
+        success: false,
+        error: 'Payment gateway did not respond in time. Please try again.',
+      })
+    }
 
     const orderPayload: any = await orderResponse.json().catch(() => ({}))
     const externalMs = Date.now() - externalStart
@@ -757,7 +775,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     const expected = createHmac('sha256', razorpay.keySecret)
       .update(`${body.data.razorpayOrderId}|${body.data.razorpayPaymentId}`)
       .digest('hex')
-    if (expected !== body.data.razorpaySignature) {
+    if (!signaturesMatch(expected, body.data.razorpaySignature)) {
       await settingsRepository.markTransactionFailedForSignature({
         transactionId: body.data.transactionId,
         businessId: bizId,
@@ -833,6 +851,7 @@ export async function settingsRoutes(app: FastifyInstance) {
       })
       const token = app.jwt.sign(authUser, { expiresIn: '7d' })
       invalidateSettingsCaches(bizId, (req.user as any).id)
+      invalidateAuthCachesForBusiness(bizId)
       return {
         success: true,
         data: {
@@ -854,6 +873,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     }
 
     invalidateSettingsCaches(bizId, (req.user as any).id)
+    invalidateAuthCachesForBusiness(bizId)
     // Source of truth is webhook capture/failure event.
     // This endpoint only confirms checkout signature from client callback.
     req.log.info({ route: '/api/settings/subscription/checkout/verify', bizId, activation: 'pending-webhook', totalMs: Date.now() - routeStart }, 'checkout verified')
@@ -915,6 +935,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     })
     const token = app.jwt.sign(authUser, { expiresIn: '7d' })
     invalidateSettingsCaches(bizId, (req.user as any).id)
+    invalidateAuthCachesForBusiness(bizId)
 
     return {
       success: true,
@@ -946,6 +967,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     })
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
     invalidateSettingsCaches(bizId, (req.user as any).id)
+    invalidateAuthCachesForBusiness(bizId)
 
     return { success: true, data: business }
   })
@@ -976,6 +998,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     })
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
     invalidateSettingsCaches(bizId, (req.user as any).id)
+    invalidateAuthCachesForBusiness(bizId)
 
     return { success: true, data: business }
   })
@@ -1026,6 +1049,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     })
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
     invalidateSettingsCaches(bizId, (req.user as any).id)
+    invalidateAuthCachesForBusiness(bizId)
     return { success: true, data: business }
   })
 
@@ -1062,6 +1086,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     const user = await settingsRepository.updateUserProfile(userId, body.data)
     if (!user) return reply.status(404).send({ success: false, error: 'User not found' })
     invalidateSettingsCaches(getBizId(req), userId)
+    invalidateAuthCachesForUser(userId)
 
     return { success: true, data: user }
   })
@@ -1165,6 +1190,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     const staff = await settingsRepository.updateStaff(id, bizId, body.data)
     if (!staff) return reply.status(404).send({ success: false, error: 'Staff member not found' })
     invalidateSettingsCaches(bizId, (req.user as any).id)
+    invalidateAuthCachesForUser(id)
     return { success: true, data: staff }
   })
 
@@ -1174,6 +1200,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     const { id } = req.params as any
     await settingsRepository.deactivateStaff(id, bizId)
     invalidateSettingsCaches(bizId, (req.user as any).id)
+    invalidateAuthCachesForUser(id)
     return { success: true }
   })
 }

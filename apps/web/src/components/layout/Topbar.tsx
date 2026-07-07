@@ -1,6 +1,6 @@
 ﻿'use client'
 import Link from 'next/link'
-import { usePathname, useSearchParams } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { pageTitles } from './navigation'
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/store/auth'
@@ -24,26 +24,12 @@ function detectInstallTarget(): InstallTarget {
   return 'other'
 }
 
-function exportPageForPath(pathname: string) {
-  if (pathname.startsWith('/orders')) return 'orders'
-  if (pathname.startsWith('/customers')) return 'customers'
-  if (pathname.startsWith('/inventory')) return 'inventory'
-  if (pathname.startsWith('/delivery')) return 'delivery'
-  if (pathname.startsWith('/khata')) return 'khata'
-  if (pathname.startsWith('/reports')) return 'reports'
-  if (pathname.startsWith('/settings')) return 'settings'
-  return 'dashboard'
-}
-
 export function Topbar() {
   const pathname = usePathname()
-  const searchParams = useSearchParams()
   const { user, logout } = useAuthStore()
   const { hasModule } = useTenantCapabilities()
   const { t, language } = useI18n()
   const titleKey = pageTitles[pathname] ?? 'brand.cementHouse'
-  const page = exportPageForPath(pathname)
-  const [isExporting, setIsExporting] = useState(false)
   const [installTarget, setInstallTarget] = useState<InstallTarget>('other')
   const [isInstalled, setIsInstalled] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(false)
@@ -123,59 +109,6 @@ export function Topbar() {
     const until = Date.now() + hours * 60 * 60 * 1000
     window.localStorage.setItem('trial_banner_hide_until', String(until))
     setTrialBannerDismissed(true)
-  }
-
-  async function handleExport() {
-    try {
-      setIsExporting(true)
-      const token = window.localStorage.getItem('auth_token')
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'
-      const params = new URLSearchParams()
-      params.set('page', page)
-      params.set('format', 'csv')
-      if (page === 'dashboard') {
-        const range = searchParams.get('range')
-        const startDate = searchParams.get('startDate')
-        const endDate = searchParams.get('endDate')
-        if (range) params.set('range', range)
-        if (startDate) params.set('startDate', startDate)
-        if (endDate) params.set('endDate', endDate)
-      }
-      if (page === 'reports') {
-        const granularity = searchParams.get('granularity')
-        const year = searchParams.get('year')
-        const month = searchParams.get('month')
-        if (granularity) params.set('granularity', granularity)
-        if (year) params.set('year', year)
-        if (month) params.set('month', month)
-      }
-
-      const response = await fetch(`${baseUrl}/api/reports/export?${params.toString()}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-
-      if (!response.ok) {
-        throw new Error(`Export failed with status ${response.status}`)
-      }
-
-      const blob = await response.blob()
-      const disposition = response.headers.get('content-disposition') ?? undefined
-      const filenameMatch = disposition?.match(/filename="([^"]+)"/)
-      const filename = filenameMatch?.[1] ?? `${page}-snapshot`
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = filename
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.URL.revokeObjectURL(url)
-    } catch (error) {
-      console.error(error)
-      window.alert(language === 'hi' ? 'à¤à¤•à¥à¤¸à¤ªà¥‹à¤°à¥à¤Ÿ à¤µà¤¿à¤«à¤² à¤¹à¥à¤†à¥¤ à¤•à¥ƒà¤ªà¤¯à¤¾ à¤«à¤¿à¤° à¤¸à¥‡ à¤ªà¥à¤°à¤¯à¤¾à¤¸ à¤•à¤°à¥‡à¤‚à¥¤' : language === 'hinglish' ? 'Export fail hua. Please dobara try karo.' : 'Export failed. Please try again.')
-    } finally {
-      setIsExporting(false)
-    }
   }
 
   async function handleDesktopInstall() {
@@ -304,13 +237,6 @@ export function Topbar() {
               </div>
             </div>
           ) : null}
-          <button
-            onClick={handleExport}
-            disabled={isExporting}
-            className="hidden rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 md:inline-flex md:px-4 md:py-2 md:text-xs"
-          >
-            {isExporting ? t('top.exporting') : t('top.exportCsv')}
-          </button>
           <NotificationBell />
           {canCreateOrders ? (
             <>

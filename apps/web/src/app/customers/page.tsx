@@ -12,6 +12,7 @@ import { useI18n } from '@/lib/i18n'
 import { useAuthStore } from '@/store/auth'
 import { businessTerms } from '@/lib/business-terms'
 import { useFeedback } from '@/components/ui/FeedbackProvider'
+import { ExportCsvButton } from '@/components/common/ExportCsvButton'
 
 const RISK_TAGS = ['ALL', 'RELIABLE', 'WATCH', 'BLOCKED']
 
@@ -65,6 +66,7 @@ export default function CustomersPage() {
     sending: t('Sending...', 'भेजा जा रहा है...'),
     sendReminders: t('Send Reminders', 'रिमाइंडर भेजें'),
     deletingSelected: t('Deleting...', 'हटाया जा रहा है...'),
+    exportCustomers: t(`Export ${terms.customer.toLowerCase()}s`, 'ग्राहक एक्सपोर्ट करें', `${terms.customer}s export karo`),
   }
   const [riskTag, setRiskTag] = useState('ALL')
   const [searchInput, setSearchInput] = useState('')
@@ -299,13 +301,14 @@ export default function CustomersPage() {
             </button>
           ))}
         </div>
-        <div className="flex max-w-full flex-1 gap-2 xl:max-w-xs">
+        <div className="flex max-w-full flex-1 items-center gap-2 xl:max-w-lg xl:justify-end">
           <input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder={tr.search}
-            className="flex-1 rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+            className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 xl:max-w-xs"
           />
+          <ExportCsvButton page="customers" label={tr.exportCustomers} />
         </div>
       </div>
 

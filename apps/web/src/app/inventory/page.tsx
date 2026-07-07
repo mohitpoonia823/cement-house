@@ -29,6 +29,7 @@ import { businessTerms, businessUnitOptions, splitPreferredUnits } from '@/lib/b
 import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import { ExportCsvButton } from '@/components/common/ExportCsvButton'
 
 const inventoryRowsPerPage = 10
 
@@ -932,6 +933,11 @@ function InventoryContent() {
             className="rounded-full bg-slate-950 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-sky-500 dark:text-slate-950">
             {language === 'hi' ? '+ à¤®à¤Ÿà¥‡à¤°à¤¿à¤¯à¤² à¤œà¥‹à¤¡à¤¼à¥‡à¤‚' : language === 'hinglish' ? `+ ${terms.material} add karo` : `+ Add ${terms.material.toLowerCase()}`}
           </button>
+          <ExportCsvButton
+            page="inventory"
+            label={language === 'hi' ? 'स्टॉक एक्सपोर्ट करें' : language === 'hinglish' ? 'Stock export karo' : 'Export stock'}
+            className="px-3 py-1.5 text-[11px]"
+          />
         </div>
       </div>
 
@@ -942,6 +948,10 @@ function InventoryContent() {
         description={language === 'hi' ? 'à¤¸à¥à¤Ÿà¥‰à¤•, à¤°à¥€à¤ªà¥à¤²à¥‡à¤¨à¤¿à¤¶à¤®à¥‡à¤‚à¤Ÿ à¤”à¤° à¤ªà¥à¤°à¤¾à¤‡à¤¸à¤¿à¤‚à¤— à¤•à¥‹ à¤à¤• à¤œà¤—à¤¹ à¤¸à¥‡ à¤®à¥ˆà¤¨à¥‡à¤œ à¤•à¤°à¥‡à¤‚à¥¤' : language === 'hinglish' ? 'Stock, replenishment aur pricing ek jagah manage karo.' : 'Balance stock health, replenishment activity, and pricing signals without losing the operational workflows.'}
         action={
           <div className="flex flex-wrap gap-2">
+            <ExportCsvButton
+              page="inventory"
+              label={language === 'hi' ? 'स्टॉक एक्सपोर्ट करें' : language === 'hinglish' ? 'Stock export karo' : 'Export stock'}
+            />
             {selectedMat ? (
               <button
                 onClick={() => {

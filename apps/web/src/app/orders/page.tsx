@@ -14,6 +14,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
+import { ExportCsvButton } from '@/components/common/ExportCsvButton'
 
 const STATUSES = ['ALL', 'CONFIRMED', 'DISPATCHED', 'DELIVERED', 'CANCELLED'] as const
 const NewOrderForm = dynamic(
@@ -49,6 +50,7 @@ function OrdersContent() {
       'Pipeline, outstanding aur dispatch-ready orders ek board se track karo.'
     ),
     newOrder: t('+ New order', '+ नया ऑर्डर', '+ Naya order'),
+    exportOrders: t('Export orders', 'ऑर्डर एक्सपोर्ट करें', 'Orders export karo'),
     clearSelection: t('Clear selection', 'चयन हटाएँ', 'Selection clear karo'),
     selectAll: t('Select all', 'सभी चुनें', 'Select all'),
     deleteSelected: t('Delete selected', 'चयनित हटाएँ', 'Selected delete karo'),
@@ -462,7 +464,7 @@ function OrdersContent() {
             </select>
           ) : null}
         </div>
-        <div className="hidden gap-2 overflow-x-auto pr-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:flex lg:flex-wrap lg:overflow-visible lg:pr-0">
+        <div className="hidden gap-2 overflow-x-auto pr-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:flex lg:flex-wrap lg:items-center lg:overflow-visible lg:pr-0">
           {STATUSES.map((s) => (
             <button
               key={s}
@@ -478,7 +480,9 @@ function OrdersContent() {
               {statusLabels[s]}
             </button>
           ))}
+          <ExportCsvButton page="orders" label={tr.exportOrders} className="lg:ml-auto" />
         </div>
+        <ExportCsvButton page="orders" label={tr.exportOrders} className="self-start lg:hidden" />
       </div>
 
       {selected.size > 0 && (

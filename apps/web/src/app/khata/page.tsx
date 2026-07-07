@@ -9,6 +9,7 @@ import { fmt, fmtDate } from '@/lib/utils'
 import { useMemo, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useI18n } from '@/lib/i18n'
+import { ExportCsvButton } from '@/components/common/ExportCsvButton'
 
 const PAYMENT_MODES = ['CASH', 'UPI', 'CHEQUE']
 
@@ -109,6 +110,11 @@ function KhataContent() {
         <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
           {language === 'hi' ? 'सही पार्टियों से कलेक्शन फोकस करें, साफ बैलेंस व्यू और तेज पेमेंट एंट्री के साथ।' : language === 'hinglish' ? 'Right parties par collection focus karo with clear balance view.' : 'Focus collections with clear balance view and fast payment capture.'}
         </p>
+        <ExportCsvButton
+          page="khata"
+          label={t('Export khata', 'खाता एक्सपोर्ट करें', 'Khata export karo')}
+          className="mt-3"
+        />
       </div>
 
       <div className="hidden md:block">
@@ -116,6 +122,12 @@ function KhataContent() {
         eyebrow={t('Collection analytics', 'कलेक्शन एनालिटिक्स')}
         title={language === 'hi' ? 'खाता और कलेक्शन' : language === 'hinglish' ? 'Khata and collections' : 'Khata and collections'}
         description={language === 'hi' ? 'सही पार्टियों से कलेक्शन फोकस करें, साफ बैलेंस व्यू और तेज पेमेंट एंट्री के साथ।' : language === 'hinglish' ? 'Right parties par collection focus karo with clear balance view.' : 'Focus collections on the right parties with a clear balance view, searchable ledger, and fast payment capture.'}
+        action={
+          <ExportCsvButton
+            page="khata"
+            label={t('Export khata', 'खाता एक्सपोर्ट करें', 'Khata export karo')}
+          />
+        }
       />
       </div>
 
