@@ -361,7 +361,7 @@ model Material {
 
 model Order {
   id            String      @id @default(uuid())
-  orderNumber   String      @unique  // ORD-2026-0841
+  orderNumber   String      // INV-2026-000841 — unique per business, see @@unique below
   invoiceNumber String?
   customer      Customer    @relation(fields: [customerId], references: [id])
   customerId    String
@@ -413,6 +413,7 @@ model Order {
   sourceLocation Location? @relation("OrderSourceLocation", fields: [sourceLocationId], references: [id])
   sourceLocationId String?
 
+  @@unique([businessId, orderNumber])
   @@index([businessId, isDeleted, createdAt])
   @@index([businessId, status, isDeleted, createdAt])
   @@index([businessId, customerId, isDeleted, createdAt])
@@ -420,6 +421,18 @@ model Order {
   @@index([businessId, sourceLocationId, createdAt])
   @@index([businessId, referralPartnerId, createdAt])
   @@map("orders")
+}
+
+// Per-business, per-year invoice counter. Incremented atomically inside the
+// order-create transaction so invoice numbers are unique and gapless.
+model InvoiceSequence {
+  businessId String
+  year       Int
+  value      Int      @default(0)
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@id([businessId, year])
+  @@map("invoice_sequences")
 }
 
 model ReferralPartner {
@@ -910,6 +923,8 @@ model JournalEntry {
   date          DateTime     @default(now())
   narration     String?
   reference     String?      // UPI txn, cheque no, supplier invoice no
+  paymentMode   String?      // CASH/UPI/CHEQUE/PARTIAL/CREDIT — khata statement chip
+  ledgerEntryId String?      // khata ledger_entries.id this voucher mirrors (idempotency)
   createdAt     DateTime     @default(now())
 
   // Tenant
@@ -932,6 +947,7 @@ model JournalEntry {
   @@index([businessId, supplierId, date])
   @@index([businessId, customerId, date])
   @@index([orderId])
+  @@index([ledgerEntryId])
   @@map("journal_entries")
 }
 

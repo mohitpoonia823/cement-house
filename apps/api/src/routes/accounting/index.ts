@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { accountingRepository } from '@cement-house/db'
 import { getBizId, requireOwner } from '../../middleware/auth'
+import { buildGstr1PortalJson } from '../../services/gst-portal'
 
 const DateRangeSchema = z.object({
   startDate: z.string().optional(),
@@ -199,6 +200,18 @@ export async function accountingRoutes(app: FastifyInstance) {
     return { success: true, data }
   })
 
+  // GST-portal (offline tool) GSTR-1 JSON with invoice-level B2B/CDNR detail.
+  app.get('/gstr1/portal', async (req, reply) => {
+    const bizId = getBizId(req)
+    const query = PeriodSchema.safeParse(req.query)
+    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    const { start, end } = resolvePeriod(query.data)
+    const data = await accountingRepository.getGstr1InvoiceLevel({ businessId: bizId, start, end })
+    const result = buildGstr1PortalJson({ data, periodStart: start })
+    if ('error' in result) return reply.status(400).send({ success: false, error: result.error })
+    return { success: true, data: result }
+  })
+
   app.get('/gstr3b', async (req, reply) => {
     const bizId = getBizId(req)
     const query = PeriodSchema.safeParse(req.query)
@@ -214,6 +227,40 @@ export async function accountingRoutes(app: FastifyInstance) {
     const user = req.user as { id: string }
     const bizId = getBizId(req)
     const data = await accountingRepository.backfillSalesAndReceipts({ businessId: bizId, createdById: user.id })
+    return { success: true, data }
+  })
+
+  // Khata ↔ journal reconciliation: per-customer khata balance vs journal
+  // Sundry Debtors balance. Any nonzero diff means the two ledgers diverged.
+  app.get('/reconciliation', async (req) => {
+    const bizId = getBizId(req)
+    const data = await accountingRepository.getKhataJournalReconciliation(bizId)
+    return { success: true, data }
+  })
+
+  // ── Opening balances (Cash / Bank) ───────────────────────────────────────
+  app.get('/opening-balances', async (req) => {
+    const bizId = getBizId(req)
+    const data = await accountingRepository.getOpeningBalances(bizId)
+    return { success: true, data }
+  })
+
+  app.post('/opening-balances', async (req, reply) => {
+    if (!requireOwner(req, reply)) return
+    const user = req.user as { id: string }
+    const bizId = getBizId(req)
+    const body = z.object({
+      account: z.enum(['Cash', 'Bank']),
+      amount: z.number().min(0).max(1_000_000_000),
+    }).safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    const data = await accountingRepository.setOpeningBalance({
+      businessId: bizId,
+      createdById: user.id,
+      account: body.data.account,
+      amount: body.data.amount,
+    })
     return { success: true, data }
   })
 }

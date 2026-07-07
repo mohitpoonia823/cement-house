@@ -199,13 +199,14 @@ export async function listActiveCustomersWithStats(input: ListCustomersInput) {
     ) o ON o."customerId" = fc.id
     LEFT JOIN (
       SELECT
-        "customerId",
-        SUM(CASE WHEN type = 'DEBIT'::"LedgerEntryType" THEN amount ELSE 0 END)::double precision AS debit,
-        SUM(CASE WHEN type = 'CREDIT'::"LedgerEntryType" THEN amount ELSE 0 END)::double precision AS credit
-      FROM ledger_entries
-      WHERE "businessId" = ${input.businessId}
-        AND "customerId" IN (SELECT id FROM filtered_customers)
-      GROUP BY "customerId"
+        la."customerId",
+        SUM(jl.debit)::double precision AS debit,
+        SUM(jl.credit)::double precision AS credit
+      FROM ledger_accounts la
+      JOIN journal_lines jl ON jl."accountId" = la.id
+      WHERE la."businessId" = ${input.businessId}
+        AND la."customerId" IN (SELECT id FROM filtered_customers)
+      GROUP BY la."customerId"
     ) l ON l."customerId" = fc.id
     ORDER BY fc.name ASC
   `)
@@ -328,13 +329,14 @@ export async function listActiveCustomersWithStatsPaged(
     ) o ON o."customerId" = fc.id
     LEFT JOIN (
       SELECT
-        "customerId",
-        SUM(CASE WHEN type = 'DEBIT'::"LedgerEntryType" THEN amount ELSE 0 END)::double precision AS debit,
-        SUM(CASE WHEN type = 'CREDIT'::"LedgerEntryType" THEN amount ELSE 0 END)::double precision AS credit
-      FROM ledger_entries
-      WHERE "businessId" = ${input.businessId}
-        AND "customerId" IN (SELECT id FROM filtered_customers)
-      GROUP BY "customerId"
+        la."customerId",
+        SUM(jl.debit)::double precision AS debit,
+        SUM(jl.credit)::double precision AS credit
+      FROM ledger_accounts la
+      JOIN journal_lines jl ON jl."accountId" = la.id
+      WHERE la."businessId" = ${input.businessId}
+        AND la."customerId" IN (SELECT id FROM filtered_customers)
+      GROUP BY la."customerId"
     ) l ON l."customerId" = fc.id
     ORDER BY fc.name ASC, fc.id ASC
   `)
@@ -455,10 +457,11 @@ export async function getCustomerLifetimeBusiness(customerId: string) {
 export async function getCustomerLedgerTotals(customerId: string) {
   const rows = await prisma.$queryRaw<Array<{ debit: number; credit: number }>>`
     SELECT
-      COALESCE(SUM(CASE WHEN type = 'DEBIT'::"LedgerEntryType" THEN amount ELSE 0 END), 0)::double precision AS debit,
-      COALESCE(SUM(CASE WHEN type = 'CREDIT'::"LedgerEntryType" THEN amount ELSE 0 END), 0)::double precision AS credit
-    FROM ledger_entries
-    WHERE "customerId" = ${customerId}
+      COALESCE(SUM(jl.debit), 0)::double precision AS debit,
+      COALESCE(SUM(jl.credit), 0)::double precision AS credit
+    FROM ledger_accounts la
+    JOIN journal_lines jl ON jl."accountId" = la.id
+    WHERE la."customerId" = ${customerId}
   `
   return rows[0] ?? { debit: 0, credit: 0 }
 }

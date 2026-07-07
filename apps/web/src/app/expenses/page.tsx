@@ -2,10 +2,11 @@
 import { AppShell } from '@/components/layout/AppShell'
 import { Card, MetricCard, MetricGrid, SectionHeader } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { useExpenses, useExpenseAccounts, useRecordExpense, useRecordContra } from '@/hooks/useAccounting'
+import { useExpenses, useExpenseAccounts, useRecordExpense, useRecordContra, useOpeningBalances, useSetOpeningBalance } from '@/hooks/useAccounting'
 import { fmt, fmtDate } from '@/lib/utils'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
+import { useAuthStore } from '@/store/auth'
 
 const NEW_HEAD = '__new__'
 
@@ -32,6 +33,41 @@ export default function ExpensesPage() {
   const { data: heads } = useExpenseAccounts({ enabled: showExpense })
   const recordExpense = useRecordExpense()
   const recordContra = useRecordContra()
+
+  // Opening balances (owner only)
+  const { user } = useAuthStore()
+  const isOwner = user?.role === 'OWNER'
+  const [showOpening, setShowOpening] = useState(false)
+  const [openCash, setOpenCash] = useState('')
+  const [openBank, setOpenBank] = useState('')
+  const [openingMsg, setOpeningMsg] = useState('')
+  const { data: openingBalances } = useOpeningBalances()
+  const setOpening = useSetOpeningBalance()
+  useEffect(() => {
+    if (showOpening && openingBalances) {
+      setOpenCash(String(openingBalances.cash ?? 0))
+      setOpenBank(String(openingBalances.bank ?? 0))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showOpening, openingBalances?.cash, openingBalances?.bank])
+
+  async function handleOpening(e: React.FormEvent) {
+    e.preventDefault()
+    setOpeningMsg('')
+    setFormError('')
+    try {
+      const results = await Promise.all([
+        setOpening.mutateAsync({ account: 'Cash', amount: Number(openCash) || 0 }),
+        setOpening.mutateAsync({ account: 'Bank', amount: Number(openBank) || 0 }),
+      ])
+      const changed = results.filter((r) => r.changed).length
+      setOpeningMsg(changed > 0
+        ? t('Opening balances saved as OPENING vouchers.', 'शुरुआती बैलेंस OPENING वाउचर के रूप में सेव हुए।')
+        : t('No change — balances already match.', 'कोई बदलाव नहीं — बैलेंस पहले से मेल खाते हैं।'))
+    } catch (err: any) {
+      setFormError(err.response?.data?.error ?? 'Failed to save opening balances')
+    }
+  }
 
   const vouchers = expensesData?.vouchers ?? []
   const expenseTotal = useMemo(
@@ -97,9 +133,37 @@ export default function ExpensesPage() {
       </MetricGrid>
 
       <div className="mb-4 flex flex-wrap gap-2">
-        <button onClick={() => { setShowExpense((v) => !v); setShowContra(false); setFormError('') }} className="rounded-xl bg-rose-600 px-3 py-2 text-xs font-medium text-white hover:bg-rose-700">{t('+ Record expense', '+ खर्च दर्ज करें')}</button>
-        <button onClick={() => { setShowContra((v) => !v); setShowExpense(false); setFormError('') }} className="rounded-xl bg-violet-600 px-3 py-2 text-xs font-medium text-white hover:bg-violet-700">{t('Cash ⇄ Bank transfer', 'नकद ⇄ बैंक ट्रांसफर')}</button>
+        <button onClick={() => { setShowExpense((v) => !v); setShowContra(false); setShowOpening(false); setFormError('') }} className="rounded-xl bg-rose-600 px-3 py-2 text-xs font-medium text-white hover:bg-rose-700">{t('+ Record expense', '+ खर्च दर्ज करें')}</button>
+        <button onClick={() => { setShowContra((v) => !v); setShowExpense(false); setShowOpening(false); setFormError('') }} className="rounded-xl bg-violet-600 px-3 py-2 text-xs font-medium text-white hover:bg-violet-700">{t('Cash ⇄ Bank transfer', 'नकद ⇄ बैंक ट्रांसफर')}</button>
+        {isOwner && (
+          <button onClick={() => { setShowOpening((v) => !v); setShowExpense(false); setShowContra(false); setFormError(''); setOpeningMsg('') }} className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900">{t('Set opening balances', 'शुरुआती बैलेंस सेट करें')}</button>
+        )}
       </div>
+
+      {showOpening && isOwner && (
+        <Card className="mb-4">
+          <form onSubmit={handleOpening} className="flex flex-wrap items-end gap-3">
+            <div className="w-full text-xs font-medium text-amber-700 dark:text-amber-300">
+              {t('Opening balances (as on the day you started using the app)', 'शुरुआती बैलेंस (जिस दिन से आपने ऐप शुरू किया)')}
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-stone-500">{t('Cash in hand', 'नकद')}</label>
+              <input type="number" min={0} step="0.01" value={openCash} onChange={(e) => setOpenCash(e.target.value)} className="rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-stone-500">{t('Bank balance', 'बैंक बैलेंस')}</label>
+              <input type="number" min={0} step="0.01" value={openBank} onChange={(e) => setOpenBank(e.target.value)} className="rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+            </div>
+            <button type="submit" disabled={setOpening.isPending} className="rounded-lg bg-amber-600 px-4 py-1.5 text-xs text-white hover:bg-amber-700 disabled:opacity-50">{t('Save', 'सेव करें')}</button>
+            <button type="button" onClick={() => setShowOpening(false)} className="px-2 py-1.5 text-xs text-stone-500 hover:text-stone-700">{t('Cancel', 'रद्द करें')}</button>
+            <div className="w-full text-[10px] text-stone-400 dark:text-slate-400">
+              {t('Re-saving posts only the difference as an OPENING voucher, so the books stay append-only.', 'दोबारा सेव करने पर केवल अंतर OPENING वाउचर के रूप में पोस्ट होता है, ताकि बही append-only रहे।')}
+            </div>
+            {openingMsg && <div className="w-full text-[10px] text-emerald-600 dark:text-emerald-400">{openingMsg}</div>}
+            {formError && <div className="w-full text-[10px] text-red-600">{formError}</div>}
+          </form>
+        </Card>
+      )}
 
       {showExpense && (
         <Card className="mb-4">

@@ -2,7 +2,7 @@
 import { AppShell } from '@/components/layout/AppShell'
 import { Card, MetricCard, MetricGrid, SectionHeader } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { useDayBook, useTrialBalance, useBackfillLedger, useAccountLedger } from '@/hooks/useAccounting'
+import { useDayBook, useTrialBalance, useBackfillLedger, useAccountLedger, useReconciliation } from '@/hooks/useAccounting'
 import { fmt, fmtDate } from '@/lib/utils'
 import { downloadCsv } from '@/lib/csv'
 import { Fragment, useMemo, useState } from 'react'
@@ -22,7 +22,7 @@ const VOUCHER_TONE: Record<string, string> = {
 export default function BooksPage() {
   const { language } = useI18n()
   const t = (en: string, hi: string) => (language === 'hi' ? hi : en)
-  const [tab, setTab] = useState<'daybook' | 'trial'>('daybook')
+  const [tab, setTab] = useState<'daybook' | 'trial' | 'recon'>('daybook')
   const [dayFrom, setDayFrom] = useState('')
   const [dayTo, setDayTo] = useState('')
   const [dayOffset, setDayOffset] = useState(0)
@@ -38,6 +38,7 @@ export default function BooksPage() {
 
   const { data: dayBook, isLoading: dbLoading, isFetching: dbFetching } = useDayBook(dayParams)
   const { data: trial, isLoading: tbLoading } = useTrialBalance()
+  const { data: recon, isLoading: reconLoading } = useReconciliation()
   const { data: accountLedger, isLoading: alLoading } = useAccountLedger(ledgerAccountId)
   const backfill = useBackfillLedger()
   const [backfillMsg, setBackfillMsg] = useState('')
@@ -120,6 +121,10 @@ export default function BooksPage() {
       <div className="mb-4 flex gap-2">
         <button onClick={() => setTab('daybook')} className={`rounded-full px-4 py-1.5 text-xs font-medium transition-colors ${tab === 'daybook' ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950' : 'border border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300'}`}>{t('Day book', 'डे बुक')}</button>
         <button onClick={() => setTab('trial')} className={`rounded-full px-4 py-1.5 text-xs font-medium transition-colors ${tab === 'trial' ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950' : 'border border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300'}`}>{t('Trial balance', 'ट्रायल बैलेंस')}</button>
+        <button onClick={() => setTab('recon')} className={`rounded-full px-4 py-1.5 text-xs font-medium transition-colors ${tab === 'recon' ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950' : 'border border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300'}`}>
+          {t('Reconciliation', 'मिलान')}
+          {recon && !recon.reconciled ? <span className="ml-1.5 rounded-full bg-red-500 px-1.5 text-[9px] font-bold text-white">{recon.mismatchCount}</span> : null}
+        </button>
         <button
           onClick={handleBackfill}
           disabled={backfill.isPending}
@@ -134,7 +139,76 @@ export default function BooksPage() {
       </div>
       {backfillMsg && <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] text-sky-800 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-200">{backfillMsg}</div>}
 
-      {tab === 'daybook' ? (
+      {tab === 'recon' && (
+        <Card>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">{t('Khata vs books (customer balances)', 'खाता बनाम बही (ग्राहक बैलेंस)')}</div>
+            {!reconLoading && recon && (
+              <span className={`rounded-full px-3 py-1 text-[10px] font-semibold ${recon.reconciled ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
+                {recon.reconciled ? t('Fully reconciled', 'पूरी तरह मिलान') : t(`${recon.mismatchCount} customers differ`, `${recon.mismatchCount} ग्राहकों में अंतर`)}
+              </span>
+            )}
+          </div>
+          {reconLoading ? (
+            <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="h-8 rounded-lg bg-slate-50 dark:bg-slate-800/50" />)}</div>
+          ) : !recon ? (
+            <EmptyState title={t('No data', 'कोई डेटा नहीं')} sub="" />
+          ) : (
+            <>
+              <div className="mb-4 grid grid-cols-3 gap-3 text-center">
+                <div className="rounded-lg border border-stone-100 p-2 dark:border-slate-800">
+                  <div className="text-[10px] uppercase tracking-wide text-stone-400">{t('Khata total', 'खाता कुल')}</div>
+                  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{fmt(recon.totalKhata)}</div>
+                </div>
+                <div className="rounded-lg border border-stone-100 p-2 dark:border-slate-800">
+                  <div className="text-[10px] uppercase tracking-wide text-stone-400">{t('Books total', 'बही कुल')}</div>
+                  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{fmt(recon.totalJournal)}</div>
+                </div>
+                <div className="rounded-lg border border-stone-100 p-2 dark:border-slate-800">
+                  <div className="text-[10px] uppercase tracking-wide text-stone-400">{t('Difference', 'अंतर')}</div>
+                  <div className={`text-sm font-semibold ${Math.abs(recon.totalDiff) < 0.01 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{fmt(recon.totalDiff)}</div>
+                </div>
+              </div>
+              {recon.reconciled ? (
+                <EmptyState title={t('Khata and books agree for every customer', 'हर ग्राहक के लिए खाता और बही मिलते हैं')} sub={t(`${recon.customerCount} customers checked`, `${recon.customerCount} ग्राहक जाँचे गए`)} />
+              ) : (
+                <>
+                  <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                    {t(
+                      'Differences usually mean old sales/receipts were never imported into the books — run "Import history" above, then re-check.',
+                      'अंतर का मतलब आमतौर पर पुरानी बिक्री/प्राप्तियाँ बही में इम्पोर्ट नहीं हुईं — ऊपर "इतिहास इम्पोर्ट करें" चलाएँ, फिर दोबारा जाँचें।',
+                    )}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[520px] text-xs">
+                      <thead>
+                        <tr className="border-b border-stone-200 text-stone-400 dark:border-stone-700 dark:text-slate-300">
+                          <th className="py-2 pr-4 text-left font-normal">{t('Customer', 'ग्राहक')}</th>
+                          <th className="py-2 pr-4 text-right font-normal">{t('Khata', 'खाता')}</th>
+                          <th className="py-2 pr-4 text-right font-normal">{t('Books', 'बही')}</th>
+                          <th className="py-2 text-right font-normal">{t('Difference', 'अंतर')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {recon.mismatches.map((r: any) => (
+                          <tr key={r.customerId} className="border-b border-stone-50 last:border-0 dark:border-stone-800">
+                            <td className="py-2 pr-4 text-stone-700 dark:text-slate-200">{r.customerName}</td>
+                            <td className="py-2 pr-4 text-right tabular-nums">{fmt(r.khata)}</td>
+                            <td className="py-2 pr-4 text-right tabular-nums">{fmt(r.journal)}</td>
+                            <td className="py-2 text-right font-medium tabular-nums text-red-600 dark:text-red-400">{fmt(r.diff)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </Card>
+      )}
+
+      {tab === 'daybook' && (
         <Card>
           <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
             <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{t('From', 'से')}</span>
@@ -199,7 +273,9 @@ export default function BooksPage() {
             </div>
           )}
         </Card>
-      ) : (
+      )}
+
+      {tab === 'trial' && (
         <Card>
           {tbLoading ? (
             <div className="space-y-2">{[1, 2, 3, 4].map((i) => <div key={i} className="h-8 rounded-lg bg-slate-50 dark:bg-slate-800/50" />)}</div>

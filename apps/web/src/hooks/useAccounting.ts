@@ -119,3 +119,20 @@ export function useBackfillLedger() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['accounting'] }),
   })
 }
+
+export function useReconciliation() {
+  return useQuery(reportQuery('reconciliation', 'reconciliation'))
+}
+
+export function useOpeningBalances() {
+  return useQuery(reportQuery('opening-balances', 'opening-balances'))
+}
+
+export function useSetOpeningBalance() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { account: 'Cash' | 'Bank'; amount: number }) =>
+      api.post('/api/accounting/opening-balances', data, { timeout: 60_000 }).then((r) => r.data.data),
+    onSuccess: () => invalidateAccounting(qc),
+  })
+}

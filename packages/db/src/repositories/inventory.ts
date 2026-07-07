@@ -613,6 +613,104 @@ export async function listActiveMaterials(businessId: string) {
   })) as InventoryMaterialRow[]
 }
 
+export interface InventoryPagedResult {
+  items: InventoryMaterialRow[]
+  total: number
+  lowOrOutOfStockCount: number
+  inventoryValue: number
+  units: string[]
+  hasBatch: boolean
+  hasExpiry: boolean
+  hasRack: boolean
+  hasSerial: boolean
+  hasMinThreshold: boolean
+}
+
+/**
+ * Server-paginated variant of listActiveMaterials. Returns one page of rows PLUS
+ * catalog-wide aggregates (counts, stock value, distinct units, column-presence
+ * flags) computed over the FULL filtered set — so the inventory page's metric
+ * cards and optional table columns stay whole-catalog, not per-page. The array
+ * function above is left untouched for consumers that need every row
+ * (order-edit dropdown, bill-scan matching).
+ */
+export async function listActiveMaterialsPaged(input: {
+  businessId: string
+  search?: string
+  page: number
+  pageSize: number
+}): Promise<InventoryPagedResult> {
+  await ensureProductVariantTables()
+  const filters: Prisma.Sql[] = [
+    Prisma.sql`m."businessId" = ${input.businessId}`,
+    Prisma.sql`m."isActive" = true`,
+  ]
+  if (input.search) {
+    const like = `%${input.search}%`
+    filters.push(Prisma.sql`(m.name ILIKE ${like} OR m.category ILIKE ${like} OR m.barcode ILIKE ${like})`)
+  }
+  const where = Prisma.join(filters, ' AND ')
+  const skip = (input.page - 1) * input.pageSize
+
+  const metricRows = await prisma.$queryRaw<Array<{
+    total: number
+    lowOrOutOfStockCount: number
+    inventoryValue: number
+    units: string[] | null
+    hasBatch: boolean | null
+    hasExpiry: boolean | null
+    hasRack: boolean | null
+    hasSerial: boolean | null
+    hasMinThreshold: boolean | null
+  }>>(Prisma.sql`
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (
+        WHERE m."stockQty" <= COALESCE(pv."minThreshold", m."minThreshold")
+      )::int AS "lowOrOutOfStockCount",
+      COALESCE(SUM(m."stockQty" * COALESCE(pv."purchasePrice", m."purchasePrice")), 0)::double precision AS "inventoryValue",
+      ARRAY_AGG(DISTINCT NULLIF(TRIM(COALESCE(pv.unit, m.unit)), '')) FILTER (
+        WHERE NULLIF(TRIM(COALESCE(pv.unit, m.unit)), '') IS NOT NULL
+      ) AS units,
+      BOOL_OR(NULLIF(m."batchNumber", '') IS NOT NULL) AS "hasBatch",
+      BOOL_OR(m."expiryDate" IS NOT NULL) AS "hasExpiry",
+      BOOL_OR(NULLIF(m."rackLocation", '') IS NOT NULL) AS "hasRack",
+      BOOL_OR(NULLIF(m."serialNumber", '') IS NOT NULL) AS "hasSerial",
+      BOOL_OR(COALESCE(pv."minThreshold", m."minThreshold") > 0) AS "hasMinThreshold"
+    FROM materials m
+    LEFT JOIN product_variants pv
+      ON pv."businessId" = m."businessId" AND pv."materialId" = m.id AND pv."isDefault" = true AND pv."isActive" = true
+    WHERE ${where}
+  `)
+  const metrics = metricRows[0]
+
+  const rows = await prisma.$queryRaw<MaterialRow[]>(Prisma.sql`
+    ${materialSelectSql()}
+    WHERE ${where}
+    ORDER BY m.name ASC, m.id ASC
+    LIMIT ${input.pageSize} OFFSET ${skip}
+  `)
+
+  return {
+    items: rows.map((material) => ({
+      ...material,
+      ...materialTaxFieldsFromMetadata(material.metadata),
+      stockStatus: material.stockQty <= material.minThreshold
+        ? (material.stockQty <= 0 ? 'OUT_OF_STOCK' : 'LOW')
+        : 'OK',
+    })) as InventoryMaterialRow[],
+    total: metrics?.total ?? 0,
+    lowOrOutOfStockCount: metrics?.lowOrOutOfStockCount ?? 0,
+    inventoryValue: metrics?.inventoryValue ?? 0,
+    units: metrics?.units ?? [],
+    hasBatch: metrics?.hasBatch ?? false,
+    hasExpiry: metrics?.hasExpiry ?? false,
+    hasRack: metrics?.hasRack ?? false,
+    hasSerial: metrics?.hasSerial ?? false,
+    hasMinThreshold: metrics?.hasMinThreshold ?? false,
+  }
+}
+
 async function ensureProductVariantTables() {
   if (!ensureProductVariantTablesPromise) {
     ensureProductVariantTablesPromise = (async () => {
@@ -796,6 +894,36 @@ export async function listOrderFormMaterials(businessId: string) {
     isExempted: row.isExempted === true || Number(row.gstRate ?? 0) === 0,
     billingBasis: normalizeBillingBasis(row.billingBasis),
   }))
+}
+
+// Master tax data for a set of materials, used to resolve GST rate/HSN
+// server-side at billing time instead of trusting the client's values.
+// gstRate is null (not 0) when the master has no rate configured, so callers
+// can fall back to the request value for unconfigured materials.
+export async function getMaterialTaxInfo(businessId: string, materialIds: string[]) {
+  if (materialIds.length === 0) return []
+  return prisma.$queryRaw<Array<{
+    id: string
+    hsnCode: string | null
+    gstRate: number | null
+    isExempted: boolean
+  }>>(Prisma.sql`
+    SELECT
+      m.id,
+      NULLIF(COALESCE(m.metadata->>'hsnCode', ''), '') AS "hsnCode",
+      CASE
+        WHEN COALESCE(m.metadata->>'gstRate', '') ~ '^[0-9]+(\\.[0-9]+)?$'
+          THEN (m.metadata->>'gstRate')::double precision
+        ELSE NULL
+      END AS "gstRate",
+      CASE
+        WHEN LOWER(COALESCE(m.metadata->>'isExempted', 'false')) = 'true' THEN true
+        ELSE false
+      END AS "isExempted"
+    FROM materials m
+    WHERE m."businessId" = ${businessId}
+      AND m.id IN (${Prisma.join(materialIds)})
+  `)
 }
 
 export async function listMaterialMatchCatalog(businessId: string) {

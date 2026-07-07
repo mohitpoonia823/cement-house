@@ -1,4 +1,4 @@
-import { computeOrderPreview } from '@cement-house/utils'
+import { addMoney, computeOrderPreview, multiplyMoney, roundMoney, subtractMoney } from '@cement-house/utils'
 
 export type BillingFeatureFlags = Partial<{
   gstBilling: boolean
@@ -94,10 +94,6 @@ export interface SalesReturnLineDraft {
   adjustLedger: boolean
 }
 
-function round2(n: number) {
-  return Math.round((n + Number.EPSILON) * 100) / 100
-}
-
 function bool(flag: unknown) {
   return flag === true
 }
@@ -139,9 +135,9 @@ export function calculateInvoice(input: BillingInput): BillingComputed {
     // by validateInvoiceInput, so this fallback never silently under-bills a real sale.
     const basis = resolveBasis(item, isWeightBilling)
     const deductionQty = basis === 'WEIGHT' && netWeight != null ? netWeight : qty
-    const itemSubtotal = round2(deductionQty * unitPrice)
+    const itemSubtotal = multiplyMoney(deductionQty, unitPrice)
 
-    subtotal += itemSubtotal
+    subtotal = addMoney(subtotal, itemSubtotal)
     return { item, qty, unitPrice, purchasePrice, deductionQty, itemSubtotal, grossWeight, tareWeight, netWeight }
   })
 
@@ -181,22 +177,21 @@ export function calculateInvoice(input: BillingInput): BillingComputed {
     }
   })
 
-  subtotal = round2(subtotal)
-  const itemDiscountTotal = round2(preview.totalDiscount)
-  const taxableTotal = round2(preview.totalTaxable)
-  const cgstTotal = round2(preview.totalCgst)
-  const sgstTotal = round2(preview.totalSgst)
-  const igstTotal = round2(preview.totalIgst)
-  const gstTotal = round2(cgstTotal + sgstTotal + igstTotal)
+  const itemDiscountTotal = roundMoney(preview.totalDiscount)
+  const taxableTotal = roundMoney(preview.totalTaxable)
+  const cgstTotal = roundMoney(preview.totalCgst)
+  const sgstTotal = roundMoney(preview.totalSgst)
+  const igstTotal = roundMoney(preview.totalIgst)
+  const gstTotal = addMoney(cgstTotal, sgstTotal, igstTotal)
 
-  const invoiceDiscount = round2(Number(input.invoiceDiscount ?? 0))
-  const transportCharges = round2(Number(input.transportCharges ?? 0))
-  const loadingCharges = round2(Number(input.loadingCharges ?? 0))
-  const roundOff = round2(Number(input.roundOff ?? 0))
-  const beforeRound = round2(taxableTotal - invoiceDiscount + gstTotal + transportCharges + loadingCharges)
-  const grandTotal = round2(Math.max(0, beforeRound + roundOff))
-  const paidAmount = round2(Number(input.paidAmount ?? 0))
-  const dueAmount = round2(Math.max(0, grandTotal - paidAmount))
+  const invoiceDiscount = roundMoney(Number(input.invoiceDiscount ?? 0))
+  const transportCharges = roundMoney(Number(input.transportCharges ?? 0))
+  const loadingCharges = roundMoney(Number(input.loadingCharges ?? 0))
+  const roundOff = roundMoney(Number(input.roundOff ?? 0))
+  const beforeRound = subtractMoney(addMoney(taxableTotal, gstTotal, transportCharges, loadingCharges), invoiceDiscount)
+  const grandTotal = Math.max(0, addMoney(beforeRound, roundOff))
+  const paidAmount = roundMoney(Number(input.paidAmount ?? 0))
+  const dueAmount = Math.max(0, subtractMoney(grandTotal, paidAmount))
 
   return {
     lines,

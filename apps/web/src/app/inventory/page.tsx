@@ -5,6 +5,8 @@ import { Badge, statusBadge } from '@/components/ui/Badge'
 import { PageLoader }  from '@/components/ui/Spinner'
 import {
   useInventory,
+  useInventoryOptions,
+  useInventoryPaged,
   useStockIn,
   useCreateMaterial,
   useUpdateMaterial,
@@ -27,6 +29,8 @@ import { businessTerms, businessUnitOptions, splitPreferredUnits } from '@/lib/b
 import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+
+const inventoryRowsPerPage = 10
 
 function useMovements(materialId: string) {
   return useQuery({
@@ -155,7 +159,6 @@ function InventoryContent() {
   const t = (en: string, hi: string, hinglish?: string) => (language === 'hi' ? hi : language === 'hinglish' ? (hinglish ?? en) : en)
   const terms = businessTerms(user?.businessType as any, user?.customLabels as any)
   const unitPreset = businessUnitOptions(user?.businessType as any)
-  const { data: materials, isLoading } = useInventory()
   const { data: locations } = useLocations()
   const [stockLocationFilterId, setStockLocationFilterId] = useState('')
   const { data: stockByLocation } = useStockByLocation(stockLocationFilterId || undefined)
@@ -220,10 +223,23 @@ function InventoryContent() {
     name?: string
     ids?: string[]
   }>({ open: false, mode: 'single' })
-  const list = materials ?? []
-  const initialLoading = isLoading && !materials
+  const [searchInput, setSearchInput] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const { data: paged, isLoading } = useInventoryPaged({
+    page: inventoryPage,
+    pageSize: inventoryRowsPerPage,
+    search: searchTerm || undefined,
+  })
+  // Full catalog only when the bill scanner needs it for line matching.
+  const { data: scanCatalog } = useInventory({ enabled: showBillScan })
+  // Slim option rows for the single-material transfer dropdown (multi-location businesses only).
+  const hasMultipleActiveLocations = ((locations ?? []).filter((loc: any) => loc.isActive).length) > 1
+  const { data: transferMaterialOptions } = useInventoryOptions({ enabled: hasMultipleActiveLocations })
+  const list = (paged?.items ?? []) as any[]
+  const initialLoading = isLoading && !paged
   const unitOptions = useMemo(() => {
-    const merged = [...unitPreset.all, ...list.map((m: any) => String(m.unit ?? '').trim()).filter(Boolean)]
+    const catalogUnits = ((paged?.units ?? []) as string[]).map((u) => String(u).trim()).filter(Boolean)
+    const merged = [...unitPreset.all, ...catalogUnits]
     const seen = new Set<string>()
     return merged.filter((unit) => {
       const key = unit.toLowerCase()
@@ -231,12 +247,12 @@ function InventoryContent() {
       seen.add(key)
       return true
     })
-  }, [list, unitPreset.all])
+  }, [paged?.units, unitPreset.all])
   const { preferred: preferredUnits, others: otherUnits } = useMemo(
     () => splitPreferredUnits(unitOptions, unitPreset.preferred),
     [unitOptions, unitPreset.preferred]
   )
-  const allSelected = list.length > 0 && selected.size === list.length
+  const allSelected = list.length > 0 && list.every((m: any) => selected.has(m.id))
   const activeLocations = useMemo(
     () => (locations ?? []).filter((loc: any) => loc.isActive),
     [locations]
@@ -252,31 +268,21 @@ function InventoryContent() {
     () => activeLocations.find((loc: any) => loc.isDefault) ?? activeLocations[0] ?? null,
     [activeLocations]
   )
-  const selectedMaterials = useMemo(
-    () => list.filter((m: any) => selected.has(m.id)),
-    [list, selected]
-  )
-  const inventoryRowsPerPage = 10
-  const totalInventoryPages = Math.max(1, Math.ceil(list.length / inventoryRowsPerPage))
-  const paginatedInventoryList = useMemo(() => {
-    const start = (inventoryPage - 1) * inventoryRowsPerPage
-    return list.slice(start, start + inventoryRowsPerPage)
-  }, [inventoryPage, list])
-  const hasAnyTableMeta = useMemo(
-    () =>
-      list.some(
-        (m: any) =>
-          (canBatch && m.batchNumber) ||
-          (canExpiry && m.expiryDate) ||
-          (canStorage && m.rackLocation) ||
-          (canSerial && m.serialNumber)
-      ),
-    [canBatch, canExpiry, canSerial, canStorage, list]
-  )
-  const showMinColumn = useMemo(
-    () => list.some((m: any) => Number(m.minThreshold) > 0),
-    [list]
-  )
+  // Rows selected on earlier pages stay usable for bulk ops: remember every row
+  // the user has seen, since the current page only holds 10 of them.
+  const seenRowsRef = useRef(new Map<string, any>())
+  const selectedMaterials = useMemo(() => {
+    for (const m of list) seenRowsRef.current.set(m.id, m)
+    return Array.from(selected, (id) => seenRowsRef.current.get(id)).filter(Boolean)
+  }, [list, selected])
+  const totalInventoryPages = Math.max(1, Math.ceil((paged?.total ?? 0) / inventoryRowsPerPage))
+  const paginatedInventoryList = list
+  const hasAnyTableMeta =
+    (canBatch && Boolean(paged?.hasBatch)) ||
+    (canExpiry && Boolean(paged?.hasExpiry)) ||
+    (canStorage && Boolean(paged?.hasRack)) ||
+    (canSerial && Boolean(paged?.hasSerial))
+  const showMinColumn = Boolean(paged?.hasMinThreshold)
 
   function formatStockQty(material: any) {
     const value = Number(material?.stockQty ?? 0)
@@ -314,6 +320,18 @@ function InventoryContent() {
     }
   }, [inventoryPage, totalInventoryPages])
 
+  // Debounced server-side search: reset to page 1 whenever the term changes.
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setSearchTerm((prev) => {
+        const next = searchInput.trim()
+        if (next !== prev) setInventoryPage(1)
+        return next
+      })
+    }, 300)
+    return () => clearTimeout(handle)
+  }, [searchInput])
+
   useEffect(() => {
     setNewForm((prev) => {
       const hasCurrent = unitOptions.some((u) => u.toLowerCase() === String(prev.unit).toLowerCase())
@@ -346,7 +364,12 @@ function InventoryContent() {
     setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
   function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(list.map((m: any) => m.id)))
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (allSelected) list.forEach((m: any) => next.delete(m.id))
+      else list.forEach((m: any) => next.add(m.id))
+      return next
+    })
   }
 
   const { data: movements } = useMovements(selectedId)
@@ -492,15 +515,13 @@ function InventoryContent() {
     }
   }
 
-  const selectedMat = useMemo(() => list.find((m: any) => m.id === selectedId), [list, selectedId])
-  const lowOrOutOfStockCount = useMemo(
-    () => list.filter((m: any) => m.stockStatus !== 'OK').length,
-    [list]
+  const selectedMat = useMemo(
+    () => list.find((m: any) => m.id === selectedId) ?? seenRowsRef.current.get(selectedId),
+    [list, selectedId]
   )
-  const inventoryValue = useMemo(
-    () => list.reduce((sum: number, m: any) => sum + Number(m.stockQty) * Number(m.purchasePrice), 0),
-    [list]
-  )
+  const totalCatalogCount = paged?.total ?? 0
+  const lowOrOutOfStockCount = paged?.lowOrOutOfStockCount ?? 0
+  const inventoryValue = paged?.inventoryValue ?? 0
 
   function openAddItemForm() {
     setShowAddNew(true)
@@ -957,7 +978,7 @@ function InventoryContent() {
       {showBillScan && (
         <div ref={billScanPanelRef}>
           <BillScanPanel
-            materials={list}
+            materials={scanCatalog ?? []}
             locations={activeLocations}
             defaultLocationId={defaultLocation?.id ?? undefined}
             units={unitOptions}
@@ -971,13 +992,13 @@ function InventoryContent() {
       )}
 
       <MetricGrid className="mb-6 hidden md:grid">
-        <MetricCard label={t(`Active ${terms.material.toLowerCase()}s`, 'à¤¸à¤•à¥à¤°à¤¿à¤¯ à¤®à¤Ÿà¥‡à¤°à¤¿à¤¯à¤²', `Active ${terms.material.toLowerCase()}s`)} value={initialLoading ? '—' : String(list.length)} hint={t('Live catalog count', 'à¤²à¤¾à¤‡à¤µ à¤•à¥ˆà¤Ÿà¤²à¥‰à¤— à¤¸à¤‚à¤–à¥à¤¯à¤¾')} />
+        <MetricCard label={t(`Active ${terms.material.toLowerCase()}s`, 'à¤¸à¤•à¥à¤°à¤¿à¤¯ à¤®à¤Ÿà¥‡à¤°à¤¿à¤¯à¤²', `Active ${terms.material.toLowerCase()}s`)} value={initialLoading ? '—' : String(totalCatalogCount)} hint={t('Live catalog count', 'à¤²à¤¾à¤‡à¤µ à¤•à¥ˆà¤Ÿà¤²à¥‰à¤— à¤¸à¤‚à¤–à¥à¤¯à¤¾')} />
         <MetricCard label={t('Low / out of stock', 'à¤²à¥‹ / à¤†à¤‰à¤Ÿ à¤‘à¤« à¤¸à¥à¤Ÿà¥‰à¤•')} value={initialLoading ? '—' : String(lowOrOutOfStockCount)} hint={t('Items needing replenishment', 'à¤œà¤¿à¤¨ à¤†à¤‡à¤Ÿà¤® à¤•à¥‹ à¤°à¥€à¤ªà¥à¤²à¥‡à¤¨à¤¿à¤¶à¤®à¥‡à¤‚à¤Ÿ à¤šà¤¾à¤¹à¤¿à¤')} tone="danger" />
         <MetricCard label={t(`${terms.inventory} value`, 'à¤‡à¤¨à¥à¤µà¥‡à¤‚à¤Ÿà¥à¤°à¥€ à¤µà¥ˆà¤²à¥à¤¯à¥‚', `${terms.inventory} value`)} value={initialLoading ? '—' : fmt(inventoryValue)} hint={t('Estimated purchase-side stock value', 'à¤…à¤¨à¥à¤®à¤¾à¤¨à¤¿à¤¤ à¤–à¤°à¥€à¤¦-à¤†à¤§à¤¾à¤°à¤¿à¤¤ à¤¸à¥à¤Ÿà¥‰à¤• à¤®à¥‚à¤²à¥à¤¯')} tone="brand" />
         <MetricCard label={t(`Selected ${terms.material.toLowerCase()}`, 'à¤šà¤¯à¤¨à¤¿à¤¤ à¤®à¤Ÿà¥‡à¤°à¤¿à¤¯à¤²', `Selected ${terms.material.toLowerCase()}`)} value={selectedMat?.name ?? t('None', 'à¤•à¥‹à¤ˆ à¤¨à¤¹à¥€à¤‚')} hint={selectedMat ? `${Number(selectedMat.stockQty).toFixed(1)} ${selectedMat.unit} ${t('available', 'à¤‰à¤ªà¤²à¤¬à¥à¤§')}` : t('Open a card for movement details', 'à¤®à¥‚à¤µà¤®à¥‡à¤‚à¤Ÿ à¤µà¤¿à¤µà¤°à¤£ à¤•à¥‡ à¤²à¤¿à¤ à¤•à¤¾à¤°à¥à¤¡ à¤šà¥à¤¨à¥‡à¤‚')} tone="default" />
       </MetricGrid>
       <div className="mb-4 grid grid-cols-2 gap-3 md:hidden">
-        <MetricCard label={t(`Active ${terms.material.toLowerCase()}s`, 'à¤¸à¤•à¥à¤°à¤¿à¤¯ à¤®à¤Ÿà¥‡à¤°à¤¿à¤¯à¤²', `Active ${terms.material.toLowerCase()}s`)} value={initialLoading ? '—' : String(list.length)} hint={t('Live catalog count', 'à¤²à¤¾à¤‡à¤µ à¤•à¥ˆà¤Ÿà¤²à¥‰à¤— à¤¸à¤‚à¤–à¥à¤¯à¤¾')} />
+        <MetricCard label={t(`Active ${terms.material.toLowerCase()}s`, 'à¤¸à¤•à¥à¤°à¤¿à¤¯ à¤®à¤Ÿà¥‡à¤°à¤¿à¤¯à¤²', `Active ${terms.material.toLowerCase()}s`)} value={initialLoading ? '—' : String(totalCatalogCount)} hint={t('Live catalog count', 'à¤²à¤¾à¤‡à¤µ à¤•à¥ˆà¤Ÿà¤²à¥‰à¤— à¤¸à¤‚à¤–à¥à¤¯à¤¾')} />
         <MetricCard label={t('Low / out of stock', 'à¤²à¥‹ / à¤†à¤‰à¤Ÿ à¤‘à¤« à¤¸à¥à¤Ÿà¥‰à¤•')} value={initialLoading ? '—' : String(lowOrOutOfStockCount)} hint={t('Items needing replenishment', 'à¤œà¤¿à¤¨ à¤†à¤‡à¤Ÿà¤® à¤•à¥‹ à¤°à¥€à¤ªà¥à¤²à¥‡à¤¨à¤¿à¤¶à¤®à¥‡à¤‚à¤Ÿ à¤šà¤¾à¤¹à¤¿à¤')} tone="danger" />
         <MetricCard label={t(`${terms.inventory} value`, 'à¤‡à¤¨à¥à¤µà¥‡à¤‚à¤Ÿà¥à¤°à¥€ à¤µà¥ˆà¤²à¥à¤¯à¥‚', `${terms.inventory} value`)} value={initialLoading ? '—' : fmt(inventoryValue)} hint={t('Estimated purchase-side stock value', 'à¤…à¤¨à¥à¤®à¤¾à¤¨à¤¿à¤¤ à¤–à¤°à¥€à¤¦-à¤†à¤§à¤¾à¤°à¤¿à¤¤ à¤¸à¥à¤Ÿà¥‰à¤• à¤®à¥‚à¤²à¥à¤¯')} tone="brand" />
         <MetricCard label={t(`Selected ${terms.material.toLowerCase()}`, 'à¤šà¤¯à¤¨à¤¿à¤¤ à¤®à¤Ÿà¥‡à¤°à¤¿à¤¯à¤²', `Selected ${terms.material.toLowerCase()}`)} value={selectedMat?.name ?? t('None', 'à¤•à¥‹à¤ˆ à¤¨à¤¹à¥€à¤‚')} hint={selectedMat ? `${Number(selectedMat.stockQty).toFixed(1)} ${selectedMat.unit} ${t('available', 'à¤‰à¤ªà¤²à¤¬à¥à¤§')}` : t('Open a card for movement details', 'à¤®à¥‚à¤µà¤®à¥‡à¤‚à¤Ÿ à¤µà¤¿à¤µà¤°à¤£ à¤•à¥‡ à¤²à¤¿à¤ à¤•à¤¾à¤°à¥à¤¡ à¤šà¥à¤¨à¥‡à¤‚')} tone="default" />
@@ -1203,6 +1224,22 @@ function InventoryContent() {
           </button>
         </div>
       )}
+
+      {/* Server-side catalog search */}
+      <div className="mb-3">
+        <input
+          type="search"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder={t(`Search ${terms.material.toLowerCase()} name, category or barcode...`, 'नाम, श्रेणी या बारकोड खोजें...', `${terms.material} naam, category ya barcode search karo...`)}
+          className="w-full max-w-md text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        {searchTerm && !initialLoading && (
+          <div className="mt-1 text-[11px] text-stone-500 dark:text-slate-400">
+            {totalCatalogCount} {t('result(s) for', 'परिणाम:')} &ldquo;{searchTerm}&rdquo;
+          </div>
+        )}
+      </div>
 
       {/* Select all toggle */}
       {list.length > 0 && (
@@ -1698,7 +1735,7 @@ function InventoryContent() {
                   className={inputClass}
                 >
                   <option value="">Material</option>
-                  {list.map((m: any) => (
+                  {((transferMaterialOptions ?? []) as any[]).map((m: any) => (
                     <option key={m.id} value={m.id}>{m.name}</option>
                   ))}
                 </select>

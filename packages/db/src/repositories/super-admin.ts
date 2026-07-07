@@ -246,11 +246,13 @@ export async function getOverviewMetrics(todayStart: Date, todayEnd: Date) {
         GROUP BY "businessId"
       ) o ON o."businessId" = b.id
       LEFT JOIN (
-        SELECT "businessId",
-          COALESCE(SUM(CASE WHEN type = 'DEBIT'::"LedgerEntryType" THEN amount ELSE 0 END), 0)::double precision AS debit,
-          COALESCE(SUM(CASE WHEN type = 'CREDIT'::"LedgerEntryType" THEN amount ELSE 0 END), 0)::double precision AS credit
-        FROM ledger_entries
-        GROUP BY "businessId"
+        SELECT la."businessId",
+          COALESCE(SUM(jl.debit), 0)::double precision AS debit,
+          COALESCE(SUM(jl.credit), 0)::double precision AS credit
+        FROM ledger_accounts la
+        JOIN journal_lines jl ON jl."accountId" = la.id
+        WHERE la."customerId" IS NOT NULL
+        GROUP BY la."businessId"
       ) l ON l."businessId" = b.id
       ORDER BY b."createdAt" DESC
     `),
@@ -540,11 +542,13 @@ export async function listBusinesses(input: {
         GROUP BY "businessId"
       ) od ON od."businessId" = b.id
       LEFT JOIN (
-        SELECT "businessId",
-          COALESCE(SUM(CASE WHEN type = 'DEBIT'::"LedgerEntryType" THEN amount ELSE 0 END), 0)::double precision AS debit,
-          COALESCE(SUM(CASE WHEN type = 'CREDIT'::"LedgerEntryType" THEN amount ELSE 0 END), 0)::double precision AS credit
-        FROM ledger_entries
-        GROUP BY "businessId"
+        SELECT la."businessId",
+          COALESCE(SUM(jl.debit), 0)::double precision AS debit,
+          COALESCE(SUM(jl.credit), 0)::double precision AS credit
+        FROM ledger_accounts la
+        JOIN journal_lines jl ON jl."accountId" = la.id
+        WHERE la."customerId" IS NOT NULL
+        GROUP BY la."businessId"
       ) l ON l."businessId" = b.id
       WHERE ${Prisma.join(filters, ' AND ')}
       ORDER BY b."createdAt" DESC

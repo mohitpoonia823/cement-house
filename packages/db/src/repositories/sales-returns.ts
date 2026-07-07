@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { prisma } from '../client'
+import { postSalesReturnVoucher } from './accounting'
 import { adjustMaterialLocationStock, resolveSourceLocationId } from './multi-location'
 
 export interface CreateSalesReturnInput {
@@ -94,6 +95,9 @@ export async function createSalesReturn(input: CreateSalesReturnInput) {
     const returnId = randomUUID()
     let totalReturnAmount = 0
     let totalGstReversal = 0
+    let totalCgstReversal = 0
+    let totalSgstReversal = 0
+    let totalIgstReversal = 0
     const touchedMaterialIds: string[] = []
 
     for (const reqItem of input.items) {
@@ -117,6 +121,9 @@ export async function createSalesReturn(input: CreateSalesReturnInput) {
 
       totalReturnAmount += totalAmount
       totalGstReversal += gstAmount
+      totalCgstReversal += cgstAmount
+      totalSgstReversal += sgstAmount
+      totalIgstReversal += igstAmount
 
       await tx.$executeRaw(Prisma.sql`
         INSERT INTO sales_return_items (
@@ -163,14 +170,37 @@ export async function createSalesReturn(input: CreateSalesReturnInput) {
       )
     `)
 
+    const khataEntryId = randomUUID()
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO ledger_entries (
         id, "customerId", "orderId", type, amount, "paymentMode", "recordedById", notes, "createdAt", "businessId"
       ) VALUES (
-        ${randomUUID()}, ${order.customerId}, ${input.orderId}, 'CREDIT'::"LedgerEntryType",
+        ${khataEntryId}, ${order.customerId}, ${input.orderId}, 'CREDIT'::"LedgerEntryType",
         ${roundedReturn}, 'PARTIAL'::"PaymentMode", ${input.createdById}, ${`Sales return ${returnNumber}`}, NOW(), ${input.businessId}
       )
     `)
+
+    // Mirror the return into the double-entry ledger as a credit note
+    // (Dr Sales/Output GST, Cr Customer) so revenue and output tax are
+    // reversed atomically with the khata credit.
+    const custRows = await tx.$queryRaw<Array<{ name: string }>>(Prisma.sql`
+      SELECT name FROM customers WHERE id = ${order.customerId} AND "businessId" = ${input.businessId} LIMIT 1
+    `)
+    await postSalesReturnVoucher(tx, {
+      businessId: input.businessId,
+      createdById: input.createdById,
+      customerId: order.customerId,
+      customerName: custRows[0]?.name ?? 'Customer',
+      orderId: input.orderId,
+      returnNumber,
+      date: new Date(),
+      taxableAmount: Number((totalReturnAmount - totalGstReversal).toFixed(2)),
+      cgstAmount: Number(totalCgstReversal.toFixed(2)),
+      sgstAmount: Number(totalSgstReversal.toFixed(2)),
+      igstAmount: Number(totalIgstReversal.toFixed(2)),
+      totalAmount: roundedReturn,
+      ledgerEntryId: khataEntryId,
+    })
 
     const totals = await tx.$queryRaw<Array<{ sold: number; returned: number }>>(Prisma.sql`
       SELECT
@@ -208,7 +238,7 @@ export async function createSalesReturn(input: CreateSalesReturnInput) {
       LIMIT 1
     `)
     return created[0] ?? null
-  })
+  }, { maxWait: 15_000, timeout: 60_000 })
 }
 
 export async function listSalesReturns(businessId: string) {

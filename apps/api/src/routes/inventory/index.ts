@@ -56,6 +56,12 @@ const MaterialIdParamsSchema = z.object({
   id: z.string().uuid(),
 })
 
+const ListInventoryQuerySchema = z.object({
+  search: z.string().trim().max(160).optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(100).optional(),
+})
+
 const StockInSchema = z.object({
   materialId: z.string().uuid(),
   quantity: z.number().positive(),
@@ -283,8 +289,34 @@ async function withBillCandidates(draft: Awaited<ReturnType<typeof inventoryRepo
 }
 
 export async function inventoryRoutes(app: FastifyInstance) {
-  app.get('/', async (req) => {
+  app.get('/', async (req, reply) => {
     const bizId = getBizId(req)
+    const query = ListInventoryQuerySchema.safeParse(req.query)
+    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+
+    // Paginated path (opt-in via ?page). Returns { items, total, page, pageSize, ...metrics }.
+    // The array path below is preserved for consumers that need every row
+    // (order-edit dropdown, bill-scan matching).
+    if (query.data.page !== undefined) {
+      const page = query.data.page
+      const pageSize = query.data.pageSize ?? 10
+      const pagedKey = `${bizId}:list:paged:${page}:${pageSize}:${query.data.search ?? ''}`
+      const pagedNow = Date.now()
+      const cachedPaged = inventoryListCache.get(pagedKey)
+      if (cachedPaged && cachedPaged.expiresAt > pagedNow) return { success: true, data: cachedPaged.value }
+      const inflightPaged = inventoryListInFlight.get(pagedKey)
+      if (inflightPaged) return { success: true, data: await inflightPaged }
+
+      const computePaged = inventoryRepository
+        .listActiveMaterialsPaged({ businessId: bizId, search: query.data.search, page, pageSize })
+        .then((res) => ({ ...res, page, pageSize }))
+        .finally(() => inventoryListInFlight.delete(pagedKey))
+      inventoryListInFlight.set(pagedKey, computePaged)
+      const dataPaged = await computePaged
+      inventoryListCache.set(pagedKey, { expiresAt: Date.now() + INVENTORY_LIST_CACHE_TTL_MS, value: dataPaged })
+      return { success: true, data: dataPaged }
+    }
+
     const cacheKey = `${bizId}:list`
     const now = Date.now()
     const cached = inventoryListCache.get(cacheKey)

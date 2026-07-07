@@ -26,6 +26,22 @@ import { authenticate } from './middleware/auth'
 
 const app = Fastify({ logger: { level: 'info' } })
 
+// Global safety net: uncaught throws become clean JSON errors instead of
+// Fastify's default payload. 4xx errors (JWT, body-limit, validation) keep
+// their message; 5xx details are logged but never leaked to the client.
+app.setErrorHandler((error, req, reply) => {
+  const statusCode = typeof error.statusCode === 'number' && error.statusCode >= 400 ? error.statusCode : 500
+  if (statusCode >= 500) {
+    req.log.error({ err: error, url: req.url, method: req.method }, 'unhandled error')
+    return reply.status(500).send({ success: false, error: 'Internal server error' })
+  }
+  return reply.status(statusCode).send({ success: false, code: (error as any).code, error: error.message })
+})
+
+app.setNotFoundHandler((req, reply) =>
+  reply.status(404).send({ success: false, error: `Route ${req.method} ${req.url} not found` })
+)
+
 await app.register(helmet)
 await app.register(cors, {
   origin: process.env.WEB_URL ?? 'http://localhost:3000',

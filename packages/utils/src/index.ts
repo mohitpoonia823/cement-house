@@ -72,3 +72,5 @@ export type { BusinessType, ModuleKey, FeatureKey, BusinessTypeConfig } from './
 export { computeOrderPreview } from './compute-order-preview'
 export type { OrderLineInput, OrderLineResult, OrderSummary } from './compute-order-preview'
 
+export { toPaise, fromPaise, roundMoney, addMoney, subtractMoney, multiplyMoney, percentOfMoney } from './money'
+

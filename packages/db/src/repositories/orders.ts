@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { prisma } from '../client'
 import { adjustMaterialLocationStock, resolveSourceLocationId } from './multi-location'
-import { postSaleVoucher, postCustomerReceiptVoucher } from './accounting'
+import { postSaleVoucher, postCustomerReceiptVoucher, deleteOrderJournalEntries } from './accounting'
 
 const ORDER_TX_MAX_WAIT_MS = 10_000
 const ORDER_TX_TIMEOUT_MS = 120_000
@@ -418,9 +418,25 @@ export async function getOrderForChallan(orderId: string, businessId: string) {
   } as OrderChallanRow
 }
 
+// Allocates the next invoice number for a business/year atomically. The
+// counter row is upserted with a relative increment inside the caller's
+// transaction, so concurrent order creates serialize on the row lock and can
+// never hand out the same number; a rollback releases the number's increment
+// with the rest of the transaction (gapless legal numbering).
+async function allocateInvoiceNumber(tx: Prisma.TransactionClient, businessId: string, year: number) {
+  const rows = await tx.$queryRaw<Array<{ value: number }>>(Prisma.sql`
+    INSERT INTO invoice_sequences ("businessId", year, value, "updatedAt")
+    VALUES (${businessId}, ${year}, 1, NOW())
+    ON CONFLICT ("businessId", year)
+    DO UPDATE SET value = invoice_sequences.value + 1, "updatedAt" = NOW()
+    RETURNING value
+  `)
+  const seq = rows[0]?.value
+  if (!seq) throw new Error('Failed to allocate invoice number')
+  return `INV-${year}-${String(seq).padStart(6, '0')}`
+}
+
 export async function createOrder(input: {
-  orderNumber: string
-  invoiceNumber?: string
   customerId: string
   referralPartnerId?: string
   referralRewardAmount?: number
@@ -470,7 +486,9 @@ export async function createOrder(input: {
 }) {
   const newOrderId = randomUUID()
   const sourceLocationId = await resolveSourceLocationId(input.businessId, input.sourceLocationId)
-  const rows = await prisma.$transaction(async (tx) => {
+  let rows: Array<{ id: string }>
+  try {
+    rows = await prisma.$transaction(async (tx) => {
     const customerRows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       SELECT id
       FROM customers
@@ -486,6 +504,8 @@ export async function createOrder(input: {
       LIMIT 1
     `)
     if (actorRows.length === 0) throw new Error('Actor does not belong to this business')
+
+    const orderNumber = await allocateInvoiceNumber(tx, input.businessId, new Date().getFullYear())
     const created = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       INSERT INTO orders (
         id,
@@ -526,8 +546,8 @@ export async function createOrder(input: {
         "updatedAt"
       ) VALUES (
         ${newOrderId},
-        ${input.orderNumber},
-        ${input.invoiceNumber ?? input.orderNumber},
+        ${orderNumber},
+        ${orderNumber},
         ${input.customerId},
         ${input.referralPartnerId ?? null},
         ${input.referralRewardAmount ?? null},
@@ -644,67 +664,63 @@ export async function createOrder(input: {
       ) VALUES ${Prisma.join(orderItemValues)}
     `)
 
-    // ── Stock deduction (batched) ────────────────────────────────────────────
-    // Read the source-location quantity for every affected material once, deduct
-    // progressively in JS (a material can appear on multiple lines via variants,
-    // so per-line stockAfter must stay sequential), then persist with set-based
-    // writes instead of a SELECT+UPDATE round-trip per line. Preserves the exact
-    // negative-stock guard and stockAfter snapshots of the previous per-item loop.
-    const existingStockRows = await tx.$queryRaw<Array<{ materialId: string; quantity: number }>>(Prisma.sql`
-      SELECT "materialId" AS "materialId", quantity::double precision AS quantity
-      FROM material_stock
-      WHERE "businessId" = ${input.businessId}
-        AND "locationId" = ${sourceLocationId}
-        AND "materialId" IN (${Prisma.join(materialIds)})
+    // ── Stock deduction (atomic, set-based) ─────────────────────────────────
+    // Deduct every material's total in one guarded relative UPDATE: the delta is
+    // applied against the row's current value under a row lock, so concurrent
+    // orders serialize instead of losing updates, and the negative-stock guard
+    // cannot be bypassed by a race. Per-line stockAfter snapshots are then
+    // reconstructed from the returned final quantities (deductions are all
+    // positive, so if the final quantity passes the guard every intermediate
+    // per-line value did too).
+    const deductionByMaterial = new Map<string, number>()
+    for (const item of input.items) {
+      const quantity = Number(item.deductionQty ?? item.quantity)
+      deductionByMaterial.set(item.materialId, (deductionByMaterial.get(item.materialId) ?? 0) + quantity)
+    }
+    const allowNegative = input.allowNegativeStock === true
+    const deductionValues = [...deductionByMaterial.entries()].map(([id, qty]) => Prisma.sql`(${id}::text, ${qty}::numeric)`)
+    const deductedRows = await tx.$queryRaw<Array<{ materialId: string; quantity: number }>>(Prisma.sql`
+      UPDATE material_stock ms
+      SET quantity = ms.quantity - v.qty, "updatedAt" = NOW()
+      FROM (VALUES ${Prisma.join(deductionValues)}) AS v("materialId", qty)
+      WHERE ms."businessId" = ${input.businessId}
+        AND ms."locationId" = ${sourceLocationId}
+        AND ms."materialId" = v."materialId"
+        AND (${allowNegative} OR ms.quantity >= v.qty)
+      RETURNING ms."materialId" AS "materialId", ms.quantity::double precision AS quantity
     `)
-    const runningQty = new Map<string, number>()
-    const existingStockMaterials = new Set<string>()
-    for (const row of existingStockRows) {
-      runningQty.set(row.materialId, Number(row.quantity))
-      existingStockMaterials.add(row.materialId)
+    const finalQty = new Map(deductedRows.map((row) => [row.materialId, Number(row.quantity)]))
+
+    // Materials with no returned row either have no stock row at this location
+    // or failed the guard — both mean insufficient stock unless negatives are
+    // allowed, in which case we create the row carrying the negative balance.
+    const missingMaterials = [...deductionByMaterial.keys()].filter((id) => !finalQty.has(id))
+    if (missingMaterials.length > 0) {
+      if (!allowNegative) throw new Error('Insufficient stock in selected location')
+      for (const materialId of missingMaterials) {
+        const quantity = deductionByMaterial.get(materialId) ?? 0
+        const inserted = await tx.$queryRaw<Array<{ quantity: number }>>(Prisma.sql`
+          INSERT INTO material_stock AS ms (id, "businessId", "materialId", "locationId", quantity, "createdAt", "updatedAt")
+          VALUES (${randomUUID()}, ${input.businessId}, ${materialId}, ${sourceLocationId}, ${-quantity}, NOW(), NOW())
+          ON CONFLICT ("businessId", "materialId", "locationId")
+          DO UPDATE SET quantity = ms.quantity + EXCLUDED.quantity, "updatedAt" = NOW()
+          RETURNING quantity::double precision AS quantity
+        `)
+        finalQty.set(materialId, Number(inserted[0]?.quantity ?? -quantity))
+      }
     }
 
+    // Rebuild sequential per-line stockAfter values from the final quantities.
+    const runningQty = new Map<string, number>()
+    for (const [materialId, totalQty] of deductionByMaterial) {
+      runningQty.set(materialId, (finalQty.get(materialId) ?? -totalQty) + totalQty)
+    }
     const movementRows: Array<{ materialId: string; quantity: number; stockAfter: number }> = []
     for (const item of input.items) {
       const quantity = Number(item.deductionQty ?? item.quantity)
       const stockAfter = (runningQty.get(item.materialId) ?? 0) - quantity
-      if (!input.allowNegativeStock && stockAfter < 0) {
-        throw new Error('Insufficient stock in selected location')
-      }
       runningQty.set(item.materialId, stockAfter)
       movementRows.push({ materialId: item.materialId, quantity, stockAfter })
-    }
-
-    // Persist per-location quantities: UPDATE the rows that already exist, INSERT the rest.
-    const updateMaterials = materialIds.filter((id) => existingStockMaterials.has(id))
-    const insertMaterials = materialIds.filter((id) => !existingStockMaterials.has(id))
-
-    if (updateMaterials.length > 0) {
-      const updateValues = updateMaterials.map((id) => Prisma.sql`(${id}::text, ${runningQty.get(id) ?? 0}::numeric)`)
-      await tx.$executeRaw(Prisma.sql`
-        UPDATE material_stock ms
-        SET quantity = v.qty, "updatedAt" = NOW()
-        FROM (VALUES ${Prisma.join(updateValues)}) AS v("materialId", qty)
-        WHERE ms."businessId" = ${input.businessId}
-          AND ms."locationId" = ${sourceLocationId}
-          AND ms."materialId" = v."materialId"
-      `)
-    }
-
-    if (insertMaterials.length > 0) {
-      const insertValues = insertMaterials.map((id) => Prisma.sql`(
-        ${randomUUID()},
-        ${input.businessId},
-        ${id},
-        ${sourceLocationId},
-        ${runningQty.get(id) ?? 0},
-        NOW(),
-        NOW()
-      )`)
-      await tx.$executeRaw(Prisma.sql`
-        INSERT INTO material_stock (id, "businessId", "materialId", "locationId", quantity, "createdAt", "updatedAt")
-        VALUES ${Prisma.join(insertValues)}
-      `)
     }
 
     // Recompute each affected material's total stock across locations in one statement.
@@ -729,7 +745,7 @@ export async function createOrder(input: {
       'OUT'::"StockMovementType",
       ${row.quantity},
       ${row.stockAfter},
-      ${`Order ${input.orderNumber}`},
+      ${`Order ${orderNumber}`},
       ${input.createdById},
       NOW(),
       ${input.businessId}
@@ -770,7 +786,7 @@ export async function createOrder(input: {
         ${input.totalAmount},
         ${input.paymentMode}::"PaymentMode",
         ${input.createdById},
-        ${`Order ${input.orderNumber}`},
+        ${`Order ${orderNumber}`},
         NOW(),
         ${input.businessId}
       )
@@ -787,7 +803,7 @@ export async function createOrder(input: {
       customerId: input.customerId,
       customerName,
       orderId: createdOrderId,
-      orderNumber: input.orderNumber,
+      orderNumber: orderNumber,
       date: new Date(),
       taxableAmount: input.taxableAmount ?? input.totalAmount,
       cgstTotal: input.cgstTotal ?? 0,
@@ -796,6 +812,7 @@ export async function createOrder(input: {
       otherCharges: (input.transportCharges ?? 0) + (input.loadingCharges ?? 0),
       invoiceDiscount: input.invoiceDiscount ?? 0,
       grandTotal: input.grandTotal ?? input.totalAmount,
+      paymentMode: input.paymentMode,
     })
 
     if (input.amountPaid > 0) {
@@ -820,7 +837,7 @@ export async function createOrder(input: {
           ${input.amountPaid},
           ${input.paymentMode}::"PaymentMode",
           ${input.createdById},
-          ${`Payment with order ${input.orderNumber}`},
+          ${`Payment with order ${orderNumber}`},
           NOW(),
           ${input.businessId}
         )
@@ -836,12 +853,27 @@ export async function createOrder(input: {
         date: new Date(),
         orderId: createdOrderId,
         ledgerEntryId: creditLedgerEntryId,
-        narration: `Payment with order ${input.orderNumber}`,
+        narration: `Payment with order ${orderNumber}`,
       })
     }
 
     return created
-  }, { maxWait: ORDER_TX_MAX_WAIT_MS, timeout: ORDER_TX_TIMEOUT_MS })
+    }, { maxWait: ORDER_TX_MAX_WAIT_MS, timeout: ORDER_TX_TIMEOUT_MS })
+  } catch (error: any) {
+    // The transaction connection can drop after a successful commit ("Transaction
+    // not found"). The order id is generated before the transaction, so we can
+    // check whether the order actually landed and recover instead of failing.
+    if (String(error?.message ?? '').includes('Transaction API error: Transaction not found')) {
+      const recovered = await prisma.$queryRaw<Array<{ id: string; orderNumber: string }>>(Prisma.sql`
+        SELECT id, "orderNumber" AS "orderNumber"
+        FROM orders
+        WHERE id = ${newOrderId} AND "businessId" = ${input.businessId} AND "isDeleted" = false
+        LIMIT 1
+      `)
+      if (recovered[0]) return { ...recovered[0], recovered: true }
+    }
+    throw error
+  }
 
   const createdId = rows[0]?.id
   if (!createdId) return null
@@ -867,6 +899,28 @@ export async function getOrderByNumber(orderNumber: string, businessId: string) 
   return rows[0] ?? null
 }
 
+// The GST context an order was billed under, so appended lines are taxed the
+// same way as the original invoice. Falls back to the stored totals when the
+// billing snapshot is missing (legacy orders).
+export async function getOrderBillingFlags(orderId: string, businessId: string) {
+  const rows = await prisma.$queryRaw<Array<{ billingSnapshot: unknown; gstTotal: number | null; igstTotal: number | null }>>(Prisma.sql`
+    SELECT
+      "billingSnapshot" AS "billingSnapshot",
+      "gstTotal"::double precision AS "gstTotal",
+      "igstTotal"::double precision AS "igstTotal"
+    FROM orders
+    WHERE id = ${orderId} AND "businessId" = ${businessId} AND "isDeleted" = false
+    LIMIT 1
+  `)
+  const row = rows[0]
+  if (!row) return null
+  const snapshot = parseJson<Record<string, unknown>>(row.billingSnapshot as any, {}) ?? {}
+  return {
+    gstEnabled: snapshot.gstEnabled === true || Number(row.gstTotal ?? 0) > 0,
+    isInterState: snapshot.isInterState === true || Number(row.igstTotal ?? 0) > 0,
+  }
+}
+
 export async function appendItemToOrder(input: {
   orderId: string
   businessId: string
@@ -876,6 +930,7 @@ export async function appendItemToOrder(input: {
   unitPrice: number
   purchasePrice: number
   lineTotal?: number
+  itemSubtotal?: number
   hsnCode?: string
   gstRate?: number
   taxableAmount?: number
@@ -964,35 +1019,32 @@ export async function appendItemToOrder(input: {
       )
     `)
 
-    const totals = await tx.$queryRaw<Array<{ total: number; margin: number; taxable: number; gst: number; cgst: number; sgst: number; igst: number; discount: number }>>(Prisma.sql`
-      SELECT
-        COALESCE(SUM("lineTotal"), 0)::double precision AS total,
-        COALESCE(AVG((CASE WHEN "purchasePrice" = 0 THEN 0 ELSE ("unitPrice" - "purchasePrice") / "purchasePrice" * 100 END)), 0)::double precision AS margin
-        ,COALESCE(SUM(COALESCE("taxableAmount", quantity * "unitPrice")), 0)::double precision AS taxable
-        ,COALESCE(SUM(COALESCE("gstAmount", 0)), 0)::double precision AS gst
-        ,COALESCE(SUM(COALESCE("cgstAmount", 0)), 0)::double precision AS cgst
-        ,COALESCE(SUM(COALESCE("sgstAmount", 0)), 0)::double precision AS sgst
-        ,COALESCE(SUM(COALESCE("igstAmount", 0)), 0)::double precision AS igst
-        ,COALESCE(SUM(COALESCE("discountAmount", 0)), 0)::double precision AS discount
-      FROM order_items
-      WHERE "orderId" = ${input.orderId}
-    `)
-
-    const agg = totals[0] ?? { total: 0, margin: 0, taxable: 0, gst: 0, cgst: 0, sgst: 0, igst: 0, discount: 0 }
+    // Update order totals incrementally with the billing-engine-computed line
+    // amounts (the route runs calculateInvoice on the new line). Totals stay
+    // linear sums of engine output — the previous SQL re-aggregation was a
+    // second, divergent billing path. All SET expressions read the OLD row
+    // values, so the grandTotal fallbacks below never double-count.
+    const lineTaxable = input.taxableAmount ?? lineTotal
+    const lineGst = input.gstAmount ?? 0
+    const lineDiscount = input.discountAmount ?? 0
     await tx.$executeRaw(Prisma.sql`
       UPDATE orders
       SET
-        "totalAmount" = ${agg.total},
-        "grandTotal" = ${agg.total},
-        "subtotal" = ${agg.taxable + agg.discount},
-        "taxableAmount" = ${agg.taxable},
-        "itemDiscountTotal" = ${agg.discount},
-        "gstTotal" = ${agg.gst},
-        "cgstTotal" = ${agg.cgst},
-        "sgstTotal" = ${agg.sgst},
-        "igstTotal" = ${agg.igst},
-        "dueAmount" = GREATEST(0, ${agg.total} - COALESCE("paidAmount", "amountPaid")),
-        "marginPct" = ${agg.margin},
+        "totalAmount" = COALESCE("totalAmount", 0) + ${lineTotal},
+        "grandTotal" = COALESCE("grandTotal", "totalAmount", 0) + ${lineTotal},
+        "subtotal" = COALESCE("subtotal", 0) + ${input.itemSubtotal ?? (lineTaxable + lineDiscount)},
+        "taxableAmount" = COALESCE("taxableAmount", 0) + ${lineTaxable},
+        "itemDiscountTotal" = COALESCE("itemDiscountTotal", 0) + ${lineDiscount},
+        "gstTotal" = COALESCE("gstTotal", 0) + ${lineGst},
+        "cgstTotal" = COALESCE("cgstTotal", 0) + ${input.cgstAmount ?? 0},
+        "sgstTotal" = COALESCE("sgstTotal", 0) + ${input.sgstAmount ?? 0},
+        "igstTotal" = COALESCE("igstTotal", 0) + ${input.igstAmount ?? 0},
+        "dueAmount" = GREATEST(0, COALESCE("grandTotal", "totalAmount", 0) + ${lineTotal} - COALESCE("paidAmount", "amountPaid")),
+        "marginPct" = (
+          SELECT COALESCE(AVG((CASE WHEN "purchasePrice" = 0 THEN 0 ELSE ("unitPrice" - "purchasePrice") / "purchasePrice" * 100 END)), 0)
+          FROM order_items
+          WHERE "orderId" = ${input.orderId}
+        ),
         "updatedAt" = NOW()
       WHERE id = ${input.orderId} AND "businessId" = ${input.businessId}
     `)
@@ -1023,6 +1075,29 @@ export async function appendItemToOrder(input: {
         ${input.businessId}
       )
     `)
+
+    // Keep the double-entry journal in step with the khata: post an incremental
+    // SALE voucher for the appended line (Dr Customer, Cr Sales/Output GST).
+    const custRows = await tx.$queryRaw<Array<{ name: string }>>(Prisma.sql`
+      SELECT name FROM customers WHERE id = ${input.customerId} AND "businessId" = ${input.businessId} LIMIT 1
+    `)
+    await postSaleVoucher(tx, {
+      businessId: input.businessId,
+      createdById: input.userId,
+      customerId: input.customerId,
+      customerName: custRows[0]?.name ?? 'Customer',
+      orderId: input.orderId,
+      orderNumber: `${input.orderNumber} (item added)`,
+      date: new Date(),
+      taxableAmount: lineTaxable,
+      cgstTotal: input.cgstAmount ?? 0,
+      sgstTotal: input.sgstAmount ?? 0,
+      igstTotal: input.igstAmount ?? 0,
+      otherCharges: 0,
+      invoiceDiscount: 0,
+      grandTotal: lineTotal,
+      paymentMode: input.paymentMode,
+    })
 
     const stockAfter = await adjustMaterialLocationStock(tx, {
       businessId: input.businessId,
@@ -1139,16 +1214,6 @@ export async function createDispatchDelivery(orderId: string, businessId: string
   }, { maxWait: 10000, timeout: 15000 })
 }
 
-export async function getNextInvoiceSequence(businessId: string, year: number) {
-  const rows = await prisma.$queryRaw<Array<{ maxSeq: number | null }>>(Prisma.sql`
-    SELECT COALESCE(MAX(CAST(SPLIT_PART("orderNumber", '-', 3) AS INT)), 0)::int AS "maxSeq"
-    FROM orders
-    WHERE "businessId" = ${businessId}
-      AND "orderNumber" LIKE ${`INV-${year}-%`}
-  `)
-  return (rows[0]?.maxSeq ?? 0) + 1
-}
-
 export async function markDeliveredAndCloseDeliveries(orderId: string, businessId: string, deliveryIds: string[]) {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw(Prisma.sql`
@@ -1237,6 +1302,9 @@ export async function softDeleteOrder(orderId: string, businessId: string) {
       `)
     } else {
       await tx.$executeRaw(Prisma.sql`DELETE FROM ledger_entries WHERE "orderId" = ${orderId}`)
+      // Khata entries are gone — remove the order's vouchers too, or the
+      // journal would keep receivables the khata no longer shows.
+      await deleteOrderJournalEntries(tx, orderId, businessId)
     }
 
     if (order.status !== 'DELIVERED') {
@@ -1291,6 +1359,8 @@ export async function cancelOrderWithReversal(orderId: string, businessId: strin
 
     await tx.$executeRaw(Prisma.sql`DELETE FROM stock_movements WHERE "orderId" = ${orderId} AND "businessId" = ${businessId}`)
     await tx.$executeRaw(Prisma.sql`DELETE FROM ledger_entries WHERE "orderId" = ${orderId} AND "businessId" = ${businessId}`)
+    // Mirror the khata cleanup in the double-entry ledger (SALE + RECEIPT vouchers).
+    await deleteOrderJournalEntries(tx, orderId, businessId)
 
     await tx.$executeRaw(Prisma.sql`
       DELETE FROM delivery_items

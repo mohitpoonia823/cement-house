@@ -1,17 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, invalidateGetCache } from '../lib/api'
+import { api } from '../lib/api'
 import { invalidateBusinessData } from '@/lib/query'
-
-function clearBusinessGetCaches() {
-  invalidateGetCache((cacheKey) =>
-    cacheKey.includes('|/api/orders|') ||
-    cacheKey.includes('|/api/inventory|') ||
-    cacheKey.includes('|/api/ledger|') ||
-    cacheKey.includes('|/api/customers|') ||
-    cacheKey.includes('|/api/reports|') ||
-    cacheKey.includes('|/api/referral-partners|')
-  )
-}
 
 export function useOrders(filters?: { status?: string; customerId?: string; page?: number }) {
   return useQuery({
@@ -44,7 +33,6 @@ export function useCreateOrder() {
   return useMutation({
     mutationFn: (data: any) => api.post('/api/orders', data, { timeout: 60_000 }).then((r) => r.data.data),
     onSuccess: async () => {
-      clearBusinessGetCaches()
       invalidateBusinessData(qc, ['orders', 'dashboard', 'inventory', 'ledger'])
       await qc.refetchQueries({ queryKey: ['orders'], type: 'active' })
     },
@@ -56,7 +44,6 @@ export function useDeleteOrder() {
   return useMutation({
     mutationFn: (id: string) => api.delete(`/api/orders/${id}`).then((r) => r.data),
     onSuccess: () => {
-      clearBusinessGetCaches()
       invalidateBusinessData(qc, ['orders', 'dashboard', 'inventory', 'ledger', 'customers'])
     },
   })
@@ -67,7 +54,6 @@ export function useBulkDeleteOrders() {
   return useMutation({
     mutationFn: (ids: string[]) => api.post('/api/orders/bulk-delete', { ids }).then((r) => r.data),
     onSuccess: () => {
-      clearBusinessGetCaches()
       invalidateBusinessData(qc, ['orders', 'dashboard', 'inventory', 'ledger', 'customers'])
     },
   })
@@ -78,7 +64,6 @@ export function useCreateSalesReturn() {
   return useMutation({
     mutationFn: (data: any) => api.post('/api/sales-returns', data).then((r) => r.data.data),
     onSuccess: () => {
-      clearBusinessGetCaches()
       invalidateBusinessData(qc, ['orders', 'inventory', 'ledger', 'customers', 'reports'])
     },
   })
@@ -90,7 +75,6 @@ export function useUpdateOrderStatus() {
     mutationFn: ({ id, status }: { id: string; status: 'DRAFT' | 'CONFIRMED' | 'DISPATCHED' | 'DELIVERED' | 'CANCELLED' }) =>
       api.patch(`/api/orders/${id}/status`, { status }).then((r) => r.data),
     onSuccess: (_data, vars) => {
-      clearBusinessGetCaches()
       invalidateBusinessData(qc, ['orders', 'dashboard', 'inventory', 'ledger', 'customers'])
       qc.invalidateQueries({ queryKey: ['orders', vars.id] })
     },

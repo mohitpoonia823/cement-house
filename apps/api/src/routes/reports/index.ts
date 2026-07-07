@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { reportsRepository } from '@cement-house/db'
+import { accountingRepository, reportsRepository } from '@cement-house/db'
 import { z } from 'zod'
 import { requireOwner, getBizId } from '../../middleware/auth'
 import { streamAnalyticsSnapshot } from '../../services/pdf'
@@ -663,8 +663,18 @@ export async function reportRoutes(app: FastifyInstance) {
     return { success: true, data: rows.filter((row) => Number(row.outstanding) > 0) }
   })
 
-  app.get('/supplier-dues', async () => {
-    return { success: true, data: [], message: 'Suppliers module/report is not implemented yet in this workspace.' }
+  app.get('/supplier-dues', async (req) => {
+    const bizId = getBizId(req)
+    const suppliers = await accountingRepository.listSuppliersWithBalance({ businessId: bizId })
+    const rows = suppliers
+      .filter((s) => Number(s.balance) > 0)
+      .map((s) => ({
+        supplierName: s.supplierName,
+        phone: s.phone ?? '',
+        gstin: s.gstin ?? '',
+        payable: Number(s.balance),
+      }))
+    return { success: true, data: rows }
   })
 
   app.get('/profit-loss', async (req) => {
@@ -705,7 +715,10 @@ export async function reportRoutes(app: FastifyInstance) {
     if (!isModuleEnabled(req, 'expenses')) {
       return { success: true, data: [], message: 'Expenses module is not enabled for this business.' }
     }
-    return { success: true, data: [], message: 'Expenses report API placeholder. Add expenses table integration next.' }
+    const bizId = getBizId(req)
+    const filter = resolveFilter(req, bizId)
+    const rows = await accountingRepository.listExpenseEntries({ businessId: bizId, start: filter.start, end: filter.end })
+    return { success: true, data: rows }
   })
 
   app.get('/sales-returns', async (req) => {
@@ -771,7 +784,10 @@ export async function reportRoutes(app: FastifyInstance) {
     if (!isModuleEnabled(req, 'purchases')) {
       return { success: true, data: [], message: 'Purchases module is not enabled for this business.' }
     }
-    return { success: true, data: [], message: 'Purchase summary placeholder. Add purchase table integration next.' }
+    const bizId = getBizId(req)
+    const filter = resolveFilter(req, bizId)
+    const rows = await accountingRepository.listPurchasesForReport({ businessId: bizId, start: filter.start, end: filter.end })
+    return { success: true, data: rows }
   })
 
   app.get('/export', async (req, reply) => {

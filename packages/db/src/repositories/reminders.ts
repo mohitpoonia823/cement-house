@@ -104,17 +104,15 @@ export async function getLedgerSnapshotsByCustomerIds(businessId: string, custom
 
   return prisma.$queryRaw<ReminderLedgerSnapshotRow[]>(Prisma.sql`
     SELECT
-      "customerId" AS "customerId",
-      (
-        COALESCE(SUM(CASE WHEN type = 'DEBIT'::"LedgerEntryType" THEN amount ELSE 0 END), 0)
-        -
-        COALESCE(SUM(CASE WHEN type = 'CREDIT'::"LedgerEntryType" THEN amount ELSE 0 END), 0)
-      )::double precision AS balance,
-      MIN(CASE WHEN type = 'DEBIT'::"LedgerEntryType" THEN "createdAt" ELSE NULL END) AS "oldestDebitAt"
-    FROM ledger_entries
-    WHERE "businessId" = ${businessId}
-      AND "customerId" IN (${Prisma.join(customerIds)})
-    GROUP BY "customerId"
+      la."customerId" AS "customerId",
+      COALESCE(SUM(jl.debit - jl.credit), 0)::double precision AS balance,
+      MIN(CASE WHEN jl.debit > 0 THEN je.date ELSE NULL END) AS "oldestDebitAt"
+    FROM ledger_accounts la
+    JOIN journal_lines jl ON jl."accountId" = la.id
+    JOIN journal_entries je ON je.id = jl."entryId"
+    WHERE la."businessId" = ${businessId}
+      AND la."customerId" IN (${Prisma.join(customerIds)})
+    GROUP BY la."customerId"
   `)
 }
 
@@ -138,20 +136,33 @@ export async function getGlobalOverdueCustomers() {
       c.id AS "customerId",
       c.name AS name,
       c.phone AS phone,
-      (
-        COALESCE(SUM(CASE WHEN le.type = 'DEBIT'::"LedgerEntryType" THEN le.amount ELSE 0 END), 0)
-        - COALESCE(SUM(CASE WHEN le.type = 'CREDIT'::"LedgerEntryType" THEN le.amount ELSE 0 END), 0)
-      )::double precision AS balance,
-      MIN(CASE WHEN le.type = 'DEBIT'::"LedgerEntryType" THEN le."createdAt" ELSE NULL END) AS "oldestDebitAt"
+      COALESCE(SUM(jl.debit - jl.credit), 0)::double precision AS balance,
+      MIN(CASE WHEN jl.debit > 0 THEN je.date ELSE NULL END) AS "oldestDebitAt"
     FROM customers c
-    INNER JOIN ledger_entries le ON le."customerId" = c.id
-    WHERE c."isActive" = true
+    INNER JOIN ledger_accounts la ON la."customerId" = c.id AND la."businessId" = c."businessId"
+    INNER JOIN journal_lines jl ON jl."accountId" = la.id
+    INNER JOIN journal_entries je ON je.id = jl."entryId"
+    WHERE c."isActive" = true AND c."remindersEnabled" = true
     GROUP BY c.id, c.name, c.phone
-    HAVING (
-      COALESCE(SUM(CASE WHEN le.type = 'DEBIT'::"LedgerEntryType" THEN le.amount ELSE 0 END), 0)
-      - COALESCE(SUM(CASE WHEN le.type = 'CREDIT'::"LedgerEntryType" THEN le.amount ELSE 0 END), 0)
-    ) > 0
+    HAVING COALESCE(SUM(jl.debit - jl.credit), 0) > 0
   `
+}
+
+/**
+ * Most recent successfully-sent reminder per customer. The nightly cron uses
+ * this to catch up missed threshold nights without double-sending: a customer
+ * is only queued if nothing was sent since their current overdue bucket was
+ * crossed.
+ */
+export async function getLastSentReminderByCustomerIds(customerIds: string[]) {
+  if (customerIds.length === 0) return []
+  return prisma.$queryRaw<Array<{ customerId: string; lastSentAt: Date }>>(Prisma.sql`
+    SELECT "customerId" AS "customerId", MAX("sentAt") AS "lastSentAt"
+    FROM reminders
+    WHERE "customerId" IN (${Prisma.join(customerIds)})
+      AND status = 'SENT' AND "sentAt" IS NOT NULL
+    GROUP BY "customerId"
+  `)
 }
 
 export async function createReminder(input: {

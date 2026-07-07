@@ -27,31 +27,48 @@ cron.schedule('0 20 * * *', async () => {
   console.log('[cron] Checking overdue ledger balances...')
 
   // Balances + oldest open debit are computed in SQL; only customers with a
-  // positive balance come back, so we never pull the whole ledger into memory.
+  // positive balance (and reminders enabled) come back, so we never pull the
+  // whole ledger into memory.
   const overdue = await remindersRepository.getGlobalOverdueCustomers()
+  const lastSentRows = await remindersRepository.getLastSentReminderByCustomerIds(
+    overdue.map((c) => c.customerId)
+  )
+  const lastSent = new Map(lastSentRows.map((r) => [r.customerId, new Date(r.lastSentAt)]))
 
   for (const customer of overdue) {
     const oldest = customer.oldestDebitAt
     if (!oldest) continue
     const days = daysSince(new Date(oldest))
 
-    // Queue reminders at 7, 15, 30-day thresholds
-    if (days === 7 || days === 15 || days === 30) {
-      // Deterministic jobId → BullMQ dedupes if the cron re-fires or the worker
-      // restarts mid-run, preventing duplicate WhatsApp messages to a customer.
-      const dayKey = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
-      await reminderQueue.add(
-        'send-reminder',
-        { customerId: customer.customerId, balance: customer.balance, days, phone: customer.phone, name: customer.name },
-        {
-          jobId: `reminder:${customer.customerId}:${days}:${dayKey}`,
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 5000 },
-          removeOnComplete: { count: 1000 },
-          removeOnFail: { count: 5000 },
-        }
-      )
-    }
+    // Bucketed thresholds with catch-up: 7 and 15 days, then every 30 days.
+    // Unlike a strict `days === threshold` check, a customer whose threshold
+    // night was missed (worker asleep/redeploying) is still picked up the next
+    // night — the sent-history check below prevents double-sends.
+    let bucket = 0
+    if (days >= 30) bucket = 30 * Math.floor(days / 30)
+    else if (days >= 15) bucket = 15
+    else if (days >= 7) bucket = 7
+    if (bucket === 0) continue
+
+    // Skip if a reminder already went out since this bucket was crossed.
+    const crossedAt = new Date(Date.now() - (days - bucket) * 24 * 60 * 60 * 1000)
+    const prev = lastSent.get(customer.customerId)
+    if (prev && prev >= crossedAt) continue
+
+    // Deterministic jobId → BullMQ dedupes if the cron re-fires or the worker
+    // restarts mid-run, preventing duplicate WhatsApp messages to a customer.
+    const dayKey = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+    await reminderQueue.add(
+      'send-reminder',
+      { customerId: customer.customerId, balance: customer.balance, days, phone: customer.phone, name: customer.name },
+      {
+        jobId: `reminder:${customer.customerId}:${bucket}:${dayKey}`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: { count: 1000 },
+        removeOnFail: { count: 5000 },
+      }
+    )
   }
 })
 

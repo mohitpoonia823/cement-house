@@ -1,11 +1,16 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { ordersRepository, referralPartnersRepository, type Prisma } from '@cement-house/db'
-import { generateChallanNumber, marginPct } from '@cement-house/utils'
+import { ordersRepository } from '@cement-house/db'
+import { generateChallanNumber } from '@cement-house/utils'
 import { getBizId } from '../../middleware/auth'
 import { createAuditLog } from '../../services/audit'
-import { calculateInvoice, validateInvoiceInput } from '../../services/billing-engine'
-import { ensureUsageAllowed } from '../../services/subscription-access'
+import {
+  AddOrderItemSchema,
+  CreateOrderSchema,
+  appendItemToOrderForBusiness,
+  createOrderForBusiness,
+  type OrderActor,
+} from '../../services/order-service'
 
 const ORDERS_LIST_CACHE_TTL_MS = 10_000
 const ORDER_DETAIL_CACHE_TTL_MS = 10_000
@@ -41,60 +46,6 @@ const ListOrdersQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
 })
 
-const CreateOrderSchema = z.object({
-  customerId: z.string().uuid(),
-  referralPartnerId: z.string().uuid().optional(),
-  sourceLocationId: z.string().uuid().optional(),
-  deliveryDate: z.string().min(1).optional(),
-  gstEnabled: z.boolean().optional(),
-  isInterState: z.boolean().optional(),
-  invoiceDiscount: z.number().min(0).optional(),
-  roundOff: z.number().optional(),
-  transportCharges: z.number().min(0).optional(),
-  loadingCharges: z.number().min(0).optional(),
-  allowAdvancePayment: z.boolean().optional(),
-  allowNegativeStock: z.boolean().optional(),
-  paymentMode: z.enum(['CASH', 'UPI', 'CHEQUE', 'CREDIT', 'PARTIAL']),
-  amountPaid: z.number().min(0),
-  // The grand total the client showed the user. If it disagrees with the server's
-  // recompute, we reject rather than silently save a different amount.
-  expectedTotal: z.number().min(0).optional(),
-  notes: z.string().optional(),
-  items: z.array(z.object({
-    materialId: z.string().uuid(),
-    variantId: z.string().min(1).optional(),
-    quantity: z.number().positive(),
-    unitPrice: z.number().min(0),
-    purchasePrice: z.number().min(0),
-    billingBasis: z.enum(['QUANTITY', 'WEIGHT']).optional(),
-    discount: z.number().min(0).optional(),
-    hsnCode: z.string().trim().max(30).optional(),
-    gstRate: z.number().min(0).max(100).optional(),
-    barcode: z.string().optional(),
-    batchNumber: z.string().optional(),
-    expiryDate: z.string().optional(),
-    serialNumber: z.string().optional(),
-    imeiNumber: z.string().optional(),
-    grossWeight: z.number().min(0).optional(),
-    tareWeight: z.number().min(0).optional(),
-    netWeight: z.number().min(0).optional(),
-  })).min(1),
-})
-
-const AddItemSchema = z.object({
-  materialId: z.string().uuid(),
-  variantId: z.string().min(1).optional(),
-  quantity: z.number().positive(),
-  unitPrice: z.number().min(0),
-  purchasePrice: z.number().min(0),
-  hsnCode: z.string().trim().max(30).optional(),
-  discount: z.number().min(0).optional(),
-  gstRate: z.number().min(0).max(100).optional(),
-  netWeight: z.number().min(0).optional(),
-  grossWeight: z.number().min(0).optional(),
-  tareWeight: z.number().min(0).optional(),
-})
-
 const UpdateStatusSchema = z.object({
   status: z.enum(['DRAFT', 'CONFIRMED', 'DISPATCHED', 'DELIVERED', 'CANCELLED']),
 })
@@ -102,12 +53,6 @@ const UpdateStatusSchema = z.object({
 const BulkDeleteSchema = z.object({
   ids: z.array(z.string().uuid()).min(1),
 })
-
-function startOfDay(date: Date) {
-  const next = new Date(date)
-  next.setHours(0, 0, 0, 0)
-  return next
-}
 
 export async function orderRoutes(app: FastifyInstance) {
   app.get('/', async (req, reply) => {
@@ -203,260 +148,36 @@ export async function orderRoutes(app: FastifyInstance) {
   })
 
   app.post('/', async (req, reply) => {
-    const user = req.user as { id: string; featureFlags?: Record<string, boolean> | null; defaultSettings?: Record<string, unknown> | null }
+    const actor = req.user as OrderActor
     const bizId = getBizId(req)
     const body = CreateOrderSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    try {
-      await ensureUsageAllowed(bizId, 'ordersPerMonth')
-      await ensureUsageAllowed(bizId, 'invoicesPerMonth')
-    } catch (error: any) {
-      if (error.message === 'PLAN_EXPIRED') {
-        return reply.status(402).send({ success: false, code: 'PLAN_EXPIRED', error: 'Plan expired. Please renew your subscription.' })
-      }
-      if (error.message === 'LIMIT_EXCEEDED') {
-        return reply.status(403).send({ success: false, code: 'LIMIT_EXCEEDED', error: 'Monthly order/invoice limit reached for your plan.' })
-      }
-      throw error
+    const result = await createOrderForBusiness(bizId, actor, body.data)
+    if (!result.ok) {
+      return reply.status(result.status).send({ success: false, code: result.code, error: result.error })
     }
 
-    const {
-      customerId,
-      referralPartnerId,
-      sourceLocationId,
-      paymentMode,
-      amountPaid,
-      notes,
-      items,
-      deliveryDate,
-      gstEnabled,
-      isInterState,
-      invoiceDiscount,
-      roundOff,
-      transportCharges,
-      loadingCharges,
-      allowAdvancePayment,
-      allowNegativeStock,
-      expectedTotal,
-    } = body.data
-    if (deliveryDate) {
-      const parsedDeliveryDate = new Date(`${deliveryDate}T00:00:00`)
-      if (Number.isNaN(parsedDeliveryDate.getTime())) {
-        return reply.status(400).send({ success: false, error: 'Invalid delivery date' })
-      }
-      if (startOfDay(parsedDeliveryDate) < startOfDay(new Date())) {
-        return reply.status(400).send({ success: false, error: 'Delivery date cannot be earlier than order creation date' })
-      }
-    }
-
-    const billingValidationError = validateInvoiceInput({
-      items,
-      paymentMode,
-      paidAmount: amountPaid,
-      invoiceDiscount,
-      roundOff,
-      transportCharges,
-      loadingCharges,
-      gstEnabled,
-      isInterState,
-      allowAdvancePayment,
-      featureFlags: user.featureFlags ?? {},
-    })
-    if (billingValidationError) {
-      return reply.status(400).send({ success: false, error: billingValidationError })
-    }
-
-    const computed = calculateInvoice({
-      items,
-      paymentMode,
-      paidAmount: amountPaid,
-      invoiceDiscount,
-      roundOff,
-      transportCharges,
-      loadingCharges,
-      gstEnabled,
-      isInterState,
-      allowAdvancePayment,
-      featureFlags: user.featureFlags ?? {},
-    })
-
-    // Guardrail: the amount the client showed the user must match what the server
-    // recomputes. Catches any client/server billing divergence before it becomes a
-    // wrong invoice (e.g. quantity-vs-weight basis mismatches).
-    if (expectedTotal != null && Math.abs(expectedTotal - computed.grandTotal) > 1) {
-      return reply.status(409).send({
-        success: false,
-        code: 'TOTAL_MISMATCH',
-        error: `Invoice total changed (shown ₹${expectedTotal.toLocaleString('en-IN')}, recalculated ₹${computed.grandTotal.toLocaleString('en-IN')}). Please review the order and try again.`,
-      })
-    }
-
-    const totalAmount = computed.grandTotal
-    let referralRewardAmount: number | undefined
-    let referralRewardRate: number | undefined
-    if (referralPartnerId) {
-      const partner = await referralPartnersRepository.getReferralPartnerById(referralPartnerId, bizId)
-      if (!partner || !partner.isActive) {
-        return reply.status(400).send({ success: false, error: 'Referral partner not found or inactive' })
-      }
-      if (partner.rewardType === 'FLAT') {
-        referralRewardRate = Number(partner.rewardValue)
-        referralRewardAmount = Number(partner.rewardValue)
-      } else {
-        referralRewardRate = Number(partner.rewardValue)
-        referralRewardAmount = Number(((totalAmount * referralRewardRate) / 100).toFixed(2))
-      }
-    }
-    const avgMargin = items.reduce((sum, item) => sum + marginPct(item.unitPrice, item.purchasePrice), 0) / items.length
-    const nowYear = new Date().getFullYear()
-    const seq = await ordersRepository.getNextInvoiceSequence(bizId, nowYear)
-    const orderNumber = `INV-${nowYear}-${String(seq).padStart(6, '0')}`
-    let order
-    try {
-      order = await ordersRepository.createOrder({
-        orderNumber,
-        invoiceNumber: orderNumber,
-        customerId,
-        referralPartnerId,
-        referralRewardAmount,
-        referralRewardRate,
-        createdById: user.id,
-        paymentMode,
-        amountPaid: computed.paidAmount,
-        paidAmount: computed.paidAmount,
-        dueAmount: computed.dueAmount,
-        subtotal: computed.subtotal,
-        itemDiscountTotal: computed.itemDiscountTotal,
-        invoiceDiscount: computed.invoiceDiscount,
-        taxableAmount: computed.taxableTotal,
-        gstTotal: computed.gstTotal,
-        cgstTotal: computed.cgstTotal,
-        sgstTotal: computed.sgstTotal,
-        igstTotal: computed.igstTotal,
-        transportCharges: computed.transportCharges,
-        loadingCharges: computed.loadingCharges,
-        roundOff: computed.roundOff,
-        grandTotal: computed.grandTotal,
-        billingSnapshot: JSON.parse(
-          JSON.stringify({
-            lines: computed.lines,
-            gstEnabled: gstEnabled ?? Boolean(user.featureFlags?.gstBilling),
-            isInterState: isInterState ?? false,
-          })
-        ) as Prisma.JsonValue,
-        totalAmount,
-        marginPct: avgMargin,
-        notes,
-        businessId: bizId,
-        sourceLocationId,
-        deliveryDate,
-        allowNegativeStock: allowNegativeStock === true || user.defaultSettings?.allowNegativeStock === true,
-        items: computed.lines.map((line, i) => ({
-          materialId: line.materialId,
-          variantId: items[i].variantId,
-          quantity: items[i].quantity,
-          unitPrice: items[i].unitPrice,
-          purchasePrice: items[i].purchasePrice,
-          lineTotal: line.lineTotal,
-          hsnCode: items[i].hsnCode,
-          gstRate: line.gstRate,
-          taxableAmount: line.taxableAmount,
-          gstAmount: line.gstAmount,
-          cgstAmount: line.cgstAmount,
-          sgstAmount: line.sgstAmount,
-          igstAmount: line.igstAmount,
-          discountAmount: line.itemDiscount,
-          deductionQty: line.deductionQty,
-        })),
-      })
-    } catch (error: any) {
-      const message = String(error?.message ?? '')
-      if (message.includes('Transaction API error: Transaction not found')) {
-        const recovered = await ordersRepository.getOrderByNumber(orderNumber, bizId)
-        if (recovered) {
-          invalidateOrderCachesForBusiness(bizId)
-          return reply.send({ success: true, data: recovered, recovered: true })
-        }
-        return reply.status(503).send({
-          success: false,
-          code: 'ORDER_TX_RETRY',
-          error: 'Order creation timed out internally. Please retry once.',
-        })
-      }
-      return reply.status(400).send({ success: false, error: message || 'Failed to create order' })
-    }
-
-    if (!order) return reply.status(500).send({ success: false, error: 'Failed to create order' })
     invalidateOrderCachesForBusiness(bizId)
-    return { success: true, data: order }
+    if (result.data.recovered) {
+      return reply.send({ success: true, data: result.data, recovered: true })
+    }
+    return { success: true, data: result.data }
   })
 
   app.post('/:id/items', async (req, reply) => {
     const params = OrderIdParamsSchema.safeParse(req.params)
     if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
 
-    const user = req.user as { id: string; featureFlags?: Record<string, boolean> | null; defaultSettings?: Record<string, unknown> | null }
+    const actor = req.user as OrderActor
     const bizId = getBizId(req)
-    const body = AddItemSchema.safeParse(req.body)
+    const body = AddOrderItemSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
 
-    const order = await ordersRepository.getOrderDetail(params.data.id, bizId)
-    if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
-
-    const lineValidationError = validateInvoiceInput({
-      items: [{
-        ...body.data,
-        grossWeight: body.data.grossWeight,
-        tareWeight: body.data.tareWeight,
-        netWeight: body.data.netWeight,
-      }],
-      paymentMode: order.paymentMode,
-      paidAmount: 0,
-      featureFlags: user.featureFlags ?? {},
-      allowAdvancePayment: true,
-    })
-    if (lineValidationError) {
-      return reply.status(400).send({ success: false, error: lineValidationError })
+    const result = await appendItemToOrderForBusiness(bizId, actor, params.data.id, body.data)
+    if (!result.ok) {
+      return reply.status(result.status).send({ success: false, code: result.code, error: result.error })
     }
-
-    const lineComputed = calculateInvoice({
-      items: [{
-        ...body.data,
-        grossWeight: body.data.grossWeight,
-        tareWeight: body.data.tareWeight,
-        netWeight: body.data.netWeight,
-      }],
-      paymentMode: order.paymentMode,
-      paidAmount: 0,
-      featureFlags: user.featureFlags ?? {},
-      allowAdvancePayment: true,
-    }).lines[0]
-
-    await ordersRepository.appendItemToOrder({
-      orderId: params.data.id,
-      businessId: bizId,
-      materialId: body.data.materialId,
-      variantId: body.data.variantId,
-      quantity: body.data.quantity,
-      unitPrice: body.data.unitPrice,
-      purchasePrice: body.data.purchasePrice,
-      lineTotal: lineComputed?.lineTotal ?? body.data.quantity * body.data.unitPrice,
-      hsnCode: body.data.hsnCode,
-      gstRate: body.data.gstRate ?? lineComputed?.gstRate ?? 0,
-      taxableAmount: lineComputed?.taxableAmount ?? body.data.quantity * body.data.unitPrice,
-      gstAmount: lineComputed?.gstAmount ?? 0,
-      cgstAmount: lineComputed?.cgstAmount ?? 0,
-      sgstAmount: lineComputed?.sgstAmount ?? 0,
-      igstAmount: lineComputed?.igstAmount ?? 0,
-      discountAmount: lineComputed?.itemDiscount ?? (body.data.discount ?? 0),
-      deductionQty: lineComputed?.deductionQty ?? body.data.quantity,
-      allowNegativeStock: user.defaultSettings?.allowNegativeStock === true,
-      userId: user.id,
-      orderNumber: order.orderNumber,
-      paymentMode: order.paymentMode,
-      customerId: order.customerId,
-    })
 
     invalidateOrderCachesForBusiness(bizId)
     return { success: true }

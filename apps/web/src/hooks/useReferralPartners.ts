@@ -1,9 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, invalidateGetCache } from '@/lib/api'
+import { api } from '@/lib/api'
 
-function clearReferralCaches() {
-  invalidateGetCache((cacheKey) => cacheKey.includes('|/api/referral-partners|') || cacheKey.includes('|/api/orders|'))
-}
 
 export function useReferralPartners(search?: string, options?: { enabled?: boolean }) {
   return useQuery({
@@ -31,7 +28,6 @@ export function useCreateReferralPartner() {
   return useMutation({
     mutationFn: (data: any) => api.post('/api/referral-partners', data).then((r) => r.data.data),
     onSuccess: () => {
-      clearReferralCaches()
       qc.invalidateQueries({ queryKey: ['referral-partners'] })
     },
   })
@@ -42,7 +38,6 @@ export function useUpdateReferralPartner() {
   return useMutation({
     mutationFn: ({ id, ...data }: any) => api.patch(`/api/referral-partners/${id}`, data).then((r) => r.data.data),
     onSuccess: () => {
-      clearReferralCaches()
       qc.invalidateQueries({ queryKey: ['referral-partners'] })
     },
   })
@@ -53,7 +48,6 @@ export function useDeleteReferralPartner() {
   return useMutation({
     mutationFn: (id: string) => api.delete(`/api/referral-partners/${id}`).then((r) => r.data),
     onSuccess: () => {
-      clearReferralCaches()
       qc.invalidateQueries({ queryKey: ['referral-partners'] })
     },
   })

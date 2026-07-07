@@ -371,16 +371,21 @@ export async function getCreditEntries(params: {
   start: Date
   end: Date
 }) {
+  // Customer-account credit legs in the journal = every khata credit
+  // (receipts, with-order payments, returns, adjustments).
   return prisma.$queryRaw<AmountRow[]>`
     SELECT
-      amount::double precision AS amount,
-      "createdAt" AS "createdAt"
-    FROM ledger_entries
+      jl.credit::double precision AS amount,
+      je.date AS "createdAt"
+    FROM ledger_accounts la
+    JOIN journal_lines jl ON jl."accountId" = la.id
+    JOIN journal_entries je ON je.id = jl."entryId"
     WHERE
-      "businessId" = ${params.businessId}
-      AND type = 'CREDIT'
-      AND "createdAt" >= ${params.start}
-      AND "createdAt" <= ${params.end}
+      la."businessId" = ${params.businessId}
+      AND la."customerId" IS NOT NULL
+      AND jl.credit > 0
+      AND je.date >= ${params.start}
+      AND je.date <= ${params.end}
   `
 }
 
@@ -448,15 +453,16 @@ export async function getWindowedCreditEntries(params: {
     )
     SELECT
       w.window_key AS "windowKey",
-      le.amount::double precision AS amount,
-      le."createdAt" AS "createdAt"
+      jl.credit::double precision AS amount,
+      je.date AS "createdAt"
     FROM windows w
-    JOIN ledger_entries le
-      ON le."createdAt" >= w.start_at
-      AND le."createdAt" <= w.end_at
-      AND le."businessId" = ${params.businessId}
-      AND le.type = 'CREDIT'
-    ORDER BY le."createdAt" DESC
+    JOIN journal_entries je
+      ON je.date >= w.start_at
+      AND je.date <= w.end_at
+      AND je."businessId" = ${params.businessId}
+    JOIN journal_lines jl ON jl."entryId" = je.id AND jl.credit > 0
+    JOIN ledger_accounts la ON la.id = jl."accountId" AND la."customerId" IS NOT NULL
+    ORDER BY je.date DESC
   `
 }
 
@@ -564,12 +570,13 @@ export async function getCustomersSnapshot(businessId: string) {
     ) oc ON oc."customerId" = c.id
     LEFT JOIN (
       SELECT
-        "customerId",
-        SUM(CASE WHEN type = 'DEBIT' THEN amount ELSE 0 END)::double precision AS debit_total,
-        SUM(CASE WHEN type = 'CREDIT' THEN amount ELSE 0 END)::double precision AS credit_total
-      FROM ledger_entries
-      WHERE "businessId" = ${businessId}
-      GROUP BY "customerId"
+        lac."customerId",
+        SUM(jl.debit)::double precision AS debit_total,
+        SUM(jl.credit)::double precision AS credit_total
+      FROM ledger_accounts lac
+      JOIN journal_lines jl ON jl."accountId" = lac.id
+      WHERE lac."businessId" = ${businessId} AND lac."customerId" IS NOT NULL
+      GROUP BY lac."customerId"
     ) la ON la."customerId" = c.id
     WHERE c."businessId" = ${businessId} AND c."isActive" = true
     ORDER BY c.name ASC
@@ -650,12 +657,13 @@ export async function getKhataSnapshot(businessId: string) {
     FROM customers c
     LEFT JOIN (
       SELECT
-        "customerId",
-        SUM(CASE WHEN type = 'DEBIT' THEN amount ELSE 0 END)::double precision AS debit_total,
-        SUM(CASE WHEN type = 'CREDIT' THEN amount ELSE 0 END)::double precision AS credit_total
-      FROM ledger_entries
-      WHERE "businessId" = ${businessId}
-      GROUP BY "customerId"
+        lac."customerId",
+        SUM(jl.debit)::double precision AS debit_total,
+        SUM(jl.credit)::double precision AS credit_total
+      FROM ledger_accounts lac
+      JOIN journal_lines jl ON jl."accountId" = lac.id
+      WHERE lac."businessId" = ${businessId} AND lac."customerId" IS NOT NULL
+      GROUP BY lac."customerId"
     ) la ON la."customerId" = c.id
     WHERE c."businessId" = ${businessId} AND c."isActive" = true
     ORDER BY c.name ASC
@@ -805,34 +813,49 @@ export async function getPaymentCollectionsByFilter(filter: TenantReportFilter) 
 }
 
 export async function getProfitLossByFilter(filter: TenantReportFilter) {
-  const rows = await prisma.$queryRaw<ProfitLossSummaryRow[]>`
-    SELECT
-      COALESCE(SUM(COALESCE(o."grandTotal", o."totalAmount")), 0)::double precision AS "salesRevenue",
-      COALESCE(SUM(COALESCE(oi."purchasePrice", 0) * oi.quantity), 0)::double precision AS "purchaseCost",
-      (
-        COALESCE(SUM(COALESCE(o."grandTotal", o."totalAmount")), 0)
-        - COALESCE(SUM(COALESCE(oi."purchasePrice", 0) * oi.quantity), 0)
-      )::double precision AS "grossProfit",
-      CASE
-        WHEN COALESCE(SUM(COALESCE(o."grandTotal", o."totalAmount")), 0) <= 0 THEN 0
-        ELSE (
-          (
-            COALESCE(SUM(COALESCE(o."grandTotal", o."totalAmount")), 0)
-            - COALESCE(SUM(COALESCE(oi."purchasePrice", 0) * oi.quantity), 0)
-          ) / COALESCE(SUM(COALESCE(o."grandTotal", o."totalAmount")), 0) * 100
+  // Revenue and COGS are aggregated in separate queries: joining orders to
+  // order_items and summing order-level totals fans out (grandTotal counted
+  // once per line item). Revenue is the GST-exclusive taxable value — tax
+  // collected is a liability, not income. Cancelled orders are excluded
+  // unless the caller filters on a specific status. The full P&L (expenses,
+  // returns) lives in accounting.getProfitAndLoss / the financials page.
+  const [revenueRows, cogsRows] = await Promise.all([
+    prisma.$queryRaw<Array<{ salesRevenue: number }>>`
+      SELECT COALESCE(SUM(COALESCE(o."taxableAmount", o."totalAmount")), 0)::double precision AS "salesRevenue"
+      FROM orders o
+      WHERE
+        o."businessId" = ${filter.businessId}
+        AND o."isDeleted" = false
+        AND o."createdAt" >= ${filter.start}
+        AND o."createdAt" <= ${filter.end}
+        AND (${filter.customerId ?? null}::text IS NULL OR o."customerId" = ${filter.customerId ?? null})
+        AND (
+          (${filter.orderStatus ?? null}::text IS NULL AND o.status <> 'CANCELLED')
+          OR o.status::text = ${filter.orderStatus ?? null}
         )
-      END::double precision AS "grossMarginPct"
-    FROM orders o
-    LEFT JOIN order_items oi ON oi."orderId" = o.id
-    WHERE
-      o."businessId" = ${filter.businessId}
-      AND o."isDeleted" = false
-      AND o."createdAt" >= ${filter.start}
-      AND o."createdAt" <= ${filter.end}
-      AND (${filter.customerId ?? null}::text IS NULL OR o."customerId" = ${filter.customerId ?? null})
-      AND (${filter.orderStatus ?? null}::text IS NULL OR o.status::text = ${filter.orderStatus ?? null})
-  `
-  return rows[0] ?? { salesRevenue: 0, purchaseCost: 0, grossProfit: 0, grossMarginPct: 0 }
+    `,
+    prisma.$queryRaw<Array<{ purchaseCost: number }>>`
+      SELECT COALESCE(SUM(COALESCE(oi."purchasePrice", 0) * oi.quantity), 0)::double precision AS "purchaseCost"
+      FROM order_items oi
+      INNER JOIN orders o ON o.id = oi."orderId"
+      WHERE
+        o."businessId" = ${filter.businessId}
+        AND o."isDeleted" = false
+        AND o."createdAt" >= ${filter.start}
+        AND o."createdAt" <= ${filter.end}
+        AND (${filter.customerId ?? null}::text IS NULL OR o."customerId" = ${filter.customerId ?? null})
+        AND (
+          (${filter.orderStatus ?? null}::text IS NULL AND o.status <> 'CANCELLED')
+          OR o.status::text = ${filter.orderStatus ?? null}
+        )
+    `,
+  ])
+
+  const salesRevenue = Number(revenueRows[0]?.salesRevenue ?? 0)
+  const purchaseCost = Number(cogsRows[0]?.purchaseCost ?? 0)
+  const grossProfit = salesRevenue - purchaseCost
+  const grossMarginPct = salesRevenue <= 0 ? 0 : (grossProfit / salesRevenue) * 100
+  return { salesRevenue, purchaseCost, grossProfit, grossMarginPct } as ProfitLossSummaryRow
 }
 
 export async function getSalesReturnsByFilter(filter: TenantReportFilter) {

@@ -35,6 +35,9 @@ const SYSTEM_ACCOUNTS: Array<{ name: string; type: AccountType; group: string }>
   { name: 'Output IGST', type: 'LIABILITY', group: 'Duties & Taxes' },
   { name: 'Other Charges Income', type: 'INCOME', group: 'Indirect Incomes' },
   { name: 'Discount Allowed', type: 'EXPENSE', group: 'Indirect Expenses' },
+  // Balances CREDIT-mode khata credits (waivers/adjustments recorded as
+  // "payments" with no cash movement): Dr Khata Adjustment, Cr Customer.
+  { name: 'Khata Adjustment', type: 'EXPENSE', group: 'Indirect Expenses' },
 ]
 
 const VOUCHER_PREFIX: Record<VoucherType, string> = {
@@ -186,6 +189,7 @@ interface SaleVoucherInput {
   otherCharges: number     // transport + loading
   invoiceDiscount: number
   grandTotal: number
+  paymentMode?: string | null
 }
 
 /** Post a sale invoice → Dr Customer, Cr Sales/Output GST/Other income (Round Off balances). */
@@ -222,6 +226,7 @@ export async function postSaleVoucher(tx: Tx, input: SaleVoucherInput) {
     createdById: input.createdById,
     narration: `Sale to ${input.customerName}`,
     reference: input.orderNumber,
+    paymentMode: input.paymentMode ?? null,
     customerId: input.customerId,
     orderId: input.orderId,
     lines,
@@ -242,13 +247,15 @@ interface CustomerReceiptInput {
   ledgerEntryId?: string | null   // legacy khata entry id → idempotency for backfill
 }
 
-/** Post a customer receipt → Dr Cash/Bank, Cr Customer. */
+/** Post a customer receipt → Dr Cash/Bank, Cr Customer. CREDIT-mode entries
+ *  (waivers/adjustments with no cash movement) debit Khata Adjustment instead,
+ *  so every khata credit has a journal mirror. */
 export async function postCustomerReceiptVoucher(tx: Tx, input: CustomerReceiptInput) {
   const amount = round2(input.amount)
   if (amount <= 0) return null
   const sys = await ensureSystemAccounts(input.businessId, tx)
   const customer = await ensureCustomerAccount(input.businessId, input.customerId, input.customerName, tx)
-  const intoName = input.paymentMode === 'CASH' ? 'Cash' : 'Bank'
+  const intoName = input.paymentMode === 'CASH' ? 'Cash' : input.paymentMode === 'CREDIT' ? 'Khata Adjustment' : 'Bank'
   const into = sys.get(intoName)
   if (!into) throw new Error(`System account "${intoName}" missing`)
 
@@ -258,7 +265,9 @@ export async function postCustomerReceiptVoucher(tx: Tx, input: CustomerReceiptI
     date: input.date,
     createdById: input.createdById,
     narration: input.narration ?? `Receipt from ${input.customerName}`,
-    reference: input.ledgerEntryId ?? input.reference ?? null,
+    reference: input.reference ?? null,
+    paymentMode: input.paymentMode,
+    ledgerEntryId: input.ledgerEntryId ?? null,
     customerId: input.customerId,
     orderId: input.orderId ?? null,
     lines: [
@@ -266,6 +275,71 @@ export async function postCustomerReceiptVoucher(tx: Tx, input: CustomerReceiptI
       { accountId: customer.id, credit: amount },
     ],
   })
+}
+
+interface SalesReturnVoucherInput {
+  businessId: string
+  createdById: string
+  customerId: string
+  customerName: string
+  orderId: string
+  returnNumber: string
+  date: Date
+  taxableAmount: number   // return value net of GST
+  cgstAmount: number
+  sgstAmount: number
+  igstAmount: number
+  totalAmount: number     // taxable + GST reversal
+  ledgerEntryId?: string | null   // the khata credit this voucher mirrors
+}
+
+/** Post a sales return (credit note) → Dr Sales/Output GST, Cr Customer.
+ *  Exact mirror image of postSaleVoucher so revenue and output tax are
+ *  reversed in the books the moment the khata is credited. */
+export async function postSalesReturnVoucher(tx: Tx, input: SalesReturnVoucherInput) {
+  const sys = await ensureSystemAccounts(input.businessId, tx)
+  const customer = await ensureCustomerAccount(input.businessId, input.customerId, input.customerName, tx)
+  const acc = (name: string) => {
+    const a = sys.get(name)
+    if (!a) throw new Error(`System account "${name}" missing`)
+    return a.id
+  }
+
+  const lines: Array<{ accountId: string; debit?: number; credit?: number }> = [
+    { accountId: customer.id, credit: round2(input.totalAmount) },
+  ]
+  if (input.taxableAmount !== 0) lines.push({ accountId: acc('Sales Account'), debit: round2(input.taxableAmount) })
+  if (input.cgstAmount > 0) lines.push({ accountId: acc('Output CGST'), debit: round2(input.cgstAmount) })
+  if (input.sgstAmount > 0) lines.push({ accountId: acc('Output SGST'), debit: round2(input.sgstAmount) })
+  if (input.igstAmount > 0) lines.push({ accountId: acc('Output IGST'), debit: round2(input.igstAmount) })
+
+  const debit = round2(lines.reduce((s, l) => s + (l.debit ?? 0), 0))
+  const credit = round2(lines.reduce((s, l) => s + (l.credit ?? 0), 0))
+  const diff = round2(debit - credit)
+  if (diff > 0) lines.push({ accountId: acc('Round Off'), credit: diff })
+  else if (diff < 0) lines.push({ accountId: acc('Round Off'), debit: -diff })
+
+  return postVoucher(tx, {
+    businessId: input.businessId,
+    voucherType: 'JOURNAL',
+    date: input.date,
+    createdById: input.createdById,
+    narration: `Sales return from ${input.customerName}`,
+    reference: input.returnNumber,
+    paymentMode: 'PARTIAL',   // matches the khata credit the return posts
+    ledgerEntryId: input.ledgerEntryId ?? null,
+    customerId: input.customerId,
+    orderId: input.orderId,
+    lines,
+  })
+}
+
+/** Remove every voucher posted for an order (SALE, with-order RECEIPTs,
+ *  return JOURNALs). Called when an order's khata entries are deleted
+ *  (cancellation / soft-delete) so the two ledgers never diverge.
+ *  journal_lines cascade on entry delete. */
+export async function deleteOrderJournalEntries(tx: Tx, orderId: string, businessId: string) {
+  await tx.journalEntry.deleteMany({ where: { businessId, orderId } })
 }
 
 /** Next voucher number for a type, e.g. PB-2026-0001. Called inside a transaction. */
@@ -286,6 +360,8 @@ async function postVoucher(
     createdById: string
     narration?: string | null
     reference?: string | null
+    paymentMode?: string | null
+    ledgerEntryId?: string | null
     supplierId?: string | null
     purchaseId?: string | null
     customerId?: string | null
@@ -307,6 +383,8 @@ async function postVoucher(
       date: input.date,
       narration: input.narration ?? null,
       reference: input.reference ?? null,
+      paymentMode: input.paymentMode ?? null,
+      ledgerEntryId: input.ledgerEntryId ?? null,
       supplierId: input.supplierId ?? null,
       purchaseId: input.purchaseId ?? null,
       customerId: input.customerId ?? null,
@@ -1145,6 +1223,145 @@ export async function getProfitAndLoss(input: PeriodInput) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Opening balances — Cash / Bank
+//
+// "Set opening balance" is target-based: we read what OPENING vouchers already
+// carry for the account and post one more OPENING voucher for the delta, so
+// the journal stays append-only and re-saving the same figure is a no-op.
+// (Inventory is deliberately NOT journal-tracked — the balance sheet values it
+// straight from the materials master under the perpetual-inventory model.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const OPENING_BALANCE_ACCOUNTS = ['Cash', 'Bank'] as const
+export type OpeningBalanceAccount = (typeof OPENING_BALANCE_ACCOUNTS)[number]
+
+export async function getOpeningBalances(businessId: string) {
+  const rows = await prisma.$queryRaw<Array<{ name: string; bal: number }>>(Prisma.sql`
+    SELECT la.name, COALESCE(SUM(jl.debit - jl.credit), 0)::double precision AS bal
+    FROM ledger_accounts la
+    JOIN journal_lines jl ON jl."accountId" = la.id
+    JOIN journal_entries je ON je.id = jl."entryId"
+    WHERE la."businessId" = ${businessId}
+      AND la.name IN ('Cash', 'Bank')
+      AND je."voucherType" = 'OPENING'
+    GROUP BY la.name
+  `)
+  return {
+    cash: round2(rows.find((r) => r.name === 'Cash')?.bal ?? 0),
+    bank: round2(rows.find((r) => r.name === 'Bank')?.bal ?? 0),
+  }
+}
+
+export async function setOpeningBalance(input: {
+  businessId: string
+  createdById: string
+  account: OpeningBalanceAccount
+  amount: number
+}) {
+  const target = round2(input.amount)
+  return prisma.$transaction(async (tx) => {
+    const sys = await ensureSystemAccounts(input.businessId, tx)
+    const account = sys.get(input.account)
+    const adjustment = sys.get('Opening Balance Adjustment')
+    if (!account || !adjustment) throw new Error('System accounts missing')
+
+    const rows = await tx.$queryRaw<Array<{ bal: number }>>(Prisma.sql`
+      SELECT COALESCE(SUM(jl.debit - jl.credit), 0)::double precision AS bal
+      FROM journal_lines jl
+      JOIN journal_entries je ON je.id = jl."entryId"
+      WHERE je."businessId" = ${input.businessId}
+        AND je."voucherType" = 'OPENING'
+        AND jl."accountId" = ${account.id}
+    `)
+    const current = round2(Number(rows[0]?.bal ?? 0))
+    const delta = round2(target - current)
+    if (Math.abs(delta) < 0.01) return { account: input.account, openingBalance: current, changed: false }
+
+    await postVoucher(tx, {
+      businessId: input.businessId,
+      voucherType: 'OPENING',
+      date: new Date(),
+      createdById: input.createdById,
+      narration: `Opening balance — ${input.account} set to ${target.toFixed(2)}`,
+      lines: delta > 0
+        ? [
+            { accountId: account.id, debit: delta },
+            { accountId: adjustment.id, credit: delta },
+          ]
+        : [
+            { accountId: account.id, credit: -delta },
+            { accountId: adjustment.id, debit: -delta },
+          ],
+    })
+    return { account: input.account, openingBalance: target, changed: true }
+  }, TX_OPTIONS)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Khata ↔ journal reconciliation
+//
+// The customer khata (ledger_entries) and the double-entry journal are written
+// atomically together, so they should always agree per customer. This check
+// proves it — any nonzero diff means a code path wrote one side without the
+// other (or history was never imported via the backfill).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function getKhataJournalReconciliation(businessId: string) {
+  const [khataRows, journalRows] = await Promise.all([
+    prisma.$queryRaw<Array<{ customerId: string; customerName: string; khata: number }>>(Prisma.sql`
+      SELECT
+        c.id AS "customerId",
+        c.name AS "customerName",
+        COALESCE(SUM(CASE WHEN le.type = 'DEBIT' THEN le.amount ELSE -le.amount END), 0)::double precision AS khata
+      FROM customers c
+      LEFT JOIN ledger_entries le
+        ON le."customerId" = c.id AND le."businessId" = c."businessId"
+      WHERE c."businessId" = ${businessId}
+      GROUP BY c.id, c.name
+    `),
+    prisma.$queryRaw<Array<{ customerId: string; journal: number }>>(Prisma.sql`
+      SELECT
+        la."customerId" AS "customerId",
+        COALESCE(SUM(jl.debit - jl.credit), 0)::double precision AS journal
+      FROM ledger_accounts la
+      JOIN journal_lines jl ON jl."accountId" = la.id
+      WHERE la."businessId" = ${businessId} AND la."customerId" IS NOT NULL
+      GROUP BY la."customerId"
+    `),
+  ])
+
+  const journalByCustomer = new Map(journalRows.map((r) => [r.customerId, round2(Number(r.journal))]))
+  const rows = khataRows.map((r) => {
+    const khata = round2(Number(r.khata))
+    const journal = journalByCustomer.get(r.customerId) ?? 0
+    return {
+      customerId: r.customerId,
+      customerName: r.customerName,
+      khata,
+      journal,
+      diff: round2(khata - journal),
+    }
+  })
+
+  const mismatches = rows
+    .filter((r) => Math.abs(r.diff) >= 0.01)
+    .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
+    .slice(0, 200)
+
+  const totalKhata = round2(rows.reduce((s, r) => s + r.khata, 0))
+  const totalJournal = round2(rows.reduce((s, r) => s + r.journal, 0))
+  return {
+    totalKhata,
+    totalJournal,
+    totalDiff: round2(totalKhata - totalJournal),
+    customerCount: rows.length,
+    mismatchCount: mismatches.length,
+    reconciled: mismatches.length === 0,
+    mismatches,
+  }
+}
+
 export async function getBalanceSheet(input: { businessId: string; asOf: Date }) {
   const { businessId, asOf } = input
 
@@ -1165,13 +1382,18 @@ export async function getBalanceSheet(input: { businessId: string; asOf: Date })
   `)
   const inventory = round2(invRows[0]?.value ?? 0)
 
+  // Receivables come from the journal's customer accounts — the same source
+  // as payables/cash/bank — so the balance sheet has one system of record.
+  // (Run the accounting backfill if pre-journal history is missing; the
+  // reconciliation check surfaces any gap.)
   const recvRows = await prisma.$queryRaw<Array<{ receivable: number }>>(Prisma.sql`
     SELECT COALESCE(SUM(GREATEST(0, bal)), 0)::double precision AS receivable FROM (
-      SELECT le."customerId",
-        SUM(CASE WHEN le.type = 'DEBIT' THEN le.amount ELSE -le.amount END)::double precision AS bal
-      FROM ledger_entries le
-      WHERE le."businessId" = ${businessId} AND le."createdAt" <= ${asOf}
-      GROUP BY le."customerId"
+      SELECT la.id, SUM(jl.debit - jl.credit)::double precision AS bal
+      FROM ledger_accounts la
+      JOIN journal_lines jl ON jl."accountId" = la.id
+      JOIN journal_entries je ON je.id = jl."entryId"
+      WHERE la."businessId" = ${businessId} AND la."customerId" IS NOT NULL AND je.date <= ${asOf}
+      GROUP BY la.id
     ) t
   `)
   const receivables = round2(recvRows[0]?.receivable ?? 0)
@@ -1259,6 +1481,65 @@ export async function getPayablesAging(input: { businessId: string; asOf: Date }
 // GST returns — GSTR-1 (outward supplies) and GSTR-3B (net tax summary)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Expense voucher lines for the reports tab — one row per expense-head debit.
+export async function listExpenseEntries(input: PeriodInput & { limit?: number }) {
+  const limit = Math.min(Math.max(input.limit ?? 500, 1), 2000)
+  return prisma.$queryRaw<Array<{
+    date: Date; voucherNumber: string; expenseHead: string; amount: number; paidVia: string; narration: string | null
+  }>>(Prisma.sql`
+    SELECT
+      je.date AS date,
+      je."voucherNumber" AS "voucherNumber",
+      la.name AS "expenseHead",
+      jl.debit::double precision AS amount,
+      COALESCE((
+        SELECT lac.name
+        FROM journal_lines jlc
+        INNER JOIN ledger_accounts lac ON lac.id = jlc."accountId"
+        WHERE jlc."entryId" = je.id AND jlc.credit > 0
+        LIMIT 1
+      ), '') AS "paidVia",
+      je.narration AS narration
+    FROM journal_entries je
+    INNER JOIN journal_lines jl ON jl."entryId" = je.id
+    INNER JOIN ledger_accounts la ON la.id = jl."accountId"
+    WHERE je."businessId" = ${input.businessId}
+      AND je."voucherType" = 'EXPENSE'
+      AND la.type = 'EXPENSE'
+      AND jl.debit > 0
+      AND je.date >= ${input.start} AND je.date <= ${input.end}
+    ORDER BY je.date DESC
+    LIMIT ${limit}
+  `)
+}
+
+// Purchase bills for the reports tab.
+export async function listPurchasesForReport(input: PeriodInput & { limit?: number }) {
+  const limit = Math.min(Math.max(input.limit ?? 500, 1), 2000)
+  return prisma.$queryRaw<Array<{
+    purchaseNumber: string; invoiceDate: Date; supplierName: string; taxableAmount: number
+    gstTotal: number; grandTotal: number; paidAmount: number; dueAmount: number; status: string
+  }>>(Prisma.sql`
+    SELECT
+      p."purchaseNumber" AS "purchaseNumber",
+      p."invoiceDate" AS "invoiceDate",
+      s.name AS "supplierName",
+      p."taxableAmount"::double precision AS "taxableAmount",
+      p."gstTotal"::double precision AS "gstTotal",
+      p."grandTotal"::double precision AS "grandTotal",
+      p."paidAmount"::double precision AS "paidAmount",
+      (p."grandTotal" - p."paidAmount")::double precision AS "dueAmount",
+      p.status::text AS status
+    FROM purchases p
+    INNER JOIN suppliers s ON s.id = p."supplierId"
+    WHERE p."businessId" = ${input.businessId}
+      AND p.status <> 'CANCELLED'
+      AND p."invoiceDate" >= ${input.start} AND p."invoiceDate" <= ${input.end}
+    ORDER BY p."invoiceDate" DESC
+    LIMIT ${limit}
+  `)
+}
+
 export async function getGstr1(input: PeriodInput) {
   const { businessId, start, end } = input
 
@@ -1328,6 +1609,68 @@ export async function getGstr1(input: PeriodInput) {
   const b2b = splitRows.find((r) => r.b2b) ?? { invoiceCount: 0, taxable: 0, gst: 0 }
   const b2c = splitRows.find((r) => !r.b2b) ?? { invoiceCount: 0, taxable: 0, gst: 0 }
 
+  // Credit notes (sales returns) — the GSTR-1 CDNR (registered) / CDNUR
+  // (unregistered) sections. Without these, output tax is overstated for any
+  // month with returns. Legacy return items may carry only gstAmount without
+  // the cgst/sgst/igst split; infer the split from whether the source order
+  // was inter-state.
+  const cnSplitRows = await prisma.$queryRaw<Array<{
+    registered: boolean; noteCount: number; taxable: number; cgst: number; sgst: number; igst: number; gst: number; total: number
+  }>>(Prisma.sql`
+    SELECT
+      (c.gstin IS NOT NULL AND c.gstin <> '') AS registered,
+      COUNT(DISTINCT sr.id)::int AS "noteCount",
+      COALESCE(SUM(sri."taxableAmount"), 0)::double precision AS taxable,
+      COALESCE(SUM(COALESCE(sri."cgstAmount", CASE WHEN COALESCE(o."igstTotal", 0) > 0 THEN 0 ELSE sri."gstAmount" / 2 END)), 0)::double precision AS cgst,
+      COALESCE(SUM(COALESCE(sri."sgstAmount", CASE WHEN COALESCE(o."igstTotal", 0) > 0 THEN 0 ELSE sri."gstAmount" / 2 END)), 0)::double precision AS sgst,
+      COALESCE(SUM(COALESCE(sri."igstAmount", CASE WHEN COALESCE(o."igstTotal", 0) > 0 THEN sri."gstAmount" ELSE 0 END)), 0)::double precision AS igst,
+      COALESCE(SUM(sri."gstAmount"), 0)::double precision AS gst,
+      COALESCE(SUM(sri."totalAmount"), 0)::double precision AS total
+    FROM sales_return_items sri
+    INNER JOIN sales_returns sr ON sr.id = sri."returnId"
+    INNER JOIN orders o ON o.id = sr."orderId"
+    INNER JOIN customers c ON c.id = sr."customerId"
+    WHERE sr."businessId" = ${businessId} AND sr.status = 'COMPLETED'
+      AND sr."returnDate" >= ${start} AND sr."returnDate" <= ${end}
+    GROUP BY (c.gstin IS NOT NULL AND c.gstin <> '')
+  `)
+  const emptyCn = { noteCount: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, gst: 0, total: 0 }
+  const cdnr = cnSplitRows.find((r) => r.registered) ?? emptyCn
+  const cdnur = cnSplitRows.find((r) => !r.registered) ?? emptyCn
+  const cnOverall = {
+    noteCount: cdnr.noteCount + cdnur.noteCount,
+    taxable: round2(cdnr.taxable + cdnur.taxable),
+    cgst: round2(cdnr.cgst + cdnur.cgst),
+    sgst: round2(cdnr.sgst + cdnur.sgst),
+    igst: round2(cdnr.igst + cdnur.igst),
+    gst: round2(cdnr.gst + cdnur.gst),
+    total: round2(cdnr.total + cdnur.total),
+  }
+
+  // Note-level detail — the GST portal requires credit notes reported per
+  // note against the original invoice.
+  const cnNotes = await prisma.$queryRaw<Array<{
+    returnNumber: string; returnDate: Date; invoiceNumber: string; customerName: string; customerGstin: string | null;
+    taxable: number; gst: number; total: number
+  }>>(Prisma.sql`
+    SELECT
+      sr."returnNumber" AS "returnNumber",
+      sr."returnDate" AS "returnDate",
+      COALESCE(o."invoiceNumber", o."orderNumber") AS "invoiceNumber",
+      c.name AS "customerName",
+      NULLIF(COALESCE(c.gstin, ''), '') AS "customerGstin",
+      (sr."totalReturnAmount" - sr."gstReversalAmount")::double precision AS taxable,
+      sr."gstReversalAmount"::double precision AS gst,
+      sr."totalReturnAmount"::double precision AS total
+    FROM sales_returns sr
+    INNER JOIN orders o ON o.id = sr."orderId"
+    INNER JOIN customers c ON c.id = sr."customerId"
+    WHERE sr."businessId" = ${businessId} AND sr.status = 'COMPLETED'
+      AND sr."returnDate" >= ${start} AND sr."returnDate" <= ${end}
+    ORDER BY sr."returnDate" ASC
+    LIMIT 500
+  `)
+
   return {
     overall: {
       taxable: round2(overall.taxable),
@@ -1347,7 +1690,166 @@ export async function getGstr1(input: PeriodInput) {
     hsn: hsn.map((h) => ({ hsnCode: h.hsnCode, taxable: round2(h.taxable), gst: round2(h.gst), qty: round2(h.qty) })),
     b2b: { invoiceCount: b2b.invoiceCount, taxable: round2(b2b.taxable), gst: round2(b2b.gst) },
     b2c: { invoiceCount: b2c.invoiceCount, taxable: round2(b2c.taxable), gst: round2(b2c.gst) },
+    creditNotes: {
+      overall: cnOverall,
+      cdnr: {
+        noteCount: cdnr.noteCount,
+        taxable: round2(cdnr.taxable),
+        gst: round2(cdnr.gst),
+        total: round2(cdnr.total),
+      },
+      cdnur: {
+        noteCount: cdnur.noteCount,
+        taxable: round2(cdnur.taxable),
+        gst: round2(cdnur.gst),
+        total: round2(cdnur.total),
+      },
+      notes: cnNotes.map((n) => ({
+        returnNumber: n.returnNumber,
+        returnDate: n.returnDate,
+        invoiceNumber: n.invoiceNumber,
+        customerName: n.customerName,
+        customerGstin: n.customerGstin,
+        taxable: round2(n.taxable),
+        gst: round2(n.gst),
+        total: round2(n.total),
+      })),
+    },
+    // Outward supplies net of credit notes — the number that actually flows
+    // into the month's tax liability.
+    netOutward: {
+      taxable: round2(overall.taxable - cnOverall.taxable),
+      gst: round2(overall.gst - cnOverall.gst),
+    },
   }
+}
+
+// Invoice-level GSTR-1 detail for the GST-portal JSON export. Unlike getGstr1
+// (rate-level rollups for the on-screen worksheet), the portal's B2B/CDNR
+// sections require one entry per invoice per tax rate, keyed by the buyer's
+// GSTIN. POS for B2B comes from the GSTIN's first two digits; B2CS falls back
+// to the customer's stateCode and finally the business's own state.
+export async function getGstr1InvoiceLevel(input: PeriodInput) {
+  const { businessId, start, end } = input
+
+  const businessRows = await prisma.$queryRaw<Array<{
+    name: string; gstin: string | null; stateCode: string | null
+  }>>(Prisma.sql`
+    SELECT name, NULLIF(TRIM(COALESCE(gstin, '')), '') AS gstin, NULLIF(TRIM(COALESCE("stateCode", '')), '') AS "stateCode"
+    FROM businesses WHERE id = ${businessId}
+  `)
+  const business = businessRows[0] ?? { name: '', gstin: null, stateCode: null }
+
+  // B2B: one row per invoice × rate, only for buyers with a GSTIN on file.
+  const b2bRows = await prisma.$queryRaw<Array<{
+    orderId: string; invoiceNumber: string; invoiceDate: Date; invoiceValue: number
+    customerGstin: string; customerName: string
+    rate: number; taxable: number; cgst: number; sgst: number; igst: number
+  }>>(Prisma.sql`
+    SELECT
+      o.id AS "orderId",
+      COALESCE(o."invoiceNumber", o."orderNumber") AS "invoiceNumber",
+      o."createdAt" AS "invoiceDate",
+      COALESCE(o."grandTotal", o."totalAmount")::double precision AS "invoiceValue",
+      TRIM(c.gstin) AS "customerGstin",
+      c.name AS "customerName",
+      COALESCE(oi."gstRate", 0)::double precision AS rate,
+      COALESCE(SUM(COALESCE(oi."taxableAmount", oi."lineTotal")), 0)::double precision AS taxable,
+      COALESCE(SUM(COALESCE(oi."cgstAmount", 0)), 0)::double precision AS cgst,
+      COALESCE(SUM(COALESCE(oi."sgstAmount", 0)), 0)::double precision AS sgst,
+      COALESCE(SUM(COALESCE(oi."igstAmount", 0)), 0)::double precision AS igst
+    FROM orders o
+    INNER JOIN customers c ON c.id = o."customerId"
+    INNER JOIN order_items oi ON oi."orderId" = o.id
+    WHERE o."businessId" = ${businessId} AND o."isDeleted" = false AND o.status <> 'CANCELLED'
+      AND o."createdAt" >= ${start} AND o."createdAt" <= ${end}
+      AND c.gstin IS NOT NULL AND TRIM(c.gstin) <> ''
+    GROUP BY o.id, COALESCE(o."invoiceNumber", o."orderNumber"), o."createdAt",
+      COALESCE(o."grandTotal", o."totalAmount"), TRIM(c.gstin), c.name, COALESCE(oi."gstRate", 0)
+    ORDER BY o."createdAt" ASC, o.id, rate
+    LIMIT 5000
+  `)
+
+  // B2CS: unregistered buyers, aggregated by the buyer's state × rate. The
+  // empty-string state bucket is resolved to the business's own state by the
+  // portal-JSON builder (intra-state assumption).
+  const b2csRows = await prisma.$queryRaw<Array<{
+    stateCode: string; rate: number; taxable: number; cgst: number; sgst: number; igst: number
+  }>>(Prisma.sql`
+    SELECT
+      COALESCE(NULLIF(TRIM(COALESCE(c."stateCode", '')), ''), '') AS "stateCode",
+      COALESCE(oi."gstRate", 0)::double precision AS rate,
+      COALESCE(SUM(COALESCE(oi."taxableAmount", oi."lineTotal")), 0)::double precision AS taxable,
+      COALESCE(SUM(COALESCE(oi."cgstAmount", 0)), 0)::double precision AS cgst,
+      COALESCE(SUM(COALESCE(oi."sgstAmount", 0)), 0)::double precision AS sgst,
+      COALESCE(SUM(COALESCE(oi."igstAmount", 0)), 0)::double precision AS igst
+    FROM orders o
+    INNER JOIN customers c ON c.id = o."customerId"
+    INNER JOIN order_items oi ON oi."orderId" = o.id
+    WHERE o."businessId" = ${businessId} AND o."isDeleted" = false AND o.status <> 'CANCELLED'
+      AND o."createdAt" >= ${start} AND o."createdAt" <= ${end}
+      AND (c.gstin IS NULL OR TRIM(c.gstin) = '')
+    GROUP BY COALESCE(NULLIF(TRIM(COALESCE(c."stateCode", '')), ''), ''), COALESCE(oi."gstRate", 0)
+    ORDER BY "stateCode", rate
+  `)
+
+  // HSN summary with the head-wise split the portal's HSN section needs.
+  const hsnRows = await prisma.$queryRaw<Array<{
+    hsnCode: string; qty: number; taxable: number; cgst: number; sgst: number; igst: number
+  }>>(Prisma.sql`
+    SELECT
+      COALESCE(NULLIF(oi."hsnCode", ''), '') AS "hsnCode",
+      COALESCE(SUM(oi.quantity), 0)::double precision AS qty,
+      COALESCE(SUM(COALESCE(oi."taxableAmount", oi."lineTotal")), 0)::double precision AS taxable,
+      COALESCE(SUM(COALESCE(oi."cgstAmount", 0)), 0)::double precision AS cgst,
+      COALESCE(SUM(COALESCE(oi."sgstAmount", 0)), 0)::double precision AS sgst,
+      COALESCE(SUM(COALESCE(oi."igstAmount", 0)), 0)::double precision AS igst
+    FROM order_items oi
+    INNER JOIN orders o ON o.id = oi."orderId"
+    WHERE o."businessId" = ${businessId} AND o."isDeleted" = false AND o.status <> 'CANCELLED'
+      AND o."createdAt" >= ${start} AND o."createdAt" <= ${end}
+    GROUP BY COALESCE(NULLIF(oi."hsnCode", ''), '')
+    ORDER BY taxable DESC
+  `)
+
+  // Credit notes, one row per note × rate (rate via the returned order item).
+  // Same legacy split fallback as getGstr1's aggregate query.
+  const creditNoteRows = await prisma.$queryRaw<Array<{
+    returnId: string; returnNumber: string; returnDate: Date; noteValue: number
+    invoiceNumber: string; invoiceDate: Date
+    customerGstin: string | null; customerStateCode: string | null
+    rate: number; taxable: number; cgst: number; sgst: number; igst: number
+  }>>(Prisma.sql`
+    SELECT
+      sr.id AS "returnId",
+      sr."returnNumber" AS "returnNumber",
+      sr."returnDate" AS "returnDate",
+      sr."totalReturnAmount"::double precision AS "noteValue",
+      COALESCE(o."invoiceNumber", o."orderNumber") AS "invoiceNumber",
+      o."createdAt" AS "invoiceDate",
+      NULLIF(TRIM(COALESCE(c.gstin, '')), '') AS "customerGstin",
+      NULLIF(TRIM(COALESCE(c."stateCode", '')), '') AS "customerStateCode",
+      COALESCE(oi."gstRate", 0)::double precision AS rate,
+      COALESCE(SUM(sri."taxableAmount"), 0)::double precision AS taxable,
+      COALESCE(SUM(COALESCE(sri."cgstAmount", CASE WHEN COALESCE(o."igstTotal", 0) > 0 THEN 0 ELSE sri."gstAmount" / 2 END)), 0)::double precision AS cgst,
+      COALESCE(SUM(COALESCE(sri."sgstAmount", CASE WHEN COALESCE(o."igstTotal", 0) > 0 THEN 0 ELSE sri."gstAmount" / 2 END)), 0)::double precision AS sgst,
+      COALESCE(SUM(COALESCE(sri."igstAmount", CASE WHEN COALESCE(o."igstTotal", 0) > 0 THEN sri."gstAmount" ELSE 0 END)), 0)::double precision AS igst
+    FROM sales_return_items sri
+    INNER JOIN sales_returns sr ON sr.id = sri."returnId"
+    INNER JOIN orders o ON o.id = sr."orderId"
+    INNER JOIN customers c ON c.id = sr."customerId"
+    INNER JOIN order_items oi ON oi.id = sri."orderItemId"
+    WHERE sr."businessId" = ${businessId} AND sr.status = 'COMPLETED'
+      AND sr."returnDate" >= ${start} AND sr."returnDate" <= ${end}
+    GROUP BY sr.id, sr."returnNumber", sr."returnDate", sr."totalReturnAmount",
+      COALESCE(o."invoiceNumber", o."orderNumber"), o."createdAt",
+      NULLIF(TRIM(COALESCE(c.gstin, '')), ''), NULLIF(TRIM(COALESCE(c."stateCode", '')), ''),
+      COALESCE(oi."gstRate", 0)
+    ORDER BY sr."returnDate" ASC, sr.id, rate
+    LIMIT 2000
+  `)
+
+  return { business, b2bRows, b2csRows, hsnRows, creditNoteRows }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1403,8 +1905,11 @@ export async function backfillSalesAndReceipts(input: { businessId: string; crea
     FROM ledger_entries le
     INNER JOIN customers c ON c.id = le."customerId"
     WHERE le."businessId" = ${businessId} AND le.type = 'CREDIT'
-      AND (le."paymentMode" IS NULL OR le."paymentMode" <> 'CREDIT')
-      AND NOT EXISTS (SELECT 1 FROM journal_entries je WHERE je.reference = le.id::text AND je."voucherType" = 'RECEIPT')
+      AND NOT EXISTS (
+        SELECT 1 FROM journal_entries je
+        WHERE je."ledgerEntryId" = le.id::text
+           OR (je.reference = le.id::text AND je."voucherType" = 'RECEIPT')
+      )
     ORDER BY le."createdAt" ASC
     LIMIT ${cap}
   `)
@@ -1440,7 +1945,29 @@ export async function getGstr3b(input: PeriodInput) {
     WHERE o."businessId" = ${businessId} AND o."isDeleted" = false AND o.status <> 'CANCELLED'
       AND o."createdAt" >= ${start} AND o."createdAt" <= ${end}
   `)
-  const output = outRows[0] ?? { cgst: 0, sgst: 0, igst: 0, taxable: 0 }
+  const gross = outRows[0] ?? { cgst: 0, sgst: 0, igst: 0, taxable: 0 }
+
+  // GSTR-3B table 3.1(a) is reported net of credit/debit notes, so subtract
+  // the period's sales returns from the gross outward figures.
+  const cnRows = await prisma.$queryRaw<Array<{ cgst: number; sgst: number; igst: number; taxable: number }>>(Prisma.sql`
+    SELECT
+      COALESCE(SUM(COALESCE(sri."cgstAmount", CASE WHEN COALESCE(o."igstTotal", 0) > 0 THEN 0 ELSE sri."gstAmount" / 2 END)), 0)::double precision AS cgst,
+      COALESCE(SUM(COALESCE(sri."sgstAmount", CASE WHEN COALESCE(o."igstTotal", 0) > 0 THEN 0 ELSE sri."gstAmount" / 2 END)), 0)::double precision AS sgst,
+      COALESCE(SUM(COALESCE(sri."igstAmount", CASE WHEN COALESCE(o."igstTotal", 0) > 0 THEN sri."gstAmount" ELSE 0 END)), 0)::double precision AS igst,
+      COALESCE(SUM(sri."taxableAmount"), 0)::double precision AS taxable
+    FROM sales_return_items sri
+    INNER JOIN sales_returns sr ON sr.id = sri."returnId"
+    INNER JOIN orders o ON o.id = sr."orderId"
+    WHERE sr."businessId" = ${businessId} AND sr.status = 'COMPLETED'
+      AND sr."returnDate" >= ${start} AND sr."returnDate" <= ${end}
+  `)
+  const creditNotes = cnRows[0] ?? { cgst: 0, sgst: 0, igst: 0, taxable: 0 }
+  const output = {
+    cgst: gross.cgst - creditNotes.cgst,
+    sgst: gross.sgst - creditNotes.sgst,
+    igst: gross.igst - creditNotes.igst,
+    taxable: gross.taxable - creditNotes.taxable,
+  }
 
   const inRows = await prisma.$queryRaw<Array<{ cgst: number; sgst: number; igst: number; taxable: number }>>(Prisma.sql`
     SELECT
@@ -1463,6 +1990,10 @@ export async function getGstr3b(input: PeriodInput) {
     output: {
       cgst: round2(output.cgst), sgst: round2(output.sgst), igst: round2(output.igst),
       taxable: round2(output.taxable), total: round2(output.cgst + output.sgst + output.igst),
+    },
+    creditNotes: {
+      cgst: round2(creditNotes.cgst), sgst: round2(creditNotes.sgst), igst: round2(creditNotes.igst),
+      taxable: round2(creditNotes.taxable), total: round2(creditNotes.cgst + creditNotes.sgst + creditNotes.igst),
     },
     itc: {
       cgst: round2(itc.cgst), sgst: round2(itc.sgst), igst: round2(itc.igst),

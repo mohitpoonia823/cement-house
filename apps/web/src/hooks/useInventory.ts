@@ -2,10 +2,37 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { invalidateBusinessData } from '@/lib/query'
 
-export function useInventory() {
+export function useInventory(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['inventory'],
     queryFn:  () => api.get('/api/inventory').then(r => r.data.data),
+    enabled: options?.enabled ?? true,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  })
+}
+
+export interface InventoryPagedFilters {
+  page: number
+  pageSize?: number
+  search?: string
+}
+
+export function useInventoryPaged(filters: InventoryPagedFilters) {
+  return useQuery({
+    queryKey: ['inventory', 'paged', filters],
+    queryFn: () =>
+      api
+        .get('/api/inventory', {
+          params: {
+            page: filters.page,
+            pageSize: filters.pageSize,
+            search: filters.search || undefined,
+          },
+        })
+        .then((r) => r.data.data),
+    placeholderData: (previousData: any) => previousData,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     retry: 1,

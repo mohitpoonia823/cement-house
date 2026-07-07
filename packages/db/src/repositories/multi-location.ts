@@ -180,34 +180,44 @@ export async function adjustMaterialLocationStock(tx: Prisma.TransactionClient, 
   allowNegativeStock?: boolean
   skipTotalSync?: boolean
 }) {
-  const rows = await tx.$queryRaw<Array<{ quantity: number }>>(Prisma.sql`
-    SELECT quantity::double precision AS quantity
-    FROM material_stock
+  // Atomic relative update: the delta is applied against the row's current
+  // value under a row lock, so concurrent adjustments serialize instead of
+  // losing updates, and the negative-stock guard cannot be bypassed by a race.
+  const allowNegative = input.allowNegativeStock === true
+  const guardedUpdate = () => tx.$queryRaw<Array<{ quantity: number }>>(Prisma.sql`
+    UPDATE material_stock
+    SET quantity = quantity + ${input.deltaQty}, "updatedAt" = NOW()
     WHERE "businessId" = ${input.businessId}
       AND "materialId" = ${input.materialId}
       AND "locationId" = ${input.locationId}
-    LIMIT 1
+      AND (${allowNegative} OR quantity + ${input.deltaQty} >= 0)
+    RETURNING quantity::double precision AS quantity
   `)
-  const currentQty = rows[0]?.quantity ?? 0
-  const nextQty = currentQty + input.deltaQty
-  if (!input.allowNegativeStock && nextQty < 0) {
-    throw new Error('Insufficient stock in selected location')
-  }
 
-  if (rows[0]) {
-    await tx.$executeRaw(Prisma.sql`
-      UPDATE material_stock
-      SET quantity = ${nextQty}, "updatedAt" = NOW()
-      WHERE "businessId" = ${input.businessId}
-        AND "materialId" = ${input.materialId}
-        AND "locationId" = ${input.locationId}
-    `)
-  } else {
-    await tx.$executeRaw(Prisma.sql`
+  let result = await guardedUpdate()
+  if (result.length === 0) {
+    // Either no stock row exists yet, or the guard rejected the delta. Try to
+    // create the row (never with a negative starting balance unless allowed);
+    // ON CONFLICT DO NOTHING means a concurrent insert simply loses the race.
+    const inserted = await tx.$queryRaw<Array<{ quantity: number }>>(Prisma.sql`
       INSERT INTO material_stock (id, "businessId", "materialId", "locationId", quantity, "createdAt", "updatedAt")
-      VALUES (${randomUUID()}, ${input.businessId}, ${input.materialId}, ${input.locationId}, ${nextQty}, NOW(), NOW())
+      SELECT ${randomUUID()}, ${input.businessId}, ${input.materialId}, ${input.locationId}, ${input.deltaQty}, NOW(), NOW()
+      WHERE ${allowNegative} OR ${input.deltaQty} >= 0
+      ON CONFLICT ("businessId", "materialId", "locationId") DO NOTHING
+      RETURNING quantity::double precision AS quantity
     `)
+    if (inserted.length > 0) {
+      result = inserted
+    } else {
+      // The row exists after all (guard failure, or an insert race we lost) —
+      // retry the guarded update once against the now-visible row.
+      result = await guardedUpdate()
+      if (result.length === 0) {
+        throw new Error('Insufficient stock in selected location')
+      }
+    }
   }
+  const nextQty = Number(result[0].quantity)
 
   if (!input.skipTotalSync) {
     await syncMaterialTotalStock(tx, input.businessId, input.materialId)

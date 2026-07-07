@@ -35,48 +35,47 @@ export interface OrderSummary {
   isInterState: boolean
 }
 
-function round2(value: number) {
-  return Math.round((value + Number.EPSILON) * 100) / 100
-}
+import { fromPaise, multiplyMoney, percentOfMoney, roundMoney, toPaise } from './money'
 
 export function computeOrderPreview(
   lines: OrderLineInput[],
   isInterState: boolean,
   gstEnabled: boolean
 ): OrderSummary {
-  let subtotal = 0
-  let totalDiscount = 0
-  let totalTaxable = 0
-  let totalCgst = 0
-  let totalSgst = 0
-  let totalIgst = 0
+  // Totals accumulate in integer paise so repeated additions never drift.
+  let subtotalP = 0
+  let totalDiscountP = 0
+  let totalTaxableP = 0
+  let totalCgstP = 0
+  let totalSgstP = 0
+  let totalIgstP = 0
 
   const computedLines: OrderLineResult[] = lines.map((line) => {
     const quantity = Number(line.quantity)
     const unitPrice = Number(line.unitPrice)
-    const discountAmount = round2(Math.max(0, Number(line.discountAmount)))
-    const grossAmount = round2(quantity * unitPrice)
-    const discountedAmount = round2(Math.max(0, grossAmount - discountAmount))
+    const discountAmount = roundMoney(Math.max(0, Number(line.discountAmount)))
+    const grossAmount = multiplyMoney(quantity, unitPrice)
+    const discountedAmount = fromPaise(Math.max(0, toPaise(grossAmount) - toPaise(discountAmount)))
     const taxableAmount = discountedAmount
 
     const lineGstRate = gstEnabled && !line.isExempted ? Math.max(0, Number(line.gstRate)) : 0
-    const cgstRate = gstEnabled && !line.isExempted && !isInterState ? round2(lineGstRate / 2) : 0
-    const sgstRate = gstEnabled && !line.isExempted && !isInterState ? round2(lineGstRate / 2) : 0
+    const cgstRate = gstEnabled && !line.isExempted && !isInterState ? roundMoney(lineGstRate / 2) : 0
+    const sgstRate = gstEnabled && !line.isExempted && !isInterState ? roundMoney(lineGstRate / 2) : 0
     const igstRate = gstEnabled && !line.isExempted && isInterState ? lineGstRate : 0
 
-    const gstAmount = round2((taxableAmount * lineGstRate) / 100)
-    const cgstAmount = !isInterState ? round2(gstAmount / 2) : 0
-    const sgstAmount = !isInterState ? round2(gstAmount / 2) : 0
+    const gstAmount = percentOfMoney(taxableAmount, lineGstRate)
+    const cgstAmount = !isInterState ? roundMoney(gstAmount / 2) : 0
+    const sgstAmount = !isInterState ? roundMoney(gstAmount / 2) : 0
     const igstAmount = isInterState ? gstAmount : 0
-    const totalTax = round2(cgstAmount + sgstAmount + igstAmount)
-    const lineTotal = round2(taxableAmount + totalTax)
+    const totalTax = fromPaise(toPaise(cgstAmount) + toPaise(sgstAmount) + toPaise(igstAmount))
+    const lineTotal = fromPaise(toPaise(taxableAmount) + toPaise(totalTax))
 
-    subtotal = round2(subtotal + grossAmount)
-    totalDiscount = round2(totalDiscount + discountAmount)
-    totalTaxable = round2(totalTaxable + taxableAmount)
-    totalCgst = round2(totalCgst + cgstAmount)
-    totalSgst = round2(totalSgst + sgstAmount)
-    totalIgst = round2(totalIgst + igstAmount)
+    subtotalP += toPaise(grossAmount)
+    totalDiscountP += toPaise(discountAmount)
+    totalTaxableP += toPaise(taxableAmount)
+    totalCgstP += toPaise(cgstAmount)
+    totalSgstP += toPaise(sgstAmount)
+    totalIgstP += toPaise(igstAmount)
 
     return {
       ...line,
@@ -95,19 +94,20 @@ export function computeOrderPreview(
     }
   })
 
-  const totalTax = round2(totalCgst + totalSgst + totalIgst)
-  const grandTotal = round2(totalTaxable + totalTax)
-  const roundOff = round2(Math.round(grandTotal) - grandTotal)
+  const totalTaxP = totalCgstP + totalSgstP + totalIgstP
+  const grandTotalP = totalTaxableP + totalTaxP
+  const grandTotal = fromPaise(grandTotalP)
+  const roundOff = fromPaise(Math.round(grandTotal) * 100 - grandTotalP)
 
   return {
     lines: computedLines,
-    subtotal,
-    totalDiscount,
-    totalTaxable,
-    totalCgst,
-    totalSgst,
-    totalIgst,
-    totalTax,
+    subtotal: fromPaise(subtotalP),
+    totalDiscount: fromPaise(totalDiscountP),
+    totalTaxable: fromPaise(totalTaxableP),
+    totalCgst: fromPaise(totalCgstP),
+    totalSgst: fromPaise(totalSgstP),
+    totalIgst: fromPaise(totalIgstP),
+    totalTax: fromPaise(totalTaxP),
     grandTotal,
     roundOff,
     isInterState,
