@@ -3,7 +3,7 @@ import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { Buffer } from 'node:buffer'
-import { settingsRepository, subscriptionsRepository } from '@cement-house/db'
+import { customersRepository, inventoryRepository, settingsRepository, subscriptionsRepository } from '@cement-house/db'
 import {
   BUSINESS_TYPE_VALUES,
   normalizeBusinessType,
@@ -18,6 +18,7 @@ import {
   computeBusinessAccess,
   ensurePlatformSettings,
 } from '../../services/billing'
+import { getSampleMaterialsForBusinessType, SAMPLE_CUSTOMER } from '../../services/sample-data'
 
 const SETTINGS_CACHE_TTL_MS = 10_000
 const SETTINGS_SUBSCRIPTION_CACHE_TTL_MS = 10_000
@@ -126,6 +127,11 @@ const UpdateModulesConfigSchema = z.object({
   customBusinessDescription: z.string().trim().min(2).max(200).optional(),
   enabledModules: z.array(z.string().trim().min(1)),
   featureFlags: z.record(z.string(), z.boolean()),
+})
+
+const OnboardingCompleteSchema = z.object({
+  gstBilling: z.boolean().optional(),
+  skipped: z.boolean().optional(),
 })
 
 const UpdateGstBillingSchema = z.object({
@@ -1011,10 +1017,9 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     const current = await settingsRepository.getSettingsBusinessById(bizId)
     if (!current) return reply.status(404).send({ success: false, error: 'Business not found' })
+    // Any owner may tune modules — the business-type preset is a starting
+    // point, not a cage. Dependency rules below still apply to everyone.
     const normalizedType = normalizeBusinessType(current.businessType)
-    if (normalizedType !== 'CUSTOM') {
-      return reply.status(400).send({ success: false, error: 'Modules can be edited only for CUSTOM business type' })
-    }
 
     const enabledModules = normalizeCustomModules(body.data.enabledModules)
     const featureFlags = normalizeCustomFeatureFlags(body.data.featureFlags)
@@ -1025,10 +1030,12 @@ export async function settingsRoutes(app: FastifyInstance) {
       current.defaultSettings && typeof current.defaultSettings === 'object'
         ? current.defaultSettings
         : {}
-    const defaultSettings = {
-      ...(currentSettings as Record<string, unknown>),
-      customBusinessDescription: body.data.customBusinessDescription?.trim() ?? null,
-      userConfigurableModules: true,
+    const defaultSettings: Record<string, unknown> = { ...(currentSettings as Record<string, unknown>) }
+    if (normalizedType === 'CUSTOM') {
+      defaultSettings.customBusinessDescription = body.data.customBusinessDescription?.trim() ?? null
+      defaultSettings.userConfigurableModules = true
+    } else if (body.data.customBusinessDescription?.trim()) {
+      defaultSettings.customBusinessDescription = body.data.customBusinessDescription.trim()
     }
     const currentLabels =
       current.customLabels && typeof current.customLabels === 'object'
@@ -1051,6 +1058,88 @@ export async function settingsRoutes(app: FastifyInstance) {
     invalidateSettingsCaches(bizId, (req.user as any).id)
     invalidateAuthCachesForBusiness(bizId)
     return { success: true, data: business }
+  })
+
+  // ── Post-signup setup wizard ───────────────────────────────────────────────
+
+  app.post('/onboarding/seed-samples', async (req, reply) => {
+    if (!requireOwner(req, reply)) return
+    const bizId = getBizId(req)
+    const current = await settingsRepository.getSettingsBusinessById(bizId)
+    if (!current) return reply.status(404).send({ success: false, error: 'Business not found' })
+
+    const currentSettings = (
+      current.defaultSettings && typeof current.defaultSettings === 'object' ? current.defaultSettings : {}
+    ) as Record<string, unknown>
+    if (currentSettings.sampleDataSeededAt) {
+      return reply.status(400).send({ success: false, error: 'Sample data was already added for this business' })
+    }
+    const existing = await inventoryRepository.listActiveMaterials(bizId)
+    if (existing.length > 0) {
+      return reply.status(400).send({ success: false, error: 'Inventory already has items — add products from the Inventory page instead' })
+    }
+
+    const samples = getSampleMaterialsForBusinessType(current.businessType)
+    const materials: string[] = []
+    for (const sample of samples) {
+      await inventoryRepository.createMaterial({ businessId: bizId, ...sample })
+      materials.push(sample.name)
+    }
+    let customerCreated = false
+    try {
+      await customersRepository.createCustomer({ businessId: bizId, ...SAMPLE_CUSTOMER })
+      customerCreated = true
+    } catch {
+      // Sample customer is best-effort (e.g. phone already used); items matter more.
+    }
+
+    await settingsRepository.updateBusinessProfile(bizId, {
+      defaultSettings: { ...currentSettings, sampleDataSeededAt: new Date().toISOString() },
+    })
+    invalidateSettingsCaches(bizId, (req.user as any).id)
+    invalidateAuthCachesForBusiness(bizId)
+    return { success: true, data: { materials, customerCreated } }
+  })
+
+  app.post('/onboarding/complete', async (req, reply) => {
+    if (!requireOwner(req, reply)) return
+    const bizId = getBizId(req)
+    const body = OnboardingCompleteSchema.safeParse(req.body ?? {})
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    const current = await settingsRepository.getSettingsBusinessById(bizId)
+    if (!current) return reply.status(404).send({ success: false, error: 'Business not found' })
+
+    const currentSettings = (
+      current.defaultSettings && typeof current.defaultSettings === 'object' ? current.defaultSettings : {}
+    ) as Record<string, unknown>
+    const currentFlags = (
+      current.featureFlags && typeof current.featureFlags === 'object' && !Array.isArray(current.featureFlags)
+        ? current.featureFlags
+        : {}
+    ) as Record<string, boolean>
+
+    const defaultSettings = {
+      ...currentSettings,
+      onboarding: {
+        pending: false,
+        completedAt: new Date().toISOString(),
+        skipped: Boolean(body.data.skipped),
+      },
+    }
+    const business = await settingsRepository.updateBusinessProfile(bizId, {
+      defaultSettings,
+      ...(typeof body.data.gstBilling === 'boolean'
+        ? { featureFlags: { ...currentFlags, gstBilling: body.data.gstBilling } }
+        : {}),
+    })
+    if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
+    invalidateSettingsCaches(bizId, (req.user as any).id)
+    invalidateAuthCachesForBusiness(bizId)
+    return {
+      success: true,
+      data: { defaultSettings: business.defaultSettings, featureFlags: business.featureFlags },
+    }
   })
 
   app.patch('/reminders', async (req, reply) => {

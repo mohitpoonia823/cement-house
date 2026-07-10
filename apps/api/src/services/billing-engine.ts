@@ -9,6 +9,9 @@ export type BillingFeatureFlags = Partial<{
   serialTracking: boolean
   imeiTracking: boolean
   kitchenOrders: boolean
+  transport: boolean
+  transportManagement: boolean
+  deliveryChallan: boolean
 }>
 
 export interface BillingLineInput {
@@ -63,6 +66,12 @@ export interface BillingLineComputed {
   grossWeight?: number
   tareWeight?: number
   netWeight?: number
+  // Unit identity, preserved into the stored billingSnapshot so each invoice
+  // records exactly which batch/serial was sold (pharmacy & electronics trail).
+  batchNumber?: string
+  expiryDate?: string
+  serialNumber?: string
+  imeiNumber?: string
 }
 
 export interface BillingComputed {
@@ -174,6 +183,10 @@ export function calculateInvoice(input: BillingInput): BillingComputed {
       grossWeight: row.grossWeight,
       tareWeight: row.tareWeight,
       netWeight: row.netWeight,
+      batchNumber: row.item.batchNumber || undefined,
+      expiryDate: row.item.expiryDate || undefined,
+      serialNumber: row.item.serialNumber || undefined,
+      imeiNumber: row.item.imeiNumber || undefined,
     }
   })
 
@@ -221,6 +234,14 @@ export function validateInvoiceInput(input: BillingInput): string | null {
   if ((input.invoiceDiscount ?? 0) < 0) return 'invoiceDiscount cannot be negative'
 
   const flags = input.featureFlags ?? {}
+
+  // Freight is a transport-vertical concept; reject rather than silently zero
+  // so the caller's previewed total never diverges from the stored invoice.
+  const transportAllowed = bool(flags.transport) || bool(flags.transportManagement) || bool(flags.deliveryChallan)
+  if (!transportAllowed && ((input.transportCharges ?? 0) > 0 || (input.loadingCharges ?? 0) > 0)) {
+    return 'Transport/loading charges require the transport feature — enable it in Settings'
+  }
+
   const isWeightBilling = bool(flags.weightBilling)
   for (const [index, item] of input.items.entries()) {
     if (item.quantity <= 0) return 'quantity must be greater than 0'
@@ -242,6 +263,22 @@ export function validateInvoiceInput(input: BillingInput): string | null {
       return 'serialNumber or imeiNumber is required when serial tracking is enabled'
     }
     if (flags.imeiTracking && !item.imeiNumber) return 'imeiNumber is required when IMEI tracking is enabled'
+    if (item.imeiNumber && !/^\d{15}$/.test(item.imeiNumber.trim())) {
+      return `IMEI on line ${index + 1} must be exactly 15 digits`
+    }
+  }
+
+  // A serialised unit is unique — the same serial/IMEI twice on one invoice
+  // is always a data-entry mistake.
+  if (bool(flags.serialTracking) || bool(flags.imeiTracking)) {
+    const seenIdentifiers = new Set<string>()
+    for (const item of input.items) {
+      for (const identifier of [item.serialNumber?.trim(), item.imeiNumber?.trim()]) {
+        if (!identifier) continue
+        if (seenIdentifiers.has(identifier)) return `Serial/IMEI ${identifier} appears on more than one line`
+        seenIdentifiers.add(identifier)
+      }
+    }
   }
 
   const computed = calculateInvoice(input)

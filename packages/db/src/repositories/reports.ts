@@ -43,6 +43,8 @@ export interface MaterialRow {
   minThreshold: number
   purchasePrice: number
   salePrice: number
+  batchNumber: string | null
+  expiryDate: Date | null
 }
 
 export interface CustomerCountRow {
@@ -475,7 +477,9 @@ export async function getActiveMaterials(businessId: string) {
       "stockQty"::double precision AS "stockQty",
       "minThreshold"::double precision AS "minThreshold",
       "purchasePrice"::double precision AS "purchasePrice",
-      "salePrice"::double precision AS "salePrice"
+      "salePrice"::double precision AS "salePrice",
+      "batchNumber",
+      "expiryDate"
     FROM materials
     WHERE "businessId" = ${businessId} AND "isActive" = true
   `

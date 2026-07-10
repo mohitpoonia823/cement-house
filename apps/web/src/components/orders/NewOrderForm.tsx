@@ -29,6 +29,9 @@ type Product = {
   salePrice: number
   stockQty: number
   billingBasis: BillingBasis
+  barcode: string
+  batchNumber: string
+  expiryDate: string
 }
 
 type LineItem = {
@@ -128,6 +131,8 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
   ])
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
+  const [scanValue, setScanValue] = useState('')
+  const [scanFeedback, setScanFeedback] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
 
   const selectedCustomer = (customers ?? []).find((c: any) => c.id === customerId)
   const customerStateCode = (selectedCustomer?.stateCode as string | undefined | null) || getStateCodeFromGstin(selectedCustomer?.gstin ?? null)
@@ -167,6 +172,9 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
     salePrice: Number(m.salePrice ?? 0),
     stockQty: Number(sourceStockByMaterial.get(String(m.id)) ?? 0),
     billingBasis: String(m.billingBasis).toUpperCase() === 'WEIGHT' ? 'WEIGHT' : 'QUANTITY',
+    barcode: String(m.barcode ?? ''),
+    batchNumber: String(m.batchNumber ?? ''),
+    expiryDate: m.expiryDate ? String(m.expiryDate).slice(0, 10) : '',
   }))
   const inStockProducts = useMemo(
     () => products.filter((product) => Number(product.stockQty) > 0),
@@ -273,6 +281,57 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
         netWeight: 0,
       },
     ])
+  }
+
+  // Barcode-first billing: a scan (or typed code + Enter) adds the matching
+  // product as a line, or bumps quantity if it is already on the invoice —
+  // the counter-scanning flow barcode retailers expect. Matching happens
+  // against the already-loaded product list, so repeat scans cost no network.
+  function handleBarcodeScan() {
+    const code = scanValue.trim()
+    setScanValue('')
+    if (!code) return
+    if (materialsLoading || !materials) {
+      setScanFeedback({ tone: 'err', text: language === 'hi' ? 'आइटम लोड हो रहे हैं, फिर से स्कैन करें' : 'Items are still loading — scan again in a moment' })
+      return
+    }
+    const product = products.find((p) => p.barcode && p.barcode === code)
+    if (!product) {
+      setScanFeedback({ tone: 'err', text: language === 'hi' ? `बारकोड ${code} वाला कोई आइटम नहीं मिला` : `No item found with barcode ${code}` })
+      return
+    }
+    setItems((prev) => {
+      const existingIdx = prev.findIndex((item) => item.materialId === product.id)
+      if (existingIdx >= 0) {
+        setScanFeedback({ tone: 'ok', text: `✓ ${product.name} × ${Number(prev[existingIdx].quantity) + 1}` })
+        return prev.map((item, i) => (i === existingIdx ? { ...item, quantity: Number(item.quantity) + 1 } : item))
+      }
+      const newLine: LineItem = {
+        materialId: product.id,
+        variantId: product.variantId,
+        materialName: product.name,
+        unit: product.unit,
+        quantity: 1,
+        unitPrice: Number(product.salePrice),
+        purchasePrice: Number(product.purchasePrice),
+        discountAmount: 0,
+        gstRate: product.isExempted ? 0 : Number(product.gstRate),
+        hsnCode: product.hsnCode,
+        isExempted: product.isExempted,
+        billingBasis: product.billingBasis,
+        batchNumber: product.batchNumber,
+        expiryDate: product.expiryDate,
+        barcode: product.barcode,
+        serialOrImei: '',
+        grossWeight: 0,
+        tareWeight: 0,
+        netWeight: 0,
+      }
+      setScanFeedback({ tone: 'ok', text: `✓ ${product.name} × 1` })
+      const emptyIdx = prev.findIndex((item) => !item.materialId)
+      if (emptyIdx >= 0) return prev.map((item, i) => (i === emptyIdx ? newLine : item))
+      return [...prev, newLine]
+    })
   }
 
   function removeItem(idx: number) {
@@ -480,6 +539,39 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
 
       <Card>
         <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">{language === 'hi' ? '????? ??????' : 'Order items'}</div>
+        {showBarcode ? (
+          <div className="mb-3">
+            <div className="flex gap-2">
+              <input
+                value={scanValue}
+                onChange={(e) => setScanValue(e.target.value)}
+                onFocus={() => setShouldLoadMaterials(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    handleBarcodeScan()
+                  }
+                }}
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder={language === 'hi' ? 'बारकोड स्कैन करें या टाइप करके Enter दबाएं' : 'Scan barcode or type it and press Enter'}
+                className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+              />
+              <button
+                type="button"
+                onClick={handleBarcodeScan}
+                className="shrink-0 rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-700 hover:bg-stone-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                {language === 'hi' ? 'जोड़ें' : 'Add'}
+              </button>
+            </div>
+            {scanFeedback ? (
+              <div className={`mt-1 text-xs ${scanFeedback.tone === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                {scanFeedback.text}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {inStockProducts.length === 0 ? (
           <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
             {language === 'hi'

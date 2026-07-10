@@ -18,6 +18,18 @@ import {
   normalizeBusinessType,
 } from '@cement-house/utils'
 
+// The editor's checkboxes use alias keys (transportManagement) while preset
+// businesses store canonical flags (transport, deliveryChallan). Keep the two
+// in sync in both directions so e.g. a cement business sees "Transport
+// management" checked and unchecking it really turns transport off.
+const FEATURE_ALIAS_TO_CANONICAL: Record<string, string[]> = {
+  barcodeSupport: ['barcode'],
+  weightBasedBilling: ['weightBilling'],
+  transportManagement: ['transport', 'deliveryChallan'],
+  restaurantPOS: ['tableManagement', 'kot', 'kitchenOrders'],
+  quotations: ['quotation'],
+}
+
 function getCustomDependencyHints(enabledModules: string[], featureFlags: Record<string, boolean>) {
   const hints: string[] = []
   if (enabledModules.length === 0) hints.push('Select at least one core module.')
@@ -328,11 +340,14 @@ export default function SettingsPage() {
         ? data.business.enabledModules.filter((entry: unknown): entry is string => typeof entry === 'string')
         : [],
     )
-    setFeatureSelection(
+    const rawFlags =
       data.business?.featureFlags && typeof data.business.featureFlags === 'object'
-        ? (data.business.featureFlags as Record<string, boolean>)
-        : {},
-    )
+        ? { ...(data.business.featureFlags as Record<string, boolean>) }
+        : {}
+    for (const [alias, canonicals] of Object.entries(FEATURE_ALIAS_TO_CANONICAL)) {
+      if (!rawFlags[alias] && canonicals.some((key) => rawFlags[key])) rawFlags[alias] = true
+    }
+    setFeatureSelection(rawFlags)
     setProfName(data.user?.name ?? '')
     setProfPhone(data.user?.phone ?? '')
     setProfEmail(data.user?.email ?? '')
@@ -469,7 +484,11 @@ export default function SettingsPage() {
   }
 
   function toggleFeature(featureKey: string) {
-    setFeatureSelection((prev) => ({ ...prev, [featureKey]: !prev[featureKey] }))
+    setFeatureSelection((prev) => {
+      const next = { ...prev, [featureKey]: !prev[featureKey] }
+      for (const key of FEATURE_ALIAS_TO_CANONICAL[featureKey] ?? []) next[key] = next[featureKey]
+      return next
+    })
   }
 
 
@@ -966,7 +985,7 @@ export default function SettingsPage() {
               </Card>
             ) : null}
 
-            {bizType === 'CUSTOM' && user?.role === 'OWNER' ? (
+            {user?.role === 'OWNER' ? (
               <Card className={settingsCardCls}>
                 <div className="mb-3 flex items-center justify-between">
                   <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -1028,10 +1047,12 @@ export default function SettingsPage() {
                     }}
                     className="space-y-3"
                   >
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <Field label="Custom business type"><input value={bizTypeName} onChange={(e) => setBizTypeName(e.target.value)} className={inputCls} /></Field>
-                      <Field label="Description"><input value={customBizDesc} onChange={(e) => setCustomBizDesc(e.target.value)} className={inputCls} /></Field>
-                    </div>
+                    {bizType === 'CUSTOM' ? (
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <Field label="Custom business type"><input value={bizTypeName} onChange={(e) => setBizTypeName(e.target.value)} className={inputCls} /></Field>
+                        <Field label="Description"><input value={customBizDesc} onChange={(e) => setCustomBizDesc(e.target.value)} className={inputCls} /></Field>
+                      </div>
+                    ) : null}
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="rounded-2xl border border-slate-200/70 p-3 dark:border-slate-800">
                         <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Modules</div>

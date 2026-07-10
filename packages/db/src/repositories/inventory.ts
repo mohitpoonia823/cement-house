@@ -73,6 +73,9 @@ export interface OrderFormMaterialRow {
   gstRate: number
   isExempted: boolean
   billingBasis: 'QUANTITY' | 'WEIGHT'
+  barcode: string | null
+  batchNumber: string | null
+  expiryDate: Date | null
 }
 
 // A product is billed either by piece/quantity or by net weight. Stored on the
@@ -880,7 +883,10 @@ export async function listOrderFormMaterials(businessId: string) {
         WHEN LOWER(COALESCE(m.metadata->>'isExempted', 'false')) = 'true' THEN true
         ELSE false
       END AS "isExempted",
-      UPPER(COALESCE(m.metadata->>'billingBasis', 'QUANTITY')) AS "billingBasis"
+      UPPER(COALESCE(m.metadata->>'billingBasis', 'QUANTITY')) AS "billingBasis",
+      m.barcode,
+      m."batchNumber",
+      m."expiryDate"
     FROM materials m
     LEFT JOIN product_variants pv
       ON pv."businessId" = m."businessId" AND pv."materialId" = m.id AND pv."isDefault" = true AND pv."isActive" = true
@@ -923,6 +929,24 @@ export async function getMaterialTaxInfo(businessId: string, materialIds: string
     FROM materials m
     WHERE m."businessId" = ${businessId}
       AND m.id IN (${Prisma.join(materialIds)})
+  `)
+}
+
+/** Materials in the given set whose stock is already past expiry (expiry-tracking sale guard). */
+export async function getExpiredMaterials(businessId: string, materialIds: string[]) {
+  if (materialIds.length === 0) return []
+  return prisma.$queryRaw<Array<{
+    id: string
+    name: string
+    batchNumber: string | null
+    expiryDate: Date
+  }>>(Prisma.sql`
+    SELECT m.id, m.name, m."batchNumber", m."expiryDate"
+    FROM materials m
+    WHERE m."businessId" = ${businessId}
+      AND m.id IN (${Prisma.join(materialIds)})
+      AND m."expiryDate" IS NOT NULL
+      AND m."expiryDate" < CURRENT_DATE
   `)
 }
 

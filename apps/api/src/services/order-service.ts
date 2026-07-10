@@ -110,6 +110,41 @@ async function resolveItemTaxes<T extends { materialId: string; hsnCode?: string
   })
 }
 
+// With expiry tracking on, stock past its expiry date must not be billable —
+// a pharmacy/grocery compliance rule, checked against the material master so
+// a stale client cannot bypass it.
+async function findExpiredStockError(
+  businessId: string,
+  actor: OrderActor,
+  materialIds: string[],
+): Promise<string | null> {
+  if (actor.featureFlags?.expiryTracking !== true) return null
+  const expired = await inventoryRepository.getExpiredMaterials(businessId, [...new Set(materialIds)])
+  if (expired.length === 0) return null
+  const first = expired[0]
+  const batch = first.batchNumber ? ` (batch ${first.batchNumber})` : ''
+  const date = new Date(first.expiryDate).toISOString().slice(0, 10)
+  return `${first.name}${batch} expired on ${date} — expired stock cannot be sold. Update its batch/expiry in Inventory first.`
+}
+
+// A serialised unit can only be sold once. Checked against the billing
+// snapshots of live (non-cancelled) invoices for serial/IMEI-tracking businesses.
+async function findDuplicateSerialError(
+  businessId: string,
+  actor: OrderActor,
+  items: Array<{ serialNumber?: string; imeiNumber?: string }>,
+): Promise<string | null> {
+  const tracking = actor.featureFlags?.serialTracking === true || actor.featureFlags?.imeiTracking === true
+  if (!tracking) return null
+  const identifiers = items
+    .flatMap((item) => [item.serialNumber, item.imeiNumber])
+    .filter((entry): entry is string => Boolean(entry && entry.trim()))
+  if (identifiers.length === 0) return null
+  const conflicts = await ordersRepository.findSoldSerialConflicts(businessId, identifiers)
+  if (conflicts.length === 0) return null
+  return `Serial/IMEI ${conflicts[0].identifier} was already sold on invoice ${conflicts[0].orderNumber}`
+}
+
 export async function createOrderForBusiness(
   businessId: string,
   actor: OrderActor,
@@ -139,6 +174,12 @@ export async function createOrderForBusiness(
   }
 
   const resolvedItems = await resolveItemTaxes(businessId, input.items)
+
+  const expiredError = await findExpiredStockError(businessId, actor, input.items.map((item) => item.materialId))
+  if (expiredError) return fail(400, expiredError)
+
+  const duplicateSerialError = await findDuplicateSerialError(businessId, actor, input.items)
+  if (duplicateSerialError) return fail(400, duplicateSerialError)
 
   const billingInput = {
     items: resolvedItems,
@@ -274,6 +315,9 @@ export async function appendItemToOrderForBusiness(
   // material master rather than trusted from the client.
   const billingFlags = await ordersRepository.getOrderBillingFlags(orderId, businessId)
   const [resolvedItem] = await resolveItemTaxes(businessId, [input])
+
+  const expiredError = await findExpiredStockError(businessId, actor, [input.materialId])
+  if (expiredError) return fail(400, expiredError)
 
   const billingInput = {
     items: [resolvedItem],

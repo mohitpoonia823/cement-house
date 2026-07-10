@@ -921,6 +921,33 @@ export async function getOrderBillingFlags(orderId: string, businessId: string) 
   }
 }
 
+/**
+ * Serials/IMEIs already sold on a live invoice of this business. Scans the
+ * stored billingSnapshot lines, so it covers every order created since line
+ * identity fields were added to the snapshot; cancelled/deleted orders (and
+ * thus returned-and-cancelled sales) don't count.
+ */
+export async function findSoldSerialConflicts(businessId: string, identifiers: string[]) {
+  const cleaned = [...new Set(identifiers.map((entry) => entry.trim()).filter(Boolean))]
+  if (cleaned.length === 0) return []
+  return prisma.$queryRaw<Array<{ identifier: string; orderNumber: string }>>(Prisma.sql`
+    SELECT DISTINCT
+      COALESCE(NULLIF(line->>'serialNumber', ''), line->>'imeiNumber') AS identifier,
+      o."orderNumber" AS "orderNumber"
+    FROM orders o
+    CROSS JOIN LATERAL jsonb_array_elements(o."billingSnapshot"->'lines') AS line
+    WHERE o."businessId" = ${businessId}
+      AND o."isDeleted" = false
+      AND o.status <> 'CANCELLED'
+      AND jsonb_typeof(o."billingSnapshot"->'lines') = 'array'
+      AND (
+        line->>'serialNumber' = ANY(${cleaned})
+        OR line->>'imeiNumber' = ANY(${cleaned})
+      )
+    LIMIT 10
+  `)
+}
+
 export async function appendItemToOrder(input: {
   orderId: string
   businessId: string

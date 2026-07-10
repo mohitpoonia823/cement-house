@@ -2,6 +2,7 @@ import { prisma, subscriptionsRepository } from '@cement-house/db'
 import type { SubscriptionStatus } from '@cement-house/db'
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import { ensurePlatformSettings, syncBusinessStatusIfNeeded } from '../services/billing'
+import { computeEntitlements, type Entitlements } from '../services/entitlements'
 const LAST_SEEN_WRITE_COOLDOWN_MS = 5 * 60 * 1000
 const lastSeenWriteByUser = new Map<string, number>()
 const ACCESS_CONTEXT_TTL_MS = 15_000
@@ -63,7 +64,7 @@ type CachedAccessContext = {
   endsAtIso: string | null
   monthlyPrice: number
   yearlyPrice: number
-  rawFeatureFlags: Record<string, unknown>
+  entitlements: Entitlements
 }
 
 function requestPath(req: FastifyRequest) {
@@ -134,10 +135,13 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
       }).catch(() => undefined)
     }
 
-    let rawFeatureFlags =
-      user.business?.featureFlags && typeof user.business.featureFlags === 'object' && !Array.isArray(user.business.featureFlags)
-        ? { ...(user.business.featureFlags as Record<string, unknown>) }
-        : {}
+    // Plan-agnostic default (super admins / cache misses fall back to this);
+    // the business path below replaces it with the plan-intersected version.
+    let entitlements = computeEntitlements({
+      businessType: user.business?.businessType,
+      enabledModules: user.business?.enabledModules,
+      featureFlags: user.business?.featureFlags,
+    })
     if (!isSuperAdmin && user.businessId && user.business) {
       const cacheKey = `${user.id}:${user.businessId}:${user.role}`
       const cached = accessContextCache.get(cacheKey)
@@ -148,7 +152,7 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
         endsAtIso = cached.value.endsAtIso
         monthlyPrice = cached.value.monthlyPrice
         yearlyPrice = cached.value.yearlyPrice
-        rawFeatureFlags = { ...cached.value.rawFeatureFlags }
+        entitlements = cached.value.entitlements
       } else {
         let work = accessContextInFlight.get(cacheKey)
         if (!work) {
@@ -159,15 +163,7 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
               trialDays: settings.trialDays,
             })
             const access = await syncBusinessStatusIfNeeded(prisma, user.business!, settings)
-            const flags =
-              user.business?.featureFlags && typeof user.business.featureFlags === 'object' && !Array.isArray(user.business.featureFlags)
-                ? { ...(user.business.featureFlags as Record<string, unknown>) }
-                : {}
             const activeSub = await subscriptionsRepository.getCurrentSubscriptionByBusiness(user.businessId as string)
-            const planFeatures = (activeSub?.planFeatures ?? {}) as Record<string, unknown>
-            for (const [key, value] of Object.entries(planFeatures)) {
-              if (typeof value === 'boolean' && value === false && flags[key] === true) flags[key] = false
-            }
             return {
               accessLocked: access.accessLocked,
               accessReason: access.reason,
@@ -175,7 +171,13 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
               endsAtIso: access.endsAtIso,
               monthlyPrice: access.pricing.monthlyPrice,
               yearlyPrice: access.pricing.yearlyPrice,
-              rawFeatureFlags: flags,
+              entitlements: computeEntitlements({
+                businessType: user.business?.businessType,
+                enabledModules: user.business?.enabledModules,
+                featureFlags: user.business?.featureFlags,
+                planFeatures: (activeSub?.planFeatures ?? null) as Record<string, unknown> | null,
+                planLimits: activeSub?.limits ?? null,
+              }),
             }
           })().finally(() => accessContextInFlight.delete(cacheKey))
           accessContextInFlight.set(cacheKey, work)
@@ -192,7 +194,7 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
         endsAtIso = resolved.endsAtIso
         monthlyPrice = resolved.monthlyPrice
         yearlyPrice = resolved.yearlyPrice
-        rawFeatureFlags = { ...resolved.rawFeatureFlags }
+        entitlements = resolved.entitlements
       }
     }
 
@@ -228,8 +230,9 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
       subscriptionInterval: user.business?.subscriptionInterval ?? null,
       monthlySubscriptionAmount: Number(user.business?.monthlySubscriptionAmount ?? 0),
       yearlySubscriptionAmount: Number(user.business?.yearlySubscriptionAmount ?? 0),
-      enabledModules: Array.isArray(user.business?.enabledModules) ? user.business?.enabledModules : [],
-      featureFlags: rawFeatureFlags,
+      enabledModules: entitlements.modules,
+      featureFlags: entitlements.features,
+      entitlements,
       accessLocked,
       accessReason,
 } as any

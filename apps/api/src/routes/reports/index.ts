@@ -508,6 +508,34 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
     .sort((a: { stockQty: number }, b: { stockQty: number }) => a.stockQty - b.stockQty)
     .slice(0, stockAlertsLimit)
 
+  // Expiry alerts ride the same materials pass. The web shows them only for
+  // businesses with the expiryTracking feature; for others this is empty.
+  const EXPIRY_ALERT_WINDOW_DAYS = 30
+  const dayMs = 24 * 60 * 60 * 1000
+  const expiryRows = materials
+    .filter((material: reportsRepository.MaterialRow) => material.expiryDate && Number(material.stockQty) > 0)
+    .map((material: reportsRepository.MaterialRow) => {
+      const daysLeft = Math.ceil((new Date(material.expiryDate as Date).getTime() - now.getTime()) / dayMs)
+      return {
+        id: material.id,
+        name: material.name,
+        unit: material.unit,
+        stockQty: Number(material.stockQty),
+        batchNumber: material.batchNumber,
+        expiryDate: material.expiryDate,
+        daysLeft,
+        status: daysLeft < 0 ? 'EXPIRED' : 'EXPIRING_SOON',
+      }
+    })
+    .filter((row: { daysLeft: number }) => row.daysLeft <= EXPIRY_ALERT_WINDOW_DAYS)
+    .sort((a: { daysLeft: number }, b: { daysLeft: number }) => a.daysLeft - b.daysLeft)
+  const expiryAlerts = {
+    windowDays: EXPIRY_ALERT_WINDOW_DAYS,
+    expiredCount: expiryRows.filter((row: { status: string }) => row.status === 'EXPIRED').length,
+    expiringSoonCount: expiryRows.filter((row: { status: string }) => row.status === 'EXPIRING_SOON').length,
+    items: expiryRows.slice(0, 8),
+  }
+
   const deliverySnapshot = deliveries.reduce(
     (acc: { total: number; SCHEDULED: number; IN_TRANSIT: number; DELIVERED: number; FAILED: number }, delivery: reportsRepository.DeliveryRow) => {
       acc.total += 1
@@ -589,6 +617,7 @@ async function loadDashboardData(bizId: string, queryInput: unknown) {
     ],
     topCustomers,
     stockAlerts,
+    expiryAlerts,
     deliverySnapshot,
     recentOrders,
     displayLimits: {

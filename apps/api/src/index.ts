@@ -23,6 +23,9 @@ import { referralPartnersRoutes } from './routes/referral-partners'
 import { supplierRoutes } from './routes/suppliers'
 import { accountingRoutes } from './routes/accounting'
 import { authenticate } from './middleware/auth'
+import { requireModule } from './middleware/entitlements'
+import type { FastifyInstance } from 'fastify'
+import type { ModuleKey } from '@cement-house/utils'
 
 const app = Fastify({ logger: { level: 'info' } })
 
@@ -55,28 +58,39 @@ app.register(authRoutes, { prefix: '/api/auth' })
 app.register(razorpayWebhookRoutes, { prefix: '/api/webhooks' })
 app.get('/health', async () => ({ status: 'ok', ts: new Date().toISOString() }))
 
+// Wraps a route plugin with a module entitlement guard: every route in the
+// plugin 403s (MODULE_DISABLED) unless the business has one of the modules
+// enabled. Keep the module keys in sync with the web nav gating in
+// apps/web/src/components/layout/navigation.ts.
+function withModule(modules: ModuleKey | ModuleKey[], plugin: (app: FastifyInstance) => Promise<void>) {
+  return async function guardedRoutes(inst: FastifyInstance) {
+    inst.addHook('onRequest', requireModule(modules))
+    await plugin(inst)
+  }
+}
+
 // ── Protected (scoped — authenticate hook only applies inside this plugin) ──
 app.register(async function protectedRoutes(scoped) {
   scoped.addHook('onRequest', authenticate)
-  scoped.register(orderRoutes,          { prefix: '/api/orders' })
-  scoped.register(orderChallanRoute,    { prefix: '/api/orders' })
-  scoped.register(customerRoutes,       { prefix: '/api/customers' })
-  scoped.register(ledgerRoutes,         { prefix: '/api/ledger' })
-  scoped.register(ledgerStatementRoute, { prefix: '/api/ledger' })
-  scoped.register(inventoryRoutes,      { prefix: '/api/inventory' })
-  scoped.register(deliveryRoutes,       { prefix: '/api/delivery' })
-  scoped.register(reminderRoutes,       { prefix: '/api/reminders' })
-  scoped.register(reportRoutes,         { prefix: '/api/reports' })
+  scoped.register(withModule('orders', orderRoutes),          { prefix: '/api/orders' })
+  scoped.register(withModule('orders', orderChallanRoute),    { prefix: '/api/orders' })
+  scoped.register(withModule('customers', customerRoutes),    { prefix: '/api/customers' })
+  scoped.register(withModule('payments', ledgerRoutes),       { prefix: '/api/ledger' })
+  scoped.register(withModule('payments', ledgerStatementRoute), { prefix: '/api/ledger' })
+  scoped.register(withModule('inventory', inventoryRoutes),   { prefix: '/api/inventory' })
+  scoped.register(withModule(['deliveries', 'logistics'], deliveryRoutes), { prefix: '/api/delivery' })
+  scoped.register(withModule('payments', reminderRoutes),     { prefix: '/api/reminders' })
+  scoped.register(withModule('reports', reportRoutes),        { prefix: '/api/reports' })
   scoped.register(settingsRoutes,       { prefix: '/api/settings' })
   scoped.register(superAdminRoutes,     { prefix: '/api/super-admin' })
   scoped.register(superAdminRoutes,     { prefix: '/api/admin' })
   scoped.register(supportRoutes,        { prefix: '/api/support' })
-  scoped.register(salesReturnRoutes,    { prefix: '/api/sales-returns' })
-  scoped.register(locationRoutes,       { prefix: '/api/locations' })
-  scoped.register(stockTransferRoutes,  { prefix: '/api/stock-transfers' })
-  scoped.register(referralPartnersRoutes, { prefix: '/api/referral-partners' })
-  scoped.register(supplierRoutes,       { prefix: '/api/suppliers' })
-  scoped.register(accountingRoutes,     { prefix: '/api/accounting' })
+  scoped.register(withModule('orders', salesReturnRoutes),    { prefix: '/api/sales-returns' })
+  scoped.register(withModule('inventory', locationRoutes),    { prefix: '/api/locations' })
+  scoped.register(withModule('inventory', stockTransferRoutes), { prefix: '/api/stock-transfers' })
+  scoped.register(withModule('customers', referralPartnersRoutes), { prefix: '/api/referral-partners' })
+  scoped.register(withModule(['payments', 'suppliers', 'purchases'], supplierRoutes), { prefix: '/api/suppliers' })
+  scoped.register(withModule(['payments', 'suppliers', 'purchases'], accountingRoutes), { prefix: '/api/accounting' })
 })
 
 const port = Number(process.env.PORT ?? 4000)

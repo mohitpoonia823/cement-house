@@ -16,6 +16,7 @@ import { useI18n } from '@/lib/i18n'
 import { businessTerms } from '@/lib/business-terms'
 import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 import { useFeedback } from '@/components/ui/FeedbackProvider'
+import { SetupWizard } from '@/components/onboarding/SetupWizard'
 import { ExportCsvButton } from '@/components/common/ExportCsvButton'
 
 const RevenueRhythmChart = dynamic(
@@ -124,6 +125,7 @@ function DashboardContent() {
   const canPayments = hasModule('payments')
   const canInventory = hasModule('inventory')
   const canDelivery = hasModule('delivery') && hasFeature('transportManagement')
+  const canExpiry = hasFeature('expiryTracking')
   const { data: customers } = useCustomers(undefined, { enabled: user?.role === 'OWNER' })
   const sendReminders = useSendReminders()
 
@@ -199,6 +201,7 @@ function DashboardContent() {
 
   return (
     <AppShell>
+      <SetupWizard />
       <div className="mb-4 space-y-3 md:hidden">
         <Card className="p-3">
           <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
@@ -610,6 +613,53 @@ function DashboardContent() {
             )}
           </div>
         </Card>
+
+        {canExpiry ? (
+          <Card>
+            <div className="mb-3 md:mb-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{tr('Expiry watch', 'एक्सपायरी वॉच', 'Expiry watch')}</div>
+              <div className="mt-1 text-lg font-semibold tracking-tight text-slate-950 md:mt-2 md:text-xl dark:text-white">
+                {tr('Expired & expiring soon', 'एक्सपायर्ड और जल्द एक्सपायर होने वाले', 'Expired aur jald expire hone wale')}
+              </div>
+            </div>
+            <div className="space-y-3">
+              {(data?.expiryAlerts?.items ?? []).length > 0 ? (
+                <>
+                  {(data?.expiryAlerts?.items ?? []).map((item: any) => (
+                    <div key={item.id} className="rounded-[22px] border border-slate-200/70 px-4 py-3 dark:border-slate-800">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-950 dark:text-white">{item.name}</div>
+                          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            {item.batchNumber ? `${tr('Batch', 'बैच', 'Batch')} ${item.batchNumber} · ` : ''}
+                            {item.stockQty} {item.unit} · {fmtDate(item.expiryDate)}
+                          </div>
+                        </div>
+                        <Badge variant={item.status === 'EXPIRED' ? 'danger' : 'warning'}>
+                          {item.status === 'EXPIRED'
+                            ? tr('Expired', 'एक्सपायर्ड', 'Expired')
+                            : tr(`${item.daysLeft}d left`, `${item.daysLeft} दिन बचे`, `${item.daysLeft}d left`)}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                  <Link href="/reports" className="block text-xs font-medium text-slate-500 underline-offset-2 hover:underline dark:text-slate-400">
+                    {tr('View full expiry report →', 'पूरी एक्सपायरी रिपोर्ट देखें →', 'Full expiry report dekho →')}
+                  </Link>
+                </>
+              ) : (
+                <EmptyDashboardState
+                  title={tr('No expiry risk right now', 'अभी कोई एक्सपायरी जोखिम नहीं', 'Abhi koi expiry risk nahi')}
+                  description={tr(
+                    `Nothing in stock is expired or expiring within ${data?.expiryAlerts?.windowDays ?? 30} days.`,
+                    `स्टॉक में कुछ भी ${data?.expiryAlerts?.windowDays ?? 30} दिनों में एक्सपायर नहीं हो रहा।`,
+                    `Stock me kuch bhi ${data?.expiryAlerts?.windowDays ?? 30} din me expire nahi ho raha.`,
+                  )}
+                />
+              )}
+            </div>
+          </Card>
+        ) : null}
 
         <Card>
           <div className="mb-3 md:mb-4">

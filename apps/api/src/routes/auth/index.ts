@@ -6,6 +6,7 @@ import { Prisma, prisma, subscriptionsRepository } from '@cement-house/db'
 import {
   BUSINESS_TYPE_VALUES,
   getBusinessTypeConfig,
+  getEnabledModulesForBusinessType,
   normalizeBusinessType,
   normalizeCustomModules,
   normalizeCustomFeatureFlags,
@@ -128,6 +129,14 @@ function buildAuthUser(user: {
     return rows.filter((entry): entry is string => typeof entry === 'string')
   }
 
+  // Pre-module-config businesses have an empty enabledModules array; fall
+  // back to the business-type preset (same rule as computeEntitlements) so
+  // the web nav does not hide their core modules.
+  const storedModules = normalizeStringArray(user.business?.enabledModules)
+  const effectiveModules = user.business && storedModules.length === 0
+    ? getEnabledModulesForBusinessType(user.business.businessType)
+    : storedModules
+
   const normalizeBooleanMap = (value: Prisma.JsonValue | Record<string, boolean> | null | undefined): Record<string, boolean> => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
     return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([, v]) => typeof v === 'boolean')) as Record<string, boolean>
@@ -148,7 +157,7 @@ function buildAuthUser(user: {
     businessCity: user.business?.city ?? null,
     businessType: user.business?.businessType ?? 'GENERAL_STORE',
     customLabels: normalizeCustomLabels(user.business?.customLabels),
-    enabledModules: normalizeStringArray(user.business?.enabledModules),
+    enabledModules: effectiveModules,
     featureFlags: normalizeBooleanMap(user.business?.featureFlags),
     defaultSettings: normalizeObject(user.business?.defaultSettings),
     permissions: user.permissions,
@@ -502,10 +511,12 @@ export async function authRoutes(app: FastifyInstance) {
                   defaultLabels: typeConfig.defaultLabels,
                   customBusinessDescription: body.data.customBusinessDescription?.trim() || null,
                   userConfigurableModules: true,
+                  onboarding: { pending: true },
                 }
               : {
                   ...typeConfig.defaultSettings,
                   defaultLabels: typeConfig.defaultLabels,
+                  onboarding: { pending: true },
                 }
           ) as Prisma.InputJsonValue,
           city: body.data.city,
