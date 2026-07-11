@@ -262,9 +262,9 @@ export default function RegisterPage() {
 
   return (
     <div className="relative flex min-h-screen items-start justify-center overflow-hidden bg-[linear-gradient(180deg,#f7fafc_0%,#eef5f7_52%,#edf3f8_100%)] px-4 py-6 sm:items-center sm:py-10 dark:bg-[linear-gradient(180deg,#020617_0%,#0f172a_56%,#111827_100%)]">
-      <div className="pointer-events-none absolute inset-0 opacity-70">
-        <div className="absolute left-[10%] top-[14%] h-52 w-52 rounded-full bg-amber-100/60 blur-3xl dark:bg-amber-500/10" />
-        <div className="absolute bottom-[8%] right-[12%] h-60 w-60 rounded-full bg-sky-200/55 blur-3xl dark:bg-sky-500/12" />
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute left-[8%] top-[10%] h-64 w-64 rounded-full bg-indigo-200/45 blur-3xl dark:bg-indigo-500/10" />
+        <div className="absolute bottom-[6%] right-[10%] h-72 w-72 rounded-full bg-violet-200/40 blur-3xl dark:bg-violet-500/10" />
       </div>
 
       <div className="relative grid w-full max-w-6xl gap-6 sm:gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-start lg:gap-10">
@@ -301,7 +301,7 @@ export default function RegisterPage() {
             )}
           </div>
 
-          <div className="mt-6 rounded-[28px] border border-white/70 bg-white/82 p-5 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur sm:mt-8 sm:rounded-[32px] sm:p-6 dark:border-white/10 dark:bg-slate-950/72">
+          <div className="mt-6 rounded-3xl border border-slate-200/70 bg-white/80 p-5 shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur sm:mt-8 sm:p-6 dark:border-white/10 dark:bg-slate-950/72">
             <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{tr('Trial summary', 'ट्रायल सारांश', 'Trial summary')}</div>
             <div className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl dark:text-white">
               {config ? `${config.trialDays} ${tr('days free', 'दिन मुफ्त', 'din free')}` : tr('Free trial', 'मुफ्त ट्रायल', 'Free trial')}
@@ -321,9 +321,24 @@ export default function RegisterPage() {
               {tr('Paid renewal and subscription checkout are handled directly via Razorpay.', 'पेड रिन्यूअल और सब्सक्रिप्शन चेकआउट सीधे Razorpay से होता है।', 'Paid renewal aur subscription checkout direct Razorpay se hota hai.')}
             </div>
           </div>
+
+          <ul className="mt-6 grid gap-2.5">
+            {[
+              tr('All modules included from day one', 'पहले दिन से सभी मॉड्यूल शामिल', 'Pehle din se saare modules included'),
+              tr('No credit card required to start', 'शुरू करने के लिए कार्ड की जरूरत नहीं', 'Start karne ke liye card ki zaroorat nahi'),
+              tr('Set up your workspace in minutes', 'कुछ मिनटों में वर्कस्पेस सेटअप करें', 'Kuch minutes me workspace setup karo'),
+            ].map((item) => (
+              <li key={item} className="flex items-start gap-2.5 text-sm text-slate-600 dark:text-slate-300">
+                <svg viewBox="0 0 24 24" className="mt-0.5 h-5 w-5 shrink-0 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 6 9 17l-5-5" />
+                </svg>
+                {item}
+              </li>
+            ))}
+          </ul>
         </div>
 
-        <div className="rounded-[24px] border border-white/70 bg-white/86 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur sm:rounded-[28px] sm:p-6 dark:border-white/10 dark:bg-slate-950/72 dark:shadow-[0_24px_60px_rgba(2,6,23,0.40)]">
+        <div className="rounded-3xl border border-slate-200/70 bg-white/85 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur sm:p-6 dark:border-white/10 dark:bg-slate-950/72 dark:shadow-[0_24px_60px_rgba(2,6,23,0.40)]">
           <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">{tr('Business details', 'बिज़नेस डिटेल्स', 'Business details')}</div>
@@ -341,7 +356,7 @@ export default function RegisterPage() {
                         onClick={() => applyRecommendedPreset(preset.key)}
                         className={`rounded-2xl border px-3 py-2.5 text-left transition ${
                           active
-                            ? 'border-sky-500 bg-sky-50 text-slate-900 ring-2 ring-sky-200 dark:border-sky-400 dark:bg-sky-500/10 dark:text-sky-100 dark:ring-sky-900/50'
+                            ? 'border-indigo-500 bg-indigo-50 text-slate-900 ring-2 ring-indigo-200 dark:border-indigo-400 dark:bg-indigo-500/10 dark:text-indigo-100 dark:ring-indigo-900/50'
                             : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'
                         }`}
                       >
@@ -357,7 +372,7 @@ export default function RegisterPage() {
                   <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} required placeholder={tr('e.g. Sharma Trading Store', 'जैसे: शर्मा ट्रेडिंग स्टोर', 'e.g. Sharma Trading Store')} className={inputCls} />
                 </Field>
                 {canShowSuggestion && suggestedPreset ? (
-                  <div className="md:col-span-2 rounded-2xl border border-sky-300/60 bg-sky-50/90 px-4 py-3 text-sm text-sky-900 dark:border-sky-400/30 dark:bg-sky-950/25 dark:text-sky-100">
+                  <div className="md:col-span-2 rounded-2xl border border-indigo-300/60 bg-indigo-50/90 px-4 py-3 text-sm text-indigo-900 dark:border-indigo-400/30 dark:bg-indigo-950/25 dark:text-indigo-100">
                     <div className="font-medium">
                       {tr(
                         `We detected this might be a ${suggestedPreset.title} business. Apply preset?`,
@@ -369,7 +384,7 @@ export default function RegisterPage() {
                       <button
                         type="button"
                         onClick={() => applySuggestedPreset(suggestedPreset.type)}
-                        className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white dark:bg-sky-500 dark:text-slate-950"
+                        className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white dark:bg-indigo-500 dark:text-slate-950"
                       >
                         {tr(`Apply ${suggestedPreset.title} Setup`, `${suggestedPreset.title} सेटअप लागू करें`, `Apply ${suggestedPreset.title} setup`)}
                       </button>
@@ -450,14 +465,14 @@ export default function RegisterPage() {
                     <button
                       type="button"
                       onClick={() => setCustomMode('BASIC')}
-                      className={`rounded-full px-3 py-1 text-[11px] font-semibold ${customMode === 'BASIC' ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950' : 'text-slate-600 dark:text-slate-300'}`}
+                      className={`rounded-full px-3 py-1 text-[11px] font-semibold ${customMode === 'BASIC' ? 'bg-slate-950 text-white dark:bg-indigo-500 dark:text-slate-950' : 'text-slate-600 dark:text-slate-300'}`}
                     >
                       {tr('Basic', 'बेसिक', 'Basic')}
                     </button>
                     <button
                       type="button"
                       onClick={() => setCustomMode('ADVANCED')}
-                      className={`rounded-full px-3 py-1 text-[11px] font-semibold ${customMode === 'ADVANCED' ? 'bg-slate-950 text-white dark:bg-sky-500 dark:text-slate-950' : 'text-slate-600 dark:text-slate-300'}`}
+                      className={`rounded-full px-3 py-1 text-[11px] font-semibold ${customMode === 'ADVANCED' ? 'bg-slate-950 text-white dark:bg-indigo-500 dark:text-slate-950' : 'text-slate-600 dark:text-slate-300'}`}
                     >
                       {tr('Advanced', 'एडवांस्ड', 'Advanced')}
                     </button>
@@ -546,7 +561,7 @@ export default function RegisterPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full rounded-2xl bg-slate-950 py-3.5 text-base font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
+                className="w-full rounded-2xl bg-indigo-600 py-3.5 text-base font-semibold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-500 hover:shadow-indigo-600/30 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading
                   ? tr('Creating trial workspace...', 'ट्रायल वर्कस्पेस बनाया जा रहा है...', 'Trial workspace create ho raha hai...')
@@ -554,12 +569,26 @@ export default function RegisterPage() {
                     ? `${tr('Start', 'शुरू करें', 'Start')} ${config.trialDays}-${tr('day free trial', 'दिन का फ्री ट्रायल', 'day free trial')}`
                     : tr('Start free trial', 'फ्री ट्रायल शुरू करें', 'Free trial start karo')}
               </button>
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                <span className="inline-flex items-center gap-1.5">
+                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-emerald-500" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                  {tr('No credit card', 'कोई कार्ड नहीं', 'No credit card')}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-emerald-500" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                  {tr('Cancel anytime', 'कभी भी रद्द करें', 'Cancel anytime')}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-emerald-500" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="10" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                  {tr('Secure & encrypted', 'सुरक्षित और एन्क्रिप्टेड', 'Secure & encrypted')}
+                </span>
+              </div>
             </div>
           </form>
 
           <div className="mt-6 text-center text-sm text-slate-600 dark:text-slate-300">
             {tr('Already have an account?', 'पहले से अकाउंट है?', 'Already account hai?')}{' '}
-            <Link href="/auth/login" className="font-semibold text-sky-600 hover:underline dark:text-sky-400">
+            <Link href="/auth/login" className="font-semibold text-indigo-600 hover:underline dark:text-indigo-400">
               {t('auth.signIn')}
             </Link>
           </div>
@@ -586,7 +615,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function PlanTile({ title, price, sub }: { title: string; price: string; sub: string }) {
   return (
-    <div className="rounded-[24px] border border-slate-200/70 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/60">
+    <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/60">
       <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{title}</div>
       <div className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{price}</div>
       <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">{sub}</div>
@@ -595,5 +624,5 @@ function PlanTile({ title, price, sub }: { title: string; price: string; sub: st
 }
 
 const inputCls =
-  'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-[15px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500'
+  'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-[15px] text-slate-900 placeholder:text-slate-400 transition-colors focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500'
 

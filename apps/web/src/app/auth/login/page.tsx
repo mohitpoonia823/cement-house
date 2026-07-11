@@ -67,9 +67,9 @@ export default function LoginPage() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[linear-gradient(180deg,#f7fafc_0%,#eef5f7_52%,#edf3f8_100%)] px-4 py-10 dark:bg-[linear-gradient(180deg,#020617_0%,#0f172a_56%,#111827_100%)]">
-      <div className="pointer-events-none absolute inset-0 opacity-70">
-        <div className="absolute left-[14%] top-[12%] h-48 w-48 rounded-full bg-emerald-200/45 blur-3xl dark:bg-emerald-500/12" />
-        <div className="absolute bottom-[10%] right-[14%] h-56 w-56 rounded-full bg-sky-200/55 blur-3xl dark:bg-sky-500/12" />
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute left-[12%] top-[10%] h-56 w-56 rounded-full bg-indigo-200/45 blur-3xl dark:bg-indigo-500/10" />
+        <div className="absolute bottom-[8%] right-[12%] h-64 w-64 rounded-full bg-violet-200/40 blur-3xl dark:bg-violet-500/10" />
       </div>
 
       <div className="relative w-full max-w-md">
@@ -95,7 +95,7 @@ export default function LoginPage() {
           <LanguageSelect />
         </div>
 
-        <div className="rounded-[24px] border border-white/70 bg-white/86 p-5 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur sm:rounded-[28px] sm:p-6 dark:border-white/10 dark:bg-slate-950/72 dark:shadow-[0_24px_60px_rgba(2,6,23,0.40)]">
+        <div className="rounded-3xl border border-slate-200/70 bg-white/85 p-5 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur sm:p-6 dark:border-white/10 dark:bg-slate-950/72 dark:shadow-[0_24px_60px_rgba(2,6,23,0.40)]">
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">{t('auth.signIn')}</div>
             {info && <div className="rounded-2xl bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-200">{info}</div>}
@@ -107,7 +107,7 @@ export default function LoginPage() {
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder={phonePlaceholder}
                 maxLength={10}
-                className="w-full min-h-11 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[15px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                className="w-full min-h-11 rounded-xl border border-slate-200 bg-white px-4 py-3 text-[15px] text-slate-900 placeholder:text-slate-400 transition-colors focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
                 required
               />
             </div>
@@ -119,7 +119,7 @@ export default function LoginPage() {
                   onClick={() => setShowPassword((prev) => !prev)}
                   aria-label={showPassword ? t('auth.hide') : t('auth.show')}
                   title={showPassword ? t('auth.hide') : t('auth.show')}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-full text-sky-600 transition-colors hover:bg-sky-50 hover:text-sky-700 dark:text-sky-400 dark:hover:bg-sky-900/20 dark:hover:text-sky-300"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-full text-indigo-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700 dark:text-indigo-400 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-300"
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -151,11 +151,11 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={passwordPlaceholder}
-                className="w-full min-h-11 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[15px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                className="w-full min-h-11 rounded-xl border border-slate-200 bg-white px-4 py-3 text-[15px] text-slate-900 placeholder:text-slate-400 transition-colors focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
                 required
               />
               <div className="mt-2 text-right">
-                <Link href="/auth/forgot-password" className="text-[12px] font-semibold text-sky-600 hover:underline dark:text-sky-400">
+                <Link href="/auth/forgot-password" className="text-[12px] font-semibold text-indigo-600 hover:underline dark:text-indigo-400">
                   {t('auth.forgotPassword')}
                 </Link>
               </div>
@@ -164,16 +164,20 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full min-h-12 rounded-2xl bg-slate-950 py-3 text-base font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
+              className="w-full min-h-12 rounded-2xl bg-indigo-600 py-3 text-base font-semibold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-500 hover:shadow-indigo-600/30 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? t('auth.signingIn') : t('auth.signIn')}
             </button>
+            <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="10" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+              {language === 'hi' ? 'सुरक्षित, एन्क्रिप्टेड लॉगिन' : language === 'hinglish' ? 'Secure, encrypted login' : 'Secure, encrypted login'}
+            </div>
           </form>
         </div>
 
         <div className="mt-5 text-center text-sm text-slate-600 dark:text-slate-300">
           {t('auth.newHere')}{' '}
-          <Link href="/auth/register" className="font-semibold text-sky-600 hover:underline dark:text-sky-400">
+          <Link href="/auth/register" className="font-semibold text-indigo-600 hover:underline dark:text-indigo-400">
             {t('auth.createAccount')}
           </Link>
         </div>
