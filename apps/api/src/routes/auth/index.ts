@@ -446,6 +446,54 @@ export async function authRoutes(app: FastifyInstance) {
     }
   })
 
+  // Re-issues a JWT with the business's CURRENT subscription state. The token
+  // minted at login freezes trial/plan fields for 7 days, so the client calls
+  // this on app load to pick up activations that happened after login (e.g. a
+  // payment webhook flipping TRIAL to ACTIVE).
+  app.get('/session', async (req, reply) => {
+    try {
+      await req.jwtVerify()
+    } catch {
+      return reply.status(401).send({ success: false, error: 'Unauthorized' })
+    }
+    const userId = (req.user as any)?.id
+    if (!userId) return reply.status(401).send({ success: false, error: 'Unauthorized' })
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { business: true },
+    })
+    if (!user || !user.isActive) return reply.status(401).send({ success: false, error: 'Unauthorized' })
+
+    let accessLocked = false
+    let accessReason = ''
+    if (user.business) {
+      const settings = await ensurePlatformSettings()
+      const assignedPlan = await subscriptionsRepository
+        .getPlanForBusinessCheckout(user.business.id)
+        .catch(() => null)
+      const access = await syncBusinessStatusIfNeeded(prisma, user.business, settings, assignedPlan)
+      accessLocked = access.accessLocked
+      accessReason = access.reason
+      user.business.subscriptionStatus = access.effectiveStatus
+    }
+
+    const authUser = buildAuthUser({
+      ...user,
+      accessLocked,
+      accessReason,
+    })
+    const token = app.jwt.sign(authUser, { expiresIn: '7d' })
+
+    return {
+      success: true,
+      data: {
+        token,
+        user: authUser,
+      },
+    }
+  })
+
   app.post('/register', async (req, reply) => {
     const body = RegisterSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: 'Invalid input' })

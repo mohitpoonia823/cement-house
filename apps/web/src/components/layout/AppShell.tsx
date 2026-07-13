@@ -1,5 +1,6 @@
 'use client'
 import { useAuthStore } from '@/store/auth'
+import { api } from '@/lib/api'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Sidebar } from './Sidebar'
@@ -20,6 +21,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (mounted && !token) router.replace('/auth/login')
   }, [mounted, token, router])
+
+  // The JWT freezes subscription fields (trial status, plan, end date) at
+  // login. Refresh the session once on app load so changes made after login —
+  // e.g. a payment webhook activating the plan — show up without a re-login.
+  useEffect(() => {
+    if (!mounted) return
+    const state = useAuthStore.getState()
+    if (!state.token || state.originalAdminSession) return
+    if (state.user?.role === 'SUPER_ADMIN') return
+    let cancelled = false
+    api
+      .get('/api/auth/session')
+      .then((r) => {
+        const data = r.data?.data
+        if (!cancelled && data?.token && data?.user) {
+          useAuthStore.getState().login(data.token, data.user)
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [mounted])
 
   useEffect(() => {
     if (mounted && user?.role === 'SUPER_ADMIN') router.replace('/super-admin')
