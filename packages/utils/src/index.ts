@@ -46,6 +46,10 @@ export const WA_TEMPLATES = {
     `Namaskar *${name}* ji,\n\nAapka order *${orderNo}* confirm ho gaya hai.\nTotal: *${formatRupees(amount)}*\n\nDhanyawaad! 🙏`,
   deliveryConfirmation: (name: string, challanNo: string, businessName = 'Cement House') =>
     `Namaskar *${name}* ji,\n\nAapka maal (*${challanNo}*) pahunch gaya hai.\nPlease OTP confirm karen.\n\n— ${businessName}`,
+  subscriptionRenewalReminder: (ownerName: string, businessName: string, daysLeft: number, endDateStr: string, isTrial: boolean) =>
+    `⏳ *${isTrial ? 'Trial ending soon' : 'Subscription renewal due'}*\n\nNamaskar *${ownerName}* ji,\n\nAapke workspace *${businessName}* ${isTrial ? 'ka free trial' : 'ki subscription'} *${daysLeft === 1 ? 'kal' : `${daysLeft} din me`}* (${endDateStr}) khatam ho ${daysLeft === 1 ? 'raha hai' : 'rahi hai'}.\n\nBina rukavat kaam jaari rakhne ke liye Settings → Subscription se renew karen.\n\nDhanyawaad! 🙏`,
+  subscriptionExpired: (ownerName: string, businessName: string, daysOverdue: number) =>
+    `🔒 *Workspace locked*\n\nNamaskar *${ownerName}* ji,\n\nAapke workspace *${businessName}* ki subscription ${daysOverdue <= 1 ? 'kal' : `${daysOverdue} din pehle`} expire ho gayi hai, isliye access lock hai.\n\nSettings → Subscription se renew karte hi workspace turant unlock ho jayega. Aapka data bilkul surakshit hai.\n\nDhanyawaad! 🙏`,
 }
 
 export {

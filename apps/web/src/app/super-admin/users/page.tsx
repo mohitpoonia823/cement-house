@@ -159,7 +159,7 @@ export default function SuperAdminUsersPage() {
                 setPage(1)
                 setSortBy(e.target.value as 'createdAt' | 'name' | 'role' | 'status' | 'business')
               }}
-              className="h-10 min-w-[116px] appearance-none rounded-2xl border border-slate-300 bg-slate-100 px-4 pr-9 text-sm font-semibold text-slate-700 outline-none transition focus:ring-2 focus:ring-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              className="h-10 min-w-[116px] appearance-none rounded-2xl border border-slate-300 bg-slate-100 px-4 pr-9 text-sm font-semibold text-slate-700 outline-none transition focus:ring-2 focus:ring-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             >
               <option value="createdAt">Created</option>
               <option value="name">Name</option>
@@ -178,7 +178,7 @@ export default function SuperAdminUsersPage() {
                 setPage(1)
                 setSortOrder(e.target.value as 'asc' | 'desc')
               }}
-              className="h-10 min-w-[92px] appearance-none rounded-2xl border border-slate-300 bg-slate-950 px-4 pr-9 text-sm font-semibold text-white outline-none transition focus:ring-2 focus:ring-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              className="h-10 min-w-[92px] appearance-none rounded-2xl border border-slate-300 bg-slate-950 px-4 pr-9 text-sm font-semibold text-white outline-none transition focus:ring-2 focus:ring-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             >
               <option value="desc">Desc</option>
               <option value="asc">Asc</option>
@@ -199,7 +199,7 @@ export default function SuperAdminUsersPage() {
                 }}
                 className={`px-3 py-1.5 text-xs font-semibold transition ${
                   pageSize === size
-                    ? 'bg-slate-950 text-white dark:bg-sky-400 dark:text-slate-950'
+                    ? 'bg-slate-950 text-white dark:bg-indigo-400 dark:text-slate-950'
                     : 'bg-transparent text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
                 }`}
               >
@@ -338,7 +338,7 @@ export default function SuperAdminUsersPage() {
                       onClick={() => setDraftPermissions((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))}
                       className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
                         on
-                          ? 'border-slate-950 bg-slate-950 text-white dark:border-sky-400 dark:bg-sky-400 dark:text-slate-950'
+                          ? 'border-slate-950 bg-slate-950 text-white dark:border-indigo-400 dark:bg-indigo-400 dark:text-slate-950'
                           : 'border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
                       }`}
                     >
@@ -416,4 +416,4 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 const inputCls =
-  'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100'
+  'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100'

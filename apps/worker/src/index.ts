@@ -10,6 +10,11 @@ import { daysSince } from '@cement-house/utils'
 import { processReminderJob } from './processors/reminder'
 import { processDailyReport } from './processors/daily-report'
 import { processStockAlert } from './processors/stock-alert'
+import {
+  enqueueSubscriptionNotices,
+  processSubscriptionLifecycle,
+  processSubscriptionNoticeJob,
+} from './processors/subscription-lifecycle'
 
 console.log("process.env.REDIS_URL", process.env.REDIS_URL);
 const redis = new IORedis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
@@ -20,6 +25,7 @@ const redis = new IORedis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
     : undefined,
 })
 const reminderQueue = new Queue('reminders', { connection: redis })
+const subscriptionNoticeQueue = new Queue('subscription-notices', { connection: redis })
 
 // ── Schedule: every night at 8 PM ─────────────────────────────────────────────
 // Check outstanding dues and queue reminders for overdue customers
@@ -78,6 +84,20 @@ cron.schedule('30 20 * * *', () => processDailyReport())
 // ── Schedule: every 6 hours — low stock check ────────────────────────────────
 cron.schedule('0 */6 * * *', () => processStockAlert())
 
+// ── Schedule: hourly — subscription lifecycle sweep ──────────────────────────
+// Activates queued paid-ahead windows and moves lapsed trials/subscriptions to
+// PAST_DUE, so state transitions no longer depend on the owner logging in.
+cron.schedule('15 * * * *', () =>
+  processSubscriptionLifecycle().catch((error) => console.error('[billing] lifecycle sweep failed:', error)),
+)
+
+// ── Schedule: daily at 10 AM — renewal reminders (T-7/3/1) + past-due dunning ─
+cron.schedule('0 10 * * *', () =>
+  enqueueSubscriptionNotices(subscriptionNoticeQueue).catch((error) =>
+    console.error('[billing] notice scheduling failed:', error),
+  ),
+)
+
 // ── Worker: process queued reminder jobs ──────────────────────────────────────
 // concurrency drains the queue faster; removeOn* bounds Redis growth — important
 // because this instance is shared with the app cache and must stay `noeviction`.
@@ -85,6 +105,12 @@ import { Worker } from 'bullmq'
 new Worker('reminders', processReminderJob, {
   connection: redis,
   concurrency: 5,
+  removeOnComplete: { count: 1000 },
+  removeOnFail: { count: 5000 },
+})
+new Worker('subscription-notices', processSubscriptionNoticeJob, {
+  connection: redis,
+  concurrency: 3,
   removeOnComplete: { count: 1000 },
   removeOnFail: { count: 5000 },
 })
@@ -104,6 +130,7 @@ console.log('Worker started. Cron jobs active.')
 const shutdown = async (signal: string) => {
   console.log(`${signal} received, shutting down gracefully...`)
   await reminderQueue.close()
+  await subscriptionNoticeQueue.close()
   await redis.quit()
   process.exit(0)
 }

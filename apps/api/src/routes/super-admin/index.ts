@@ -1,8 +1,9 @@
 ﻿import type { FastifyInstance } from 'fastify'
 import { superAdminRepository } from '@cement-house/db'
+import { CUSTOM_ONBOARDING_FEATURES } from '@cement-house/utils'
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
-import { requireSuperAdmin } from '../../middleware/auth'
+import { invalidateAuthCachesForBusiness, requireSuperAdmin } from '../../middleware/auth'
 import { createAuditLog } from '../../services/audit'
 import { ensurePlatformSettings, invalidatePlatformSettingsCache } from '../../services/billing'
 const OVERVIEW_CACHE_TTL_MS = 15_000
@@ -79,6 +80,39 @@ const UpdateUserByAdminSchema = z.object({
 
 const PlanNameSchema = z.enum(['FREE', 'BASIC', 'PRO', 'ENTERPRISE'])
 
+// Feature keys an admin may gate per plan. Sourced from the same catalog the
+// registration flow shows, so plan gating and business config never drift.
+const PLAN_GATEABLE_FEATURE_KEYS = new Set<string>(CUSTOM_ONBOARDING_FEATURES.map((feature) => feature.key))
+
+const NullableLimitSchema = z.number().int().min(0).nullable().optional()
+
+const UpdatePlanCatalogSchema = z.object({
+  priceMonthly: z.number().min(0).optional(),
+  priceYearly: z.number().min(0).optional(),
+  description: z.string().trim().max(200).nullable().optional(),
+  isActive: z.boolean().optional(),
+  blockedFeatures: z
+    .array(z.string().trim().min(1))
+    .max(50)
+    .optional()
+    .refine(
+      (keys) => !keys || keys.every((key) => PLAN_GATEABLE_FEATURE_KEYS.has(key)),
+      { message: 'blockedFeatures contains an unknown feature key' },
+    ),
+  limits: z
+    .object({
+      maxUsers: NullableLimitSchema,
+      maxProducts: NullableLimitSchema,
+      maxCustomers: NullableLimitSchema,
+      maxOrdersPerMonth: NullableLimitSchema,
+      maxInvoicesPerMonth: NullableLimitSchema,
+      allowExports: z.boolean().optional(),
+      allowAdvancedReports: z.boolean().optional(),
+      allowMultipleLocations: z.boolean().optional(),
+    })
+    .optional(),
+})
+
 const UpdatePlanPricingSchema = z.object({
   name: PlanNameSchema,
   priceMonthly: z.number().min(0),
@@ -91,6 +125,13 @@ const AdminPaymentsQuerySchema = z.object({
   status: z.enum(['SUCCESS', 'FAILED', 'PENDING']).optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+})
+
+const AdminWebhooksQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
 })
 
 const SuspendBusinessSchema = z.object({
@@ -98,7 +139,9 @@ const SuspendBusinessSchema = z.object({
 })
 
 const ChangePlanSchema = z.object({
-  plan: z.enum(['STARTER', 'PRO', 'ENTERPRISE']),
+  // Real plan names from the plans table. STARTER is accepted as a legacy
+  // alias (older UI builds) and normalized to BASIC.
+  plan: z.enum(['FREE', 'BASIC', 'PRO', 'ENTERPRISE', 'STARTER']).transform((value) => (value === 'STARTER' ? 'BASIC' : value)),
 })
 
 const ExtendSubscriptionSchema = z.object({
@@ -160,6 +203,13 @@ function authPayloadForUser(user: {
 }
 
 export async function superAdminRoutes(app: FastifyInstance) {
+  // Structural guard: every route in this plugin requires SUPER_ADMIN, so a
+  // handler that forgets its own check can never ship an open admin endpoint.
+  // Individual handlers keep their explicit checks as defense in depth.
+  app.addHook('preHandler', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return reply
+  })
+
   app.get('/dashboard/overview', async (req, reply) => {
     if (!requireSuperAdmin(req, reply)) return
     const cacheKey = 'dashboard-overview'
@@ -225,18 +275,40 @@ export async function superAdminRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: 'Invalid endDate' })
     }
 
-    const data = await superAdminRepository.listAdminPayments({
+    const result = await superAdminRepository.listAdminPayments({
       status: query.data.status,
       startDate,
       endDate,
+      page: query.data.page,
+      pageSize: query.data.pageSize,
     })
-    return { success: true, data }
+    return {
+      success: true,
+      data: {
+        items: result.items,
+        total: result.total,
+        page: result.page,
+        pageSize: result.pageSize,
+        totalPages: Math.max(1, Math.ceil(result.total / result.pageSize)),
+      },
+    }
   })
 
   app.get('/webhooks', async (req, reply) => {
     if (!requireSuperAdmin(req, reply)) return
-    const data = await superAdminRepository.listAdminWebhookLogs()
-    return { success: true, data }
+    const query = AdminWebhooksQuerySchema.safeParse(req.query)
+    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    const result = await superAdminRepository.listAdminWebhookLogs(query.data)
+    return {
+      success: true,
+      data: {
+        items: result.items,
+        total: result.total,
+        page: result.page,
+        pageSize: result.pageSize,
+        totalPages: Math.max(1, Math.ceil(result.total / result.pageSize)),
+      },
+    }
   })
 
   app.get('/dashboard/businesses', async (req, reply) => {
@@ -255,6 +327,15 @@ export async function superAdminRoutes(app: FastifyInstance) {
       reason: body.data.reason,
     })
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
+    invalidateAuthCachesForBusiness(id)
+    await createAuditLog({
+      actorId: (req.user as any).id,
+      businessId: id,
+      action: 'BUSINESS_SUSPENDED',
+      targetType: 'BUSINESS',
+      targetId: id,
+      metadata: { reason: body.data.reason ?? null },
+    })
     return { success: true, data: business }
   })
 
@@ -267,7 +348,16 @@ export async function superAdminRoutes(app: FastifyInstance) {
       businessId: id,
       plan: body.data.plan,
     })
-    if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
+    if (!business) return reply.status(404).send({ success: false, error: 'Business or plan not found' })
+    invalidateAuthCachesForBusiness(id)
+    await createAuditLog({
+      actorId: (req.user as any).id,
+      businessId: id,
+      action: 'BUSINESS_PLAN_CHANGED',
+      targetType: 'BUSINESS',
+      targetId: id,
+      metadata: { plan: body.data.plan },
+    })
     return { success: true, data: business }
   })
 
@@ -281,6 +371,15 @@ export async function superAdminRoutes(app: FastifyInstance) {
       days: body.data.days,
     })
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
+    invalidateAuthCachesForBusiness(id)
+    await createAuditLog({
+      actorId: (req.user as any).id,
+      businessId: id,
+      action: 'SUBSCRIPTION_EXTENDED',
+      targetType: 'BUSINESS',
+      targetId: id,
+      metadata: { days: body.data.days },
+    })
     return { success: true, data: business }
   })
 
@@ -396,26 +495,9 @@ export async function superAdminRoutes(app: FastifyInstance) {
       trialRequiresCard: body.data.trialRequiresCard,
     })
 
-    // Keep pricing single-source in sync for the whole platform.
-    // We mirror admin-entered paid pricing to all paid plans so
-    // registration/settings/checkout surfaces stay consistent.
-    await Promise.all([
-      superAdminRepository.updateAdminPlanPricing({
-        name: 'BASIC',
-        priceMonthly: body.data.monthlyPrice,
-        priceYearly: body.data.yearlyPrice,
-      }),
-      superAdminRepository.updateAdminPlanPricing({
-        name: 'PRO',
-        priceMonthly: body.data.monthlyPrice,
-        priceYearly: body.data.yearlyPrice,
-      }),
-      superAdminRepository.updateAdminPlanPricing({
-        name: 'ENTERPRISE',
-        priceMonthly: body.data.monthlyPrice,
-        priceYearly: body.data.yearlyPrice,
-      }),
-    ])
+    // Platform settings hold the default/fallback price. Per-plan pricing is
+    // managed via PUT /plan-pricing/:name — no longer mirrored from here, so
+    // plan tiers can actually carry different prices.
     invalidatePlatformSettingsCache()
 
     return {
@@ -434,6 +516,53 @@ export async function superAdminRoutes(app: FastifyInstance) {
     if (!requireSuperAdmin(req, reply)) return
     const plans = await superAdminRepository.listAdminPlanPricing()
     return { success: true, data: plans }
+  })
+
+  // Full plan catalog: pricing + usage limits + per-plan feature gating.
+  app.get('/plans', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const plans = await superAdminRepository.listAdminPlanCatalog()
+    return {
+      success: true,
+      data: {
+        plans,
+        gateableFeatures: CUSTOM_ONBOARDING_FEATURES.map((feature) => ({ key: feature.key, label: feature.label })),
+      },
+    }
+  })
+
+  app.put('/plans/:name', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const params = z.object({ name: PlanNameSchema }).safeParse(req.params)
+    if (!params.success) return reply.status(400).send({ success: false, error: 'Invalid plan name' })
+    const body = UpdatePlanCatalogSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    // Trials are created on the FREE plan; deactivating it would break signup.
+    if (params.data.name === 'FREE' && body.data.isActive === false) {
+      return reply.status(400).send({ success: false, error: 'The FREE plan cannot be deactivated — trials depend on it' })
+    }
+
+    const updated = await superAdminRepository.updateAdminPlanCatalog({
+      name: params.data.name,
+      ...body.data,
+    })
+    if (!updated) return reply.status(404).send({ success: false, error: 'Plan not found' })
+
+    invalidatePlatformSettingsCache()
+    await createAuditLog({
+      actorId: (req.user as any).id,
+      action: 'PLAN_CATALOG_UPDATED',
+      targetType: 'PLAN',
+      targetId: updated.id,
+      metadata: {
+        plan: params.data.name,
+        changedFields: Object.keys(body.data),
+        blockedFeatures: body.data.blockedFeatures,
+        limits: body.data.limits,
+      },
+    })
+    return { success: true, data: updated }
   })
 
   app.put('/plan-pricing/:name', async (req, reply) => {
@@ -732,6 +861,20 @@ export async function superAdminRoutes(app: FastifyInstance) {
     })
     if (!updated) return reply.status(404).send({ success: false, error: 'User not found' })
 
+    await createAuditLog({
+      actorId,
+      businessId: target.businessId ?? null,
+      action: 'USER_UPDATED_BY_ADMIN',
+      targetType: 'USER',
+      targetId: target.id,
+      // Field names only — values (especially password) must never reach the audit table.
+      metadata: {
+        changedFields: Object.keys(body.data),
+        role: body.data.role ?? undefined,
+        isActive: body.data.isActive ?? undefined,
+      },
+    })
+
     return { success: true, data: updated }
   })
 
@@ -750,6 +893,15 @@ export async function superAdminRoutes(app: FastifyInstance) {
 
     const updated = await superAdminRepository.softDeleteUserBySuperAdmin(target.id)
     if (!updated) return reply.status(404).send({ success: false, error: 'User not found' })
+
+    await createAuditLog({
+      actorId,
+      businessId: target.businessId ?? null,
+      action: 'USER_DELETED_BY_ADMIN',
+      targetType: 'USER',
+      targetId: target.id,
+      metadata: { userName: target.name, userRole: target.role },
+    })
 
     return { success: true, data: updated }
   })
@@ -802,24 +954,32 @@ export async function superAdminRoutes(app: FastifyInstance) {
       return reply.status(404).send({ success: false, error: 'No active user available to impersonate' })
     }
 
-    const authUser = authPayloadForUser({
-      id: targetUser.id,
-      name: targetUser.name,
-      role: targetUser.role,
-      businessId: targetUser.businessId ?? null,
-      permissions: targetUser.permissions,
-      business: {
-        name: business.name,
-        city: business.city,
-        subscriptionStatus: business.subscriptionStatus,
-        subscriptionEndsAt: business.subscriptionEndsAt,
-        subscriptionInterval: business.subscriptionInterval,
-        monthlySubscriptionAmount: business.monthlySubscriptionAmount,
-        yearlySubscriptionAmount: business.yearlySubscriptionAmount,
-        trialStartedAt: business.trialStartedAt,
-        trialDaysOverride: business.trialDaysOverride,
-      },
-    })
+    const actor = req.user as any
+    const authUser = {
+      ...authPayloadForUser({
+        id: targetUser.id,
+        name: targetUser.name,
+        role: targetUser.role,
+        businessId: targetUser.businessId ?? null,
+        permissions: targetUser.permissions,
+        business: {
+          name: business.name,
+          city: business.city,
+          subscriptionStatus: business.subscriptionStatus,
+          subscriptionEndsAt: business.subscriptionEndsAt,
+          subscriptionInterval: business.subscriptionInterval,
+          monthlySubscriptionAmount: business.monthlySubscriptionAmount,
+          yearlySubscriptionAmount: business.yearlySubscriptionAmount,
+          trialStartedAt: business.trialStartedAt,
+          trialDaysOverride: business.trialDaysOverride,
+        },
+      }),
+      // Bake the impersonating admin into the token itself so downstream
+      // request logs and audit trails can attribute actions to the admin,
+      // not the impersonated owner.
+      impersonatedBy: actor.id as string,
+      impersonatedByName: actor.name as string,
+    }
 
     const token = app.jwt.sign(authUser, { expiresIn: '2h' })
 

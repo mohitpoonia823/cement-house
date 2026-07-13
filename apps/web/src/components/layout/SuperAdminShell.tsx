@@ -11,6 +11,8 @@ import { LanguageSelect } from '@/components/common/LanguageSelect'
 const navItems = [
   { label: 'Platform Overview', href: '/super-admin', key: 'superadmin.overview' },
   { label: 'Businesses', href: '/super-admin/businesses', key: 'superadmin.businesses' },
+  { label: 'Plans', href: '/super-admin/plans', key: 'superadmin.plans' },
+  { label: 'Billing', href: '/super-admin/billing', key: 'superadmin.billing' },
   { label: 'Users', href: '/super-admin/users', key: 'superadmin.users' },
   { label: 'Metrics', href: '/super-admin/metrics', key: 'superadmin.metrics' },
   { label: 'Tickets', href: '/super-admin/tickets', key: 'nav.tickets' },
@@ -30,6 +32,20 @@ function NavIcon({ href, className = '' }: { href: string; className?: string })
     return (
       <svg {...common}>
         <path d="M4 20h16M6 20V8h4v12M14 20V4h4v16M8 8h0M16 8h0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (href === '/super-admin/plans') {
+    return (
+      <svg {...common}>
+        <path d="M12 2 2 7l10 5 10-5-10-5ZM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (href === '/super-admin/billing') {
+    return (
+      <svg {...common}>
+        <path d="M2 8h20M2 6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6ZM6 15h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     )
   }
@@ -128,7 +144,7 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
                   href={item.href}
                   className={cn(
                     'flex items-center justify-between rounded-2xl px-4 py-3 text-base transition-colors',
-                    active ? 'bg-sky-500 text-slate-950' : 'text-slate-100 hover:bg-white/10 hover:text-white'
+                    active ? 'bg-indigo-500 text-white' : 'text-slate-100 hover:bg-white/10 hover:text-white'
                   )}
                 >
                   <span className="flex items-center gap-2.5">
@@ -146,7 +162,15 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
                             : language === 'hinglish'
                               ? 'Businesses'
                               : 'Businesses'
-                          : item.key === 'superadmin.users'
+                          : item.key === 'superadmin.plans'
+                            ? language === 'hi'
+                              ? 'प्लान्स'
+                              : 'Plans'
+                            : item.key === 'superadmin.billing'
+                            ? language === 'hi'
+                              ? 'बिलिंग'
+                              : 'Billing'
+                            : item.key === 'superadmin.users'
                             ? language === 'hi'
                               ? 'यूज़र्स'
                               : language === 'hinglish'
@@ -226,6 +250,14 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
                       ? language === 'hi'
                         ? 'बिज़नेस'
                         : 'Businesses'
+                      : item.key === 'superadmin.plans'
+                        ? language === 'hi'
+                          ? 'प्लान्स'
+                          : 'Plans'
+                      : item.key === 'superadmin.billing'
+                        ? language === 'hi'
+                          ? 'बिलिंग'
+                          : 'Billing'
                       : item.key === 'superadmin.users'
                         ? language === 'hi'
                           ? 'यूज़र्स'

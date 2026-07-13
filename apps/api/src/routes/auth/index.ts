@@ -421,7 +421,10 @@ export async function authRoutes(app: FastifyInstance) {
     let accessReason = ''
     if (user.business) {
       const settings = await ensurePlatformSettings()
-      const access = await syncBusinessStatusIfNeeded(prisma, user.business, settings)
+      const assignedPlan = await subscriptionsRepository
+        .getPlanForBusinessCheckout(user.business.id)
+        .catch(() => null)
+      const access = await syncBusinessStatusIfNeeded(prisma, user.business, settings, assignedPlan)
       accessLocked = access.accessLocked
       accessReason = access.reason
       user.business.subscriptionStatus = access.effectiveStatus
@@ -526,8 +529,10 @@ export async function authRoutes(app: FastifyInstance) {
           subscriptionStatus: 'TRIAL',
           subscriptionEndsAt: trialEndsAt,
           trialStartedAt: now,
-          monthlySubscriptionAmount: settings.monthlyPrice,
-          yearlySubscriptionAmount: settings.yearlyPrice,
+          // 0 = no per-business override; effective price resolves through the
+          // hierarchy: override → assigned plan price → platform default.
+          monthlySubscriptionAmount: 0,
+          yearlySubscriptionAmount: 0,
         },
       })
 
@@ -567,6 +572,16 @@ export async function authRoutes(app: FastifyInstance) {
   })
 
   app.post('/renew-subscription', async (req, reply) => {
+    // Legacy DUMMY-provider renewal: it "charges" a Luhn-validated card without
+    // collecting real money, so it must never run in production. Real renewals
+    // go through /api/settings/subscription/checkout (Razorpay).
+    if (String(process.env.ALLOW_DUMMY_BILLING ?? '').trim().toLowerCase() !== 'true') {
+      return reply.status(403).send({
+        success: false,
+        error: 'Direct card renewal is disabled. Sign in and renew from Settings → Subscription.',
+      })
+    }
+
     const body = RenewSubscriptionSchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ success: false, error: 'Invalid input' })
 

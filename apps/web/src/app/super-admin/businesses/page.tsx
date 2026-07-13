@@ -79,6 +79,15 @@ export default function SuperAdminBusinessesPage() {
     },
   })
 
+  const changePlan = useMutation({
+    mutationFn: ({ id, plan }: { id: string; plan: 'FREE' | 'BASIC' | 'PRO' | 'ENTERPRISE' }) =>
+      api.post(`/api/super-admin/businesses/${id}/change-plan`, { plan }).then((res) => res.data.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['super-admin'] })
+    },
+  })
+  const [planDraftByBusiness, setPlanDraftByBusiness] = useState<Record<string, 'FREE' | 'BASIC' | 'PRO' | 'ENTERPRISE'>>({})
+
   if (isLoading) {
     return (
       <SuperAdminShell>
@@ -193,14 +202,41 @@ export default function SuperAdminBusinessesPage() {
                 <div className="grid gap-3 sm:grid-cols-3">
                   <MiniStat label="GMV" value={fmt(business.gmv)} />
                   <MiniStat label="Outstanding" value={fmt(business.outstanding)} />
-                  <MiniStat label="Monthly" value={fmt(business.monthlySubscriptionAmount)} />
+                  <MiniStat label="Custom price" value={business.monthlySubscriptionAmount > 0 ? `${fmt(business.monthlySubscriptionAmount)}/mo` : 'Plan default'} />
                 </div>
               </div>
 
               <div className="grid gap-4 xl:grid-cols-[1fr_auto_1.25fr] xl:items-end">
-                <Field label="Owner plan">
-                  <div className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
-                    {business.subscriptionPlan} {business.subscriptionInterval ? `• ${business.subscriptionInterval}` : ''}
+                <Field label="Plan">
+                  <div className="flex gap-2">
+                    <select
+                      value={planDraftByBusiness[business.id] ?? (business.subscriptionPlan === 'STARTER' ? 'BASIC' : business.subscriptionPlan)}
+                      onChange={(e) =>
+                        setPlanDraftByBusiness((current) => ({
+                          ...current,
+                          [business.id]: e.target.value as 'FREE' | 'BASIC' | 'PRO' | 'ENTERPRISE',
+                        }))
+                      }
+                      className={inputCls}
+                    >
+                      <option value="FREE">FREE</option>
+                      <option value="BASIC">BASIC</option>
+                      <option value="PRO">PRO</option>
+                      <option value="ENTERPRISE">ENTERPRISE</option>
+                    </select>
+                    <button
+                      type="button"
+                      disabled={changePlan.isPending}
+                      onClick={() =>
+                        changePlan.mutate({
+                          id: business.id,
+                          plan: planDraftByBusiness[business.id] ?? (business.subscriptionPlan === 'STARTER' ? 'BASIC' : business.subscriptionPlan),
+                        })
+                      }
+                      className="h-11 shrink-0 rounded-full border border-indigo-200 px-4 text-sm font-semibold text-indigo-700 transition-colors hover:bg-indigo-50 disabled:opacity-60 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-950/30"
+                    >
+                      {changePlan.isPending ? 'Saving...' : 'Apply'}
+                    </button>
                   </div>
                 </Field>
                 <Field label="Business status">
@@ -319,4 +355,4 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 const inputCls =
-  'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100'
+  'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100'

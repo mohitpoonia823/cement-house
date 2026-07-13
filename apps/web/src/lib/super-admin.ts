@@ -209,6 +209,7 @@ export type AdminRevenueAnalytics = {
 export type AdminPaymentRow = {
   paymentId: string
   businessId: string
+  businessName: string | null
   planName: string
   amount: number
   status: 'SUCCESS' | 'FAILED' | 'PENDING'
@@ -267,11 +268,13 @@ export function useAdminPayments(params: {
   status?: '' | 'SUCCESS' | 'FAILED' | 'PENDING'
   startDate?: string
   endDate?: string
+  page?: number
+  pageSize?: number
 }) {
   const query = buildQuery(params)
   return useQuery({
     queryKey: ['super-admin', 'payments', query],
-    queryFn: () => api.get(`/api/super-admin/payments?${query}`).then((res) => res.data.data as AdminPaymentRow[]),
+    queryFn: () => api.get(`/api/super-admin/payments?${query}`).then((res) => res.data.data as PaginatedResponse<AdminPaymentRow>),
     placeholderData: (prev) => prev,
     staleTime: 20_000,
     refetchOnWindowFocus: false,
@@ -279,10 +282,12 @@ export function useAdminPayments(params: {
   })
 }
 
-export function useAdminWebhooks() {
+export function useAdminWebhooks(params: { page?: number; pageSize?: number } = {}) {
+  const query = buildQuery(params)
   return useQuery({
-    queryKey: ['super-admin', 'webhooks'],
-    queryFn: () => api.get('/api/super-admin/webhooks').then((res) => res.data.data as AdminWebhookRow[]),
+    queryKey: ['super-admin', 'webhooks', query],
+    queryFn: () => api.get(`/api/super-admin/webhooks?${query}`).then((res) => res.data.data as PaginatedResponse<AdminWebhookRow>),
+    placeholderData: (prev) => prev,
     staleTime: 20_000,
     refetchOnWindowFocus: false,
     retry: 1,

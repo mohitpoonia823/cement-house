@@ -162,7 +162,10 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
               businessId: user.businessId as string,
               trialDays: settings.trialDays,
             })
-            const access = await syncBusinessStatusIfNeeded(prisma, user.business!, settings)
+            const assignedPlan = await subscriptionsRepository
+              .getPlanForBusinessCheckout(user.businessId as string)
+              .catch(() => null)
+            const access = await syncBusinessStatusIfNeeded(prisma, user.business!, settings, assignedPlan)
             const activeSub = await subscriptionsRepository.getCurrentSubscriptionByBusiness(user.businessId as string)
             return {
               accessLocked: access.accessLocked,

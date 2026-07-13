@@ -73,11 +73,38 @@ export function addDays(date: Date, days: number) {
   return next
 }
 
-export function deriveBusinessPricing(business: Pick<BusinessWithBilling, 'trialDaysOverride' | 'monthlySubscriptionAmount' | 'yearlySubscriptionAmount'>, settings: Pick<PlatformSetting, 'trialDays' | 'monthlyPrice' | 'yearlyPrice' | 'currency'>) {
+/** Pricing of the plan assigned to a business (row from the plans table). */
+export type PlanPricingLike = {
+  priceMonthly: DecimalLike | null
+  priceYearly: DecimalLike | null
+} | null | undefined
+
+function positiveAmount(value: unknown): number | null {
+  const amount = Number(value ?? 0)
+  return Number.isFinite(amount) && amount > 0 ? amount : null
+}
+
+/**
+ * Effective pricing hierarchy: per-business override (admin-set, 0 = none)
+ * → assigned plan price → platform default. Pass the business's plan (from
+ * subscriptionsRepository.getPlanForBusinessCheckout) whenever available so
+ * plan-level price changes reach charging and display surfaces.
+ */
+export function deriveBusinessPricing(
+  business: Pick<BusinessWithBilling, 'trialDaysOverride' | 'monthlySubscriptionAmount' | 'yearlySubscriptionAmount'>,
+  settings: Pick<PlatformSetting, 'trialDays' | 'monthlyPrice' | 'yearlyPrice' | 'currency'>,
+  plan?: PlanPricingLike,
+) {
   return {
     trialDays: business.trialDaysOverride ?? settings.trialDays,
-    monthlyPrice: Number(business.monthlySubscriptionAmount ?? settings.monthlyPrice ?? 0) || Number(settings.monthlyPrice),
-    yearlyPrice: Number(business.yearlySubscriptionAmount ?? settings.yearlyPrice ?? 0) || Number(settings.yearlyPrice),
+    monthlyPrice:
+      positiveAmount(business.monthlySubscriptionAmount) ??
+      positiveAmount(plan?.priceMonthly) ??
+      Number(settings.monthlyPrice),
+    yearlyPrice:
+      positiveAmount(business.yearlySubscriptionAmount) ??
+      positiveAmount(plan?.priceYearly) ??
+      Number(settings.yearlyPrice),
     currency: settings.currency,
   }
 }
@@ -86,8 +113,8 @@ export function formatDateIso(date: Date | null | undefined) {
   return date ? new Date(date).toISOString() : null
 }
 
-export function computeBusinessAccess(business: BusinessWithBilling, settings: Pick<PlatformSetting, 'trialDays' | 'monthlyPrice' | 'yearlyPrice' | 'currency'>, now = new Date()) {
-  const pricing = deriveBusinessPricing(business, settings)
+export function computeBusinessAccess(business: BusinessWithBilling, settings: Pick<PlatformSetting, 'trialDays' | 'monthlyPrice' | 'yearlyPrice' | 'currency'>, now = new Date(), plan?: PlanPricingLike) {
+  const pricing = deriveBusinessPricing(business, settings, plan)
   const subscriptionEndsAt = business.subscriptionEndsAt ? new Date(business.subscriptionEndsAt) : null
   const hasActivePaidInterval = Boolean(business.subscriptionInterval)
   const expired = subscriptionEndsAt ? subscriptionEndsAt.getTime() <= now.getTime() : business.subscriptionStatus !== 'ACTIVE'
@@ -196,9 +223,10 @@ export function validateDummyCard(input: {
 export function computeSubscriptionAmount(
   business: Pick<BusinessWithBilling, 'trialDaysOverride' | 'monthlySubscriptionAmount' | 'yearlySubscriptionAmount'>,
   settings: Pick<PlatformSetting, 'trialDays' | 'monthlyPrice' | 'yearlyPrice' | 'currency'>,
-  interval: BillingInterval
+  interval: BillingInterval,
+  plan?: PlanPricingLike,
 ) {
-  const pricing = deriveBusinessPricing(business, settings)
+  const pricing = deriveBusinessPricing(business, settings, plan)
   return interval === 'YEARLY' ? pricing.yearlyPrice : pricing.monthlyPrice
 }
 
@@ -240,8 +268,8 @@ export async function getDefaultPaymentMethod(db: DbLike, businessId: string) {
   })
 }
 
-export async function syncBusinessStatusIfNeeded(db: DbLike, business: BusinessWithBilling, settings: Pick<PlatformSetting, 'trialDays' | 'monthlyPrice' | 'yearlyPrice' | 'currency'>) {
-  const access = computeBusinessAccess(business, settings)
+export async function syncBusinessStatusIfNeeded(db: DbLike, business: BusinessWithBilling, settings: Pick<PlatformSetting, 'trialDays' | 'monthlyPrice' | 'yearlyPrice' | 'currency'>, plan?: PlanPricingLike) {
+  const access = computeBusinessAccess(business, settings, new Date(), plan)
   if (
     access.effectiveStatus !== business.subscriptionStatus ||
     (access.effectiveStatus === 'SUSPENDED' && business.isActive)

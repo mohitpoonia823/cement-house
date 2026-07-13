@@ -194,6 +194,26 @@ export async function getDefaultPaidPlan() {
   return rows[0] ?? null
 }
 
+/**
+ * The plan a checkout should charge/activate for this business: the plan the
+ * admin (or a previous purchase) assigned, not the cheapest paid plan. Falls
+ * back to the default paid plan when the assigned plan is missing/inactive.
+ */
+export async function getPlanForBusinessCheckout(businessId: string) {
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { subscriptionPlan: true },
+  })
+  const preferred: PlanName =
+    business?.subscriptionPlan === 'ENTERPRISE'
+      ? 'ENTERPRISE'
+      : business?.subscriptionPlan === 'PRO'
+        ? 'PRO'
+        : 'BASIC'
+  const plan = await getPlanByName(preferred)
+  return plan ?? getDefaultPaidPlan()
+}
+
 export async function getCurrentSubscriptionByBusiness(businessId: string) {
   await activateDueQueuedSubscriptionPayment(businessId)
   const rows = await prisma.$queryRaw<Array<{
@@ -643,6 +663,9 @@ export async function processRazorpayWebhookEvent(input: {
         WHERE id = ${payment.id}
       `
 
+      // Note: monthly/yearlySubscriptionAmount are deliberately NOT written —
+      // they are per-business price overrides (0 = none). Copying the plan
+      // price here would freeze the tenant on today's price forever.
       await tx.$executeRaw`
         UPDATE businesses
         SET
@@ -650,8 +673,6 @@ export async function processRazorpayWebhookEvent(input: {
           "subscriptionStatus" = 'ACTIVE'::"SubscriptionStatus",
           "subscriptionInterval" = ${payment.interval}::"BillingInterval",
           "subscriptionEndsAt" = ${windowEnd},
-          "monthlySubscriptionAmount" = ${payment.priceMonthly},
-          "yearlySubscriptionAmount" = ${payment.priceYearly},
           "suspendedReason" = NULL,
           "updatedAt" = NOW()
         WHERE id = ${payment.businessId}
@@ -755,6 +776,7 @@ async function activateDueQueuedSubscriptionPayment(businessId: string) {
       WHERE id = ${payment.id}
     `
 
+    // monthly/yearlySubscriptionAmount intentionally untouched (overrides only).
     await tx.$executeRaw`
       UPDATE businesses
       SET
@@ -762,8 +784,6 @@ async function activateDueQueuedSubscriptionPayment(businessId: string) {
         "subscriptionStatus" = 'ACTIVE'::"SubscriptionStatus",
         "subscriptionInterval" = ${payment.interval}::"BillingInterval",
         "subscriptionEndsAt" = ${endAt},
-        "monthlySubscriptionAmount" = ${payment.priceMonthly},
-        "yearlySubscriptionAmount" = ${payment.priceYearly},
         "suspendedReason" = NULL,
         "updatedAt" = NOW()
       WHERE id = ${businessId}
@@ -870,6 +890,115 @@ export async function getUsageSummary(businessId: string) {
     ordersThisMonth: monthOrders,
     invoicesThisMonth: monthInvoicesRows[0]?.count ?? 0,
   }
+}
+
+// ─────────────────────────────────────────
+// Billing lifecycle (worker-driven)
+// ─────────────────────────────────────────
+
+export type LifecycleBusinessRow = {
+  id: string
+  name: string
+  subscriptionStatus: string
+  subscriptionEndsAt: Date | null
+  subscriptionInterval: string | null
+  ownerName: string | null
+  ownerPhone: string | null
+}
+
+function toLifecycleRow(business: {
+  id: string
+  name: string
+  subscriptionStatus: string
+  subscriptionEndsAt: Date | null
+  subscriptionInterval: string | null
+  users: Array<{ name: string; phone: string }>
+}): LifecycleBusinessRow {
+  return {
+    id: business.id,
+    name: business.name,
+    subscriptionStatus: business.subscriptionStatus,
+    subscriptionEndsAt: business.subscriptionEndsAt,
+    subscriptionInterval: business.subscriptionInterval,
+    ownerName: business.users[0]?.name ?? null,
+    ownerPhone: business.users[0]?.phone ?? null,
+  }
+}
+
+const LIFECYCLE_SELECT = {
+  id: true,
+  name: true,
+  subscriptionStatus: true,
+  subscriptionEndsAt: true,
+  subscriptionInterval: true,
+  users: {
+    where: { role: 'OWNER' as const, isActive: true },
+    select: { name: true, phone: true },
+    take: 1,
+  },
+}
+
+/** Businesses whose paid period / trial has lapsed but whose row still says TRIAL/ACTIVE. */
+export async function findBusinessesWithLapsedSubscriptions(now = new Date(), limit = 500) {
+  const rows = await prisma.business.findMany({
+    where: {
+      subscriptionStatus: { in: ['TRIAL', 'ACTIVE'] },
+      subscriptionEndsAt: { not: null, lt: now },
+    },
+    select: LIFECYCLE_SELECT,
+    take: limit,
+  })
+  return rows.map(toLifecycleRow)
+}
+
+/**
+ * Transition lapsed businesses to PAST_DUE. Re-checks the lapse predicate so a
+ * business whose queued paid-ahead window was just activated (extending its
+ * end date) is left alone. Returns the ids that actually transitioned.
+ */
+export async function markBusinessesPastDue(businessIds: string[], now = new Date()) {
+  if (businessIds.length === 0) return []
+  await prisma.business.updateMany({
+    where: {
+      id: { in: businessIds },
+      subscriptionStatus: { in: ['TRIAL', 'ACTIVE'] },
+      subscriptionEndsAt: { not: null, lt: now },
+    },
+    data: { subscriptionStatus: 'PAST_DUE' },
+  })
+  const transitioned = await prisma.business.findMany({
+    where: { id: { in: businessIds }, subscriptionStatus: 'PAST_DUE' },
+    select: { id: true, name: true },
+  })
+  return transitioned
+}
+
+/** Live businesses whose subscription/trial ends within the next `daysAhead` days. */
+export async function getUpcomingRenewalBusinesses(now = new Date(), daysAhead = 8) {
+  const until = new Date(now)
+  until.setDate(until.getDate() + daysAhead)
+  const rows = await prisma.business.findMany({
+    where: {
+      subscriptionStatus: { in: ['TRIAL', 'ACTIVE'] },
+      subscriptionEndsAt: { gte: now, lte: until },
+    },
+    select: LIFECYCLE_SELECT,
+  })
+  return rows.map(toLifecycleRow)
+}
+
+/** Businesses that went PAST_DUE within the last `daysBack` days (dunning window). */
+export async function getRecentlyPastDueBusinesses(now = new Date(), daysBack = 8) {
+  const since = new Date(now)
+  since.setDate(since.getDate() - daysBack)
+  const rows = await prisma.business.findMany({
+    where: {
+      subscriptionStatus: 'PAST_DUE',
+      subscriptionEndsAt: { gte: since, lte: now },
+    },
+    select: LIFECYCLE_SELECT,
+  })
+  return rows.map(toLifecycleRow)
 }
 
 

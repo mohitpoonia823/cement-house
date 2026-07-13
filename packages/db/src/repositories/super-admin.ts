@@ -216,8 +216,21 @@ export async function getOverviewMetrics(todayStart: Date, todayEnd: Date) {
         b."isActive" AS "isActive",
         b."subscriptionPlan"::text AS "subscriptionPlan",
         b."subscriptionStatus"::text AS "subscriptionStatus",
-        b."monthlySubscriptionAmount"::double precision AS "monthlySubscriptionAmount",
-        b."yearlySubscriptionAmount"::double precision AS "yearlySubscriptionAmount",
+        -- Effective price via the pricing hierarchy: per-business override
+        -- (0 = none) -> assigned plan price -> platform default. Keeps MRR and
+        -- run-rate truthful now that overrides are no longer auto-populated.
+        COALESCE(
+          NULLIF(b."monthlySubscriptionAmount", 0),
+          pl."priceMonthly",
+          ps."monthlyPrice",
+          0
+        )::double precision AS "monthlySubscriptionAmount",
+        COALESCE(
+          NULLIF(b."yearlySubscriptionAmount", 0),
+          pl."priceYearly",
+          ps."yearlyPrice",
+          0
+        )::double precision AS "yearlySubscriptionAmount",
         b."subscriptionEndsAt" AS "subscriptionEndsAt",
         b."subscriptionInterval"::text AS "subscriptionInterval",
         b."trialDaysOverride" AS "trialDaysOverride",
@@ -229,6 +242,14 @@ export async function getOverviewMetrics(todayStart: Date, todayEnd: Date) {
         COALESCE(o.gmv, 0)::double precision AS gmv,
         (COALESCE(l.debit, 0) - COALESCE(l.credit, 0))::double precision AS outstanding
       FROM businesses b
+      LEFT JOIN plans pl ON pl.name = (
+        CASE b."subscriptionPlan"::text
+          WHEN 'ENTERPRISE' THEN 'ENTERPRISE'
+          WHEN 'PRO' THEN 'PRO'
+          ELSE 'BASIC'
+        END
+      )
+      LEFT JOIN platform_settings ps ON ps.id = 'default'
       LEFT JOIN (
         SELECT "businessId", COUNT(*) AS user_count
         FROM users
@@ -951,7 +972,11 @@ export async function listAdminPayments(input: {
   status?: 'SUCCESS' | 'FAILED' | 'PENDING'
   startDate?: Date
   endDate?: Date
+  page?: number
+  pageSize?: number
 }) {
+  const page = Math.max(1, input.page ?? 1)
+  const pageSize = Math.min(50, Math.max(1, input.pageSize ?? 20))
   const filters: Prisma.Sql[] = [Prisma.sql`1 = 1`]
   if (input.status) {
     const dbStatus = input.status === 'SUCCESS' ? 'SUCCEEDED' : input.status
@@ -960,53 +985,67 @@ export async function listAdminPayments(input: {
   if (input.startDate) filters.push(Prisma.sql`sp."createdAt" >= ${input.startDate}`)
   if (input.endDate) filters.push(Prisma.sql`sp."createdAt" <= ${input.endDate}`)
 
-  return prisma.$queryRaw<
-    Array<{
-      paymentId: string
-      businessId: string
-      planName: string
-      amount: number
-      status: string
-      createdAt: Date
-    }>
-  >(Prisma.sql`
-    SELECT
-      sp.id AS "paymentId",
-      sp."businessId" AS "businessId",
-      COALESCE((sp.metadata->>'planName')::text, p.name::text, 'STARTER') AS "planName",
-      sp.amount::double precision AS amount,
-      CASE WHEN sp.status = 'SUCCEEDED'::"PaymentStatus" THEN 'SUCCESS' ELSE sp.status::text END AS status,
-      sp."createdAt" AS "createdAt"
-    FROM payment_transactions sp
-    LEFT JOIN plans p ON p.id = (sp.metadata->>'planId')
-    WHERE ${Prisma.join(filters, ' AND ')}
-    ORDER BY sp."createdAt" DESC
-    LIMIT 500
-  `)
+  const [items, totalRows] = await Promise.all([
+    prisma.$queryRaw<
+      Array<{
+        paymentId: string
+        businessId: string
+        businessName: string | null
+        planName: string
+        amount: number
+        status: string
+        createdAt: Date
+      }>
+    >(Prisma.sql`
+      SELECT
+        sp.id AS "paymentId",
+        sp."businessId" AS "businessId",
+        b.name AS "businessName",
+        COALESCE((sp.metadata->>'planName')::text, p.name::text, 'STARTER') AS "planName",
+        sp.amount::double precision AS amount,
+        CASE WHEN sp.status = 'SUCCEEDED'::"PaymentStatus" THEN 'SUCCESS' ELSE sp.status::text END AS status,
+        sp."createdAt" AS "createdAt"
+      FROM payment_transactions sp
+      LEFT JOIN plans p ON p.id = (sp.metadata->>'planId')
+      LEFT JOIN businesses b ON b.id = sp."businessId"
+      WHERE ${Prisma.join(filters, ' AND ')}
+      ORDER BY sp."createdAt" DESC
+      LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
+    `),
+    prisma.$queryRaw<Array<{ count: number }>>(Prisma.sql`
+      SELECT COUNT(*)::int AS count
+      FROM payment_transactions sp
+      WHERE ${Prisma.join(filters, ' AND ')}
+    `),
+  ])
+  return { items, total: totalRows[0]?.count ?? 0, page, pageSize }
 }
 
-export async function listAdminWebhookLogs() {
-  return prisma.$queryRaw<
-    Array<{
-      eventId: string
-      eventType: string
-      status: string
-      processedAt: Date | null
-      error: string | null
-      createdAt: Date
-    }>
-  >`
-    SELECT
-      "eventId" AS "eventId",
-      "eventType" AS "eventType",
-      CASE WHEN processed THEN 'PROCESSED' ELSE 'PENDING' END AS status,
-      "processedAt" AS "processedAt",
-      NULL::text AS error,
-      "createdAt" AS "createdAt"
-    FROM razorpay_webhook_events
-    ORDER BY "createdAt" DESC
-    LIMIT 500
-  `
+export async function listAdminWebhookLogs(input: { page?: number; pageSize?: number } = {}) {
+  const page = Math.max(1, input.page ?? 1)
+  const pageSize = Math.min(50, Math.max(1, input.pageSize ?? 20))
+  const [rows, total] = await Promise.all([
+    prisma.razorpayWebhookEvent.findMany({
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: { eventId: true, eventType: true, processed: true, processedAt: true, createdAt: true },
+    }),
+    prisma.razorpayWebhookEvent.count(),
+  ])
+  return {
+    items: rows.map((row) => ({
+      eventId: row.eventId,
+      eventType: row.eventType,
+      status: row.processed ? ('PROCESSED' as const) : ('PENDING' as const),
+      processedAt: row.processedAt,
+      error: null as string | null,
+      createdAt: row.createdAt,
+    })),
+    total,
+    page,
+    pageSize,
+  }
 }
 
 export async function listAdminBusinessesForDashboard() {
@@ -1041,13 +1080,91 @@ export async function suspendBusinessByAdmin(input: { businessId: string; reason
   })
 }
 
+export type PlanNameV2 = 'FREE' | 'BASIC' | 'PRO' | 'ENTERPRISE'
+
+// Single bridge from real plan names to the legacy Business.subscriptionPlan
+// enum, kept until that column is dropped. FREE has no legacy equivalent, so
+// it maps to the lowest paid tier for display purposes.
+function planNameToLegacy(name: PlanNameV2): 'STARTER' | 'PRO' | 'ENTERPRISE' {
+  if (name === 'ENTERPRISE') return 'ENTERPRISE'
+  if (name === 'PRO') return 'PRO'
+  return 'STARTER'
+}
+
+/**
+ * Point the business's live subscription row at the given plan. Entitlements
+ * (limits/features) are read from the subscriptions table, so without this an
+ * admin plan change would never take effect. Runs inside the caller's tx.
+ */
+async function syncSubscriptionPlanRow(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  planId: string,
+  businessStatus: string,
+  businessEndsAt: Date | null,
+) {
+  const active = await tx.subscription.findFirst({
+    where: { businessId, status: { in: ['TRIAL', 'ACTIVE'] } },
+    orderBy: { updatedAt: 'desc' },
+    select: { id: true },
+  })
+  if (active) {
+    await tx.subscription.update({ where: { id: active.id }, data: { planId } })
+    return
+  }
+  // No live row (expired/cancelled business): revive the latest one so the
+  // partial unique index (one TRIAL/ACTIVE row per business) is respected.
+  const latest = await tx.subscription.findFirst({
+    where: { businessId },
+    orderBy: { updatedAt: 'desc' },
+    select: { id: true },
+  })
+  const status = businessStatus === 'TRIAL' ? 'TRIAL' : 'ACTIVE'
+  if (latest) {
+    await tx.subscription.update({
+      where: { id: latest.id },
+      data: { planId, status, endDate: businessEndsAt },
+    })
+    return
+  }
+  await tx.subscription.create({
+    data: {
+      id: `sub_admin_${businessId}_${Date.now()}`,
+      businessId,
+      planId,
+      status,
+      startDate: new Date(),
+      endDate: businessEndsAt,
+      trialEndDate: status === 'TRIAL' ? businessEndsAt : null,
+      autoRenew: true,
+    },
+  })
+}
+
 export async function changeBusinessPlanByAdmin(input: {
   businessId: string
-  plan: 'STARTER' | 'PRO' | 'ENTERPRISE'
+  plan: PlanNameV2
 }) {
-  return updateBusiness(input.businessId, {
-    subscriptionPlan: input.plan,
+  const plan = await prisma.plan.findUnique({ where: { name: input.plan }, select: { id: true, isActive: true } })
+  if (!plan || !plan.isActive) return null
+  const current = await getBusinessById(input.businessId)
+  if (!current) return null
+
+  const business = await updateBusiness(input.businessId, {
+    subscriptionPlan: planNameToLegacy(input.plan),
   })
+  if (!business) return null
+
+  await prisma.$transaction((tx) =>
+    syncSubscriptionPlanRow(
+      tx,
+      input.businessId,
+      plan.id,
+      current.subscriptionStatus,
+      current.subscriptionEndsAt ? new Date(current.subscriptionEndsAt) : null,
+    ),
+  )
+  return business
 }
 
 export async function extendBusinessSubscriptionByAdmin(input: {
@@ -1059,10 +1176,40 @@ export async function extendBusinessSubscriptionByAdmin(input: {
   const base = current.subscriptionEndsAt ? new Date(current.subscriptionEndsAt) : new Date()
   const next = new Date(base)
   next.setDate(next.getDate() + Math.max(1, input.days))
-  return updateBusiness(input.businessId, {
+  const business = await updateBusiness(input.businessId, {
     subscriptionEndsAt: next.toISOString(),
     subscriptionStatus: current.subscriptionStatus === 'SUSPENDED' ? 'ACTIVE' : current.subscriptionStatus,
   })
+  if (!business) return null
+
+  // Mirror the new end date onto the live subscription row so entitlement
+  // checks don't expire the business while the legacy row says it's paid up.
+  await prisma.$transaction(async (tx) => {
+    const live = await tx.subscription.findFirst({
+      where: { businessId: input.businessId, status: { in: ['TRIAL', 'ACTIVE'] } },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, status: true },
+    })
+    if (live) {
+      await tx.subscription.update({
+        where: { id: live.id },
+        data: { endDate: next, ...(live.status === 'TRIAL' ? { trialEndDate: next } : {}) },
+      })
+      return
+    }
+    const latest = await tx.subscription.findFirst({
+      where: { businessId: input.businessId },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    })
+    if (latest) {
+      await tx.subscription.update({
+        where: { id: latest.id },
+        data: { status: 'ACTIVE', endDate: next },
+      })
+    }
+  })
+  return business
 }
 
 export type AdminPlanPricingRow = {
@@ -1072,6 +1219,165 @@ export type AdminPlanPricingRow = {
   priceYearly: number
   description: string | null
   isActive: boolean
+}
+
+const PLAN_DISPLAY_ORDER: Record<string, number> = { FREE: 1, BASIC: 2, PRO: 3, ENTERPRISE: 4 }
+
+export type AdminPlanCatalogLimits = {
+  maxUsers: number | null
+  maxProducts: number | null
+  maxCustomers: number | null
+  maxOrdersPerMonth: number | null
+  maxInvoicesPerMonth: number | null
+  allowExports: boolean
+  allowAdvancedReports: boolean
+  allowMultipleLocations: boolean
+}
+
+export type AdminPlanCatalogRow = {
+  id: string
+  name: PlanNameV2
+  priceMonthly: number
+  priceYearly: number
+  description: string | null
+  isActive: boolean
+  /** Feature keys this plan blocks (plans.features entries whose value is false). */
+  blockedFeatures: string[]
+  limits: AdminPlanCatalogLimits | null
+}
+
+function toCatalogRow(plan: {
+  id: string
+  name: string
+  priceMonthly: unknown
+  priceYearly: unknown
+  description: string | null
+  isActive: boolean
+  features: unknown
+  limits: {
+    maxUsers: number | null
+    maxProducts: number | null
+    maxCustomers: number | null
+    maxOrdersPerMonth: number | null
+    maxInvoicesPerMonth: number | null
+    allowExports: boolean
+    allowAdvancedReports: boolean
+    allowMultipleLocations: boolean
+  } | null
+}): AdminPlanCatalogRow {
+  const features = plan.features && typeof plan.features === 'object' && !Array.isArray(plan.features)
+    ? (plan.features as Record<string, unknown>)
+    : {}
+  return {
+    id: plan.id,
+    name: plan.name as PlanNameV2,
+    priceMonthly: Number(plan.priceMonthly ?? 0),
+    priceYearly: Number(plan.priceYearly ?? 0),
+    description: plan.description,
+    isActive: plan.isActive,
+    blockedFeatures: Object.entries(features)
+      .filter(([, value]) => value === false)
+      .map(([key]) => key),
+    limits: plan.limits
+      ? {
+          maxUsers: plan.limits.maxUsers,
+          maxProducts: plan.limits.maxProducts,
+          maxCustomers: plan.limits.maxCustomers,
+          maxOrdersPerMonth: plan.limits.maxOrdersPerMonth,
+          maxInvoicesPerMonth: plan.limits.maxInvoicesPerMonth,
+          allowExports: plan.limits.allowExports,
+          allowAdvancedReports: plan.limits.allowAdvancedReports,
+          allowMultipleLocations: plan.limits.allowMultipleLocations,
+        }
+      : null,
+  }
+}
+
+export async function listAdminPlanCatalog(): Promise<AdminPlanCatalogRow[]> {
+  const plans = await prisma.plan.findMany({
+    include: {
+      limits: {
+        select: {
+          maxUsers: true,
+          maxProducts: true,
+          maxCustomers: true,
+          maxOrdersPerMonth: true,
+          maxInvoicesPerMonth: true,
+          allowExports: true,
+          allowAdvancedReports: true,
+          allowMultipleLocations: true,
+        },
+      },
+    },
+  })
+  return plans
+    .sort((a, b) => (PLAN_DISPLAY_ORDER[a.name] ?? 100) - (PLAN_DISPLAY_ORDER[b.name] ?? 100))
+    .map(toCatalogRow)
+}
+
+export async function updateAdminPlanCatalog(input: {
+  name: PlanNameV2
+  priceMonthly?: number
+  priceYearly?: number
+  description?: string | null
+  isActive?: boolean
+  blockedFeatures?: string[]
+  limits?: Partial<AdminPlanCatalogLimits>
+}): Promise<AdminPlanCatalogRow | null> {
+  const existing = await prisma.plan.findUnique({ where: { name: input.name }, select: { id: true } })
+  if (!existing) return null
+
+  const planData: Record<string, unknown> = {}
+  if (input.priceMonthly !== undefined) planData.priceMonthly = input.priceMonthly
+  if (input.priceYearly !== undefined) planData.priceYearly = input.priceYearly
+  if (input.description !== undefined) planData.description = input.description
+  if (input.isActive !== undefined) planData.isActive = input.isActive
+  if (input.blockedFeatures !== undefined) {
+    // plans.features is restrict-only: store an explicit false per blocked key;
+    // absent keys inherit the business-level flag (see computeEntitlements).
+    planData.features = Object.fromEntries(input.blockedFeatures.map((key) => [key, false]))
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const plan = await tx.plan.update({
+      where: { id: existing.id },
+      data: planData,
+    })
+    if (input.limits !== undefined) {
+      await tx.planLimit.upsert({
+        where: { planId: existing.id },
+        update: input.limits,
+        create: {
+          id: `limit_${input.name.toLowerCase()}`,
+          planId: existing.id,
+          maxUsers: input.limits.maxUsers ?? null,
+          maxProducts: input.limits.maxProducts ?? null,
+          maxCustomers: input.limits.maxCustomers ?? null,
+          maxOrdersPerMonth: input.limits.maxOrdersPerMonth ?? null,
+          maxInvoicesPerMonth: input.limits.maxInvoicesPerMonth ?? null,
+          allowExports: input.limits.allowExports ?? false,
+          allowAdvancedReports: input.limits.allowAdvancedReports ?? false,
+          allowMultipleLocations: input.limits.allowMultipleLocations ?? false,
+        },
+      })
+    }
+    const limits = await tx.planLimit.findUnique({
+      where: { planId: existing.id },
+      select: {
+        maxUsers: true,
+        maxProducts: true,
+        maxCustomers: true,
+        maxOrdersPerMonth: true,
+        maxInvoicesPerMonth: true,
+        allowExports: true,
+        allowAdvancedReports: true,
+        allowMultipleLocations: true,
+      },
+    })
+    return { ...plan, limits }
+  })
+
+  return toCatalogRow(updated)
 }
 
 export async function listAdminPlanPricing() {

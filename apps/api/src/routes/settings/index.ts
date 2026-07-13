@@ -282,7 +282,7 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     const compute = (async () => {
       const dbStart = Date.now()
-      const [platform, business, authUser, paymentMethod, plans, subscriptionCtx, timeline] = await Promise.all([
+      const [platform, business, authUser, paymentMethod, plans, subscriptionCtx, timeline, assignedPlan] = await Promise.all([
         ensurePlatformSettings(),
         settingsRepository.getSettingsBusinessById(bizId),
         settingsRepository.getSettingsUserById(userId),
@@ -290,6 +290,7 @@ export async function settingsRoutes(app: FastifyInstance) {
         isOwner ? subscriptionsRepository.listActivePlans() : Promise.resolve([]),
         getSubscriptionAccessContext(bizId),
         subscriptionsRepository.listSubscriptionPaymentTimelineByBusiness(bizId),
+        subscriptionsRepository.getPlanForBusinessCheckout(bizId).catch(() => null),
       ])
       const dbMs = Date.now() - dbStart
 
@@ -308,7 +309,7 @@ export async function settingsRoutes(app: FastifyInstance) {
         isActive: business.isActive,
         suspendedReason: business.suspendedReason,
       }
-      const access = computeBusinessAccess(accessBusiness, platform)
+      const access = computeBusinessAccess(accessBusiness, platform, new Date(), assignedPlan)
 
       const payload = {
         settings: {
@@ -396,6 +397,7 @@ export async function settingsRoutes(app: FastifyInstance) {
         settingsRepository.getSettingsUserById(userId),
         settingsRepository.getDefaultPaymentMethodByBusiness(bizId),
       ])
+      const assignedPlan = await subscriptionsRepository.getPlanForBusinessCheckout(bizId).catch(() => null)
       const dbMs = Date.now() - dbStart
 
       if (!business || !user) return null
@@ -413,7 +415,7 @@ export async function settingsRoutes(app: FastifyInstance) {
         isActive: business.isActive,
         suspendedReason: business.suspendedReason,
       }
-      const access = computeBusinessAccess(accessBusiness, platform)
+      const access = computeBusinessAccess(accessBusiness, platform, new Date(), assignedPlan)
 
       const payload = {
         business,
@@ -462,12 +464,13 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     const compute = (async () => {
       const dbStart = Date.now()
-      const [platform, business, paymentMethod, transactions, subscriptionCtx] = await Promise.all([
+      const [platform, business, paymentMethod, transactions, subscriptionCtx, assignedPlan] = await Promise.all([
         ensurePlatformSettings(),
         settingsRepository.getSettingsBusinessById(bizId),
         settingsRepository.getDefaultPaymentMethodByBusiness(bizId),
         settingsRepository.getRecentPaymentTransactionsByBusiness(bizId, 8),
         getSubscriptionAccessContext(bizId),
+        subscriptionsRepository.getPlanForBusinessCheckout(bizId).catch(() => null),
       ])
       const dbMs = Date.now() - dbStart
 
@@ -486,7 +489,7 @@ export async function settingsRoutes(app: FastifyInstance) {
         isActive: business.isActive,
         suspendedReason: business.suspendedReason,
       }
-      const access = computeBusinessAccess(accessBusiness, platform)
+      const access = computeBusinessAccess(accessBusiness, platform, new Date(), assignedPlan)
 
       const payload = {
         status: access.effectiveStatus,
@@ -621,7 +624,9 @@ export async function settingsRoutes(app: FastifyInstance) {
       ensurePlatformSettings(),
       settingsRepository.getSettingsBusinessById(bizId),
       settingsRepository.getDefaultPaymentMethodByBusiness(bizId),
-      subscriptionsRepository.getDefaultPaidPlan(),
+      // The business's assigned plan — so a renewal never silently downgrades
+      // an admin-assigned PRO/ENTERPRISE tenant to the cheapest paid plan.
+      subscriptionsRepository.getPlanForBusinessCheckout(bizId),
       subscriptionsRepository.getLatestPendingSubscriptionPaymentByBusiness(bizId),
     ])
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
@@ -640,7 +645,8 @@ export async function settingsRoutes(app: FastifyInstance) {
       isActive: business.isActive,
       suspendedReason: business.suspendedReason,
     }
-    const access = computeBusinessAccess(accessBusiness, platform)
+    // plan participates in pricing: override → plan price → platform default.
+    const access = computeBusinessAccess(accessBusiness, platform, new Date(), plan)
 
     if (pending) {
       const pendingAgeMs = Date.now() - new Date(pending.createdAt).getTime()
