@@ -55,7 +55,7 @@ function clearSettingsCacheByPrefix(prefix: string) {
   for (const key of settingsOrderFormInFlight.keys()) if (key.startsWith(prefix)) settingsOrderFormInFlight.delete(key)
 }
 
-function invalidateSettingsCaches(businessId: string, userId?: string) {
+export function invalidateSettingsCaches(businessId: string, userId?: string) {
   clearSettingsCacheByPrefix(`${businessId}:`)
   if (userId) clearSettingsCacheByPrefix(`${businessId}:${userId}`)
 }
@@ -229,6 +229,48 @@ function signaturesMatch(expected: string, provided: string) {
 function shouldAutoActivateOnVerifyInTest() {
   const value = String(process.env.RAZORPAY_TEST_AUTO_ACTIVATE ?? '').trim().toLowerCase()
   return value === '1' || value === 'true' || value === 'yes'
+}
+
+// After a payment activates (via webhook or verify), the client's JWT still
+// carries the old accessLocked flag, so a fresh session must be issued for the
+// workspace to unlock without a re-login.
+async function buildActivationSessionData(app: FastifyInstance, bizId: string, userId: string) {
+  const [settings, updatedBusiness, refreshedUser] = await Promise.all([
+    ensurePlatformSettings(),
+    settingsRepository.getSettingsBusinessById(bizId),
+    settingsRepository.getSettingsSessionUserById(userId),
+  ])
+  if (!updatedBusiness || !refreshedUser) return null
+  const access = computeBusinessAccess(updatedBusiness, settings)
+  const authUser = buildSettingsAuthUser({
+    id: refreshedUser.id,
+    name: refreshedUser.name,
+    role: refreshedUser.role,
+    businessId: refreshedUser.businessId,
+    permissions: refreshedUser.permissions,
+    business: refreshedUser.businessId
+      ? {
+          name: refreshedUser.businessName,
+          city: refreshedUser.businessCity,
+          businessType: refreshedUser.businessType,
+          customLabels: refreshedUser.customLabels,
+          enabledModules: refreshedUser.enabledModules,
+          featureFlags: refreshedUser.featureFlags,
+          defaultSettings: refreshedUser.defaultSettings,
+          subscriptionStatus: refreshedUser.subscriptionStatus,
+          subscriptionEndsAt: refreshedUser.subscriptionEndsAt,
+          subscriptionInterval: refreshedUser.subscriptionInterval,
+          monthlySubscriptionAmount: refreshedUser.monthlySubscriptionAmount,
+          yearlySubscriptionAmount: refreshedUser.yearlySubscriptionAmount,
+          trialStartedAt: refreshedUser.trialStartedAt,
+          trialDaysOverride: refreshedUser.trialDaysOverride,
+        }
+      : undefined,
+    accessLocked: access.accessLocked,
+    accessReason: access.reason,
+  })
+  const token = app.jwt.sign(authUser, { expiresIn: '7d' })
+  return { access, session: { token, user: authUser } }
 }
 
 export async function settingsRoutes(app: FastifyInstance) {
@@ -829,7 +871,28 @@ export async function settingsRoutes(app: FastifyInstance) {
     const transaction = await settingsRepository.getSubscriptionTransactionForVerification(body.data.transactionId, bizId)
     if (!transaction) return reply.status(404).send({ success: false, error: 'Pending transaction not found' })
     if (transaction.status === 'SUCCEEDED') {
-      return reply.status(409).send({ success: false, error: 'Payment already verified' })
+      // The webhook won the race and already captured + activated this payment.
+      // That is a success from the user's perspective, so hand back a fresh
+      // session instead of an error.
+      const activation = await buildActivationSessionData(app, bizId, (req.user as any).id)
+      invalidateSettingsCaches(bizId, (req.user as any).id)
+      invalidateAuthCachesForBusiness(bizId)
+      req.log.info({ route: '/api/settings/subscription/checkout/verify', bizId, activation: 'webhook-already-processed', totalMs: Date.now() - routeStart }, 'checkout verified')
+      return {
+        success: true,
+        data: {
+          id: transaction.id,
+          amount: Number(transaction.amount),
+          currency: transaction.currency,
+          interval: transaction.interval,
+          paidAt: new Date().toISOString(),
+          pendingWebhook: false,
+          endsAt: activation?.access.endsAtIso ?? null,
+          status: activation?.access.effectiveStatus ?? null,
+          message: 'Payment confirmed and subscription activated.',
+          session: activation?.session,
+        },
+      }
     }
     if (transaction.interval !== body.data.interval) {
       return reply.status(400).send({ success: false, error: 'Subscription interval does not match transaction' })
@@ -854,43 +917,10 @@ export async function settingsRoutes(app: FastifyInstance) {
         } as any,
       })
 
-      const [settings, updatedBusiness, refreshedUser] = await Promise.all([
-        ensurePlatformSettings(),
-        settingsRepository.getSettingsBusinessById(bizId),
-        settingsRepository.getSettingsSessionUserById((req.user as any).id),
-      ])
-      if (!updatedBusiness || !refreshedUser) {
+      const activation = await buildActivationSessionData(app, bizId, (req.user as any).id)
+      if (!activation) {
         return reply.status(404).send({ success: false, error: 'Business or user not found after activation' })
       }
-      const access = computeBusinessAccess(updatedBusiness, settings)
-      const authUser = buildSettingsAuthUser({
-        id: refreshedUser.id,
-        name: refreshedUser.name,
-        role: refreshedUser.role,
-        businessId: refreshedUser.businessId,
-        permissions: refreshedUser.permissions,
-        business: refreshedUser.businessId
-          ? {
-              name: refreshedUser.businessName,
-              city: refreshedUser.businessCity,
-              businessType: refreshedUser.businessType,
-              customLabels: refreshedUser.customLabels,
-              enabledModules: refreshedUser.enabledModules,
-              featureFlags: refreshedUser.featureFlags,
-              defaultSettings: refreshedUser.defaultSettings,
-              subscriptionStatus: refreshedUser.subscriptionStatus,
-              subscriptionEndsAt: refreshedUser.subscriptionEndsAt,
-              subscriptionInterval: refreshedUser.subscriptionInterval,
-              monthlySubscriptionAmount: refreshedUser.monthlySubscriptionAmount,
-              yearlySubscriptionAmount: refreshedUser.yearlySubscriptionAmount,
-              trialStartedAt: refreshedUser.trialStartedAt,
-              trialDaysOverride: refreshedUser.trialDaysOverride,
-            }
-          : undefined,
-        accessLocked: access.accessLocked,
-        accessReason: access.reason,
-      })
-      const token = app.jwt.sign(authUser, { expiresIn: '7d' })
       invalidateSettingsCaches(bizId, (req.user as any).id)
       invalidateAuthCachesForBusiness(bizId)
       return {
@@ -902,13 +932,10 @@ export async function settingsRoutes(app: FastifyInstance) {
           interval: transaction.interval,
           paidAt: new Date().toISOString(),
           pendingWebhook: false,
-          endsAt: access.endsAtIso,
-          status: access.effectiveStatus,
+          endsAt: activation.access.endsAtIso,
+          status: activation.access.effectiveStatus,
           message: 'Payment verified and plan activated in test fallback mode.',
-          session: {
-            token,
-            user: authUser,
-          },
+          session: activation.session,
         },
       }
     }
@@ -928,6 +955,32 @@ export async function settingsRoutes(app: FastifyInstance) {
         paidAt: new Date().toISOString(),
         pendingWebhook: true,
         message: 'Payment captured at checkout. Subscription will activate after webhook confirmation.',
+      },
+    }
+  })
+
+  // Polled by the frontend after checkout when activation is pending the
+  // webhook, so the UI can flip to "active" the moment the capture lands.
+  app.get('/subscription/checkout/status/:transactionId', async (req, reply) => {
+    if (!requireOwner(req, reply)) return
+    const bizId = getBizId(req)
+    const transactionId = String((req.params as any).transactionId ?? '')
+    if (!transactionId) return reply.status(400).send({ success: false, error: 'Missing transaction id' })
+    const transaction = await settingsRepository.getSubscriptionTransactionForVerification(transactionId, bizId)
+    if (!transaction) return reply.status(404).send({ success: false, error: 'Transaction not found' })
+    if (transaction.status !== 'SUCCEEDED') {
+      return { success: true, data: { status: transaction.status, session: null, endsAt: null } }
+    }
+    const activation = await buildActivationSessionData(app, bizId, (req.user as any).id)
+    invalidateSettingsCaches(bizId, (req.user as any).id)
+    invalidateAuthCachesForBusiness(bizId)
+    return {
+      success: true,
+      data: {
+        status: 'SUCCEEDED',
+        endsAt: activation?.access.endsAtIso ?? null,
+        accessStatus: activation?.access.effectiveStatus ?? null,
+        session: activation?.session ?? null,
       },
     }
   })

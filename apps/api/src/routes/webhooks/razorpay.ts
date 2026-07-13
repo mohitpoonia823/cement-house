@@ -1,6 +1,8 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import { Prisma, subscriptionsRepository } from '@cement-house/db'
+import { invalidateAuthCachesForBusiness } from '../../middleware/auth'
+import { invalidateSettingsCaches } from '../settings'
 
 type RawBodyRequest = { rawBody?: string }
 
@@ -57,6 +59,12 @@ export async function razorpayWebhookRoutes(app: FastifyInstance) {
       razorpayPaymentId,
       payload,
     })
+    // The activation changed subscription state; drop cached settings/auth
+    // payloads so the frontend sees the new plan immediately.
+    if (result.businessId) {
+      invalidateSettingsCaches(result.businessId)
+      invalidateAuthCachesForBusiness(result.businessId)
+    }
     return { success: true, data: result }
   })
 }

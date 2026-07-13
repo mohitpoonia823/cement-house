@@ -192,6 +192,7 @@ export default function SettingsPage() {
   const [staffPerms, setStaffPerms] = useState<Set<string>>(new Set())
 
   const [checkoutOpen, setCheckoutOpen] = useState(false)
+  const [paymentSuccess, setPaymentSuccess] = useState<null | { amount: number; currency: string; interval: string; endsAt: string | null }>(null)
   const [selectedInterval, setSelectedInterval] = useState<BillingInterval>('MONTHLY')
   const [chosenPlan, setChosenPlan] = useState<'BASIC' | 'PRO' | 'ENTERPRISE' | null>(null)
   const [isConfirmingPayment, setIsConfirmingPayment] = useState(false)
@@ -546,6 +547,22 @@ export default function SettingsPage() {
     if (checkoutOpen) ensureRazorpayLoaded().catch(() => undefined)
   }, [checkoutOpen])
 
+  async function pollActivationStatus(transactionId: string, timeoutMs = 90_000) {
+    const startedAt = Date.now()
+    while (Date.now() - startedAt < timeoutMs) {
+      await new Promise((resolve) => setTimeout(resolve, 2500))
+      let data: any = null
+      try {
+        data = await api.get(`/api/settings/subscription/checkout/status/${transactionId}`).then((r) => r.data.data)
+      } catch {
+        continue
+      }
+      if (data?.status === 'SUCCEEDED') return data
+      if (data?.status === 'FAILED') throw new Error('Payment could not be confirmed. If money was deducted it will be refunded automatically.')
+    }
+    return null
+  }
+
   async function handleCheckoutConfirm() {
     try {
       setIsConfirmingPayment(true)
@@ -607,19 +624,43 @@ export default function SettingsPage() {
         rz.open()
       })
 
-      if (verifiedResult?.session?.token && verifiedResult?.session?.user) {
-        login(verifiedResult.session.token, verifiedResult.session.user)
+      setCheckoutOpen(false)
+
+      // If activation is still pending the webhook, poll until the capture
+      // lands so the user sees the plan flip to active without a manual refresh.
+      let finalResult = verifiedResult
+      if (verifiedResult?.pendingWebhook) {
+        pushToast('info', 'Payment received. Confirming activation...')
+        const polled = await pollActivationStatus(initiate.transactionId)
+        if (polled) {
+          finalResult = {
+            ...verifiedResult,
+            pendingWebhook: false,
+            endsAt: polled.endsAt ?? verifiedResult.endsAt ?? null,
+            session: polled.session ?? verifiedResult.session,
+          }
+        }
+      }
+
+      if (finalResult?.session?.token && finalResult?.session?.user) {
+        login(finalResult.session.token, finalResult.session.user)
       }
       qc.invalidateQueries({ queryKey: ['settings-bootstrap'] })
-      setCheckoutOpen(false)
-      const intervalLabel = verifiedResult.interval === 'YEARLY' ? 'yearly' : 'monthly'
-      setAlert({
-        tone: verifiedResult?.pendingWebhook ? 'info' : 'success',
-        message: verifiedResult?.pendingWebhook
-          ? `Payment received for ${intervalLabel} subscription. Waiting for webhook confirmation to activate plan.`
-          : `Payment confirmed successfully. Your ${intervalLabel} subscription is active until ${fmtDate(verifiedResult.endsAt)} and the workspace is now unlocked.`,
-      })
-      pushToast('success', verifiedResult?.pendingWebhook ? 'Payment captured. Activation in progress.' : `Payment successful. ${intervalLabel === 'yearly' ? 'Yearly' : 'Monthly'} subscription is now active.`)
+      const intervalLabel = finalResult.interval === 'YEARLY' ? 'yearly' : 'monthly'
+      if (finalResult?.pendingWebhook) {
+        setAlert({
+          tone: 'info',
+          message: `Payment received for ${intervalLabel} subscription. Activation is in progress and will complete automatically in a moment.`,
+        })
+      } else {
+        setPaymentSuccess({
+          amount: Number(finalResult.amount) || 0,
+          currency: finalResult.currency ?? 'INR',
+          interval: finalResult.interval,
+          endsAt: finalResult.endsAt ?? null,
+        })
+        pushToast('success', `Payment successful. ${intervalLabel === 'yearly' ? 'Yearly' : 'Monthly'} subscription is now active.`)
+      }
     } catch (error) {
       const message = getAlertMessage(error, 'Payment failed. Please try again.')
       setAlert({ tone: 'danger', message })
@@ -1481,6 +1522,42 @@ export default function SettingsPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      ) : null}
+      {paymentSuccess ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-[30px] border border-white/60 bg-white p-6 text-center shadow-[0_30px_90px_rgba(15,23,42,0.22)] dark:border-white/10 dark:bg-slate-950">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-500/15">
+              <svg className="h-7 w-7 text-emerald-600 dark:text-emerald-400" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <div className="mt-4 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
+              {t('Payment successful', 'भुगतान सफल')}
+            </div>
+            <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              {paymentSuccess.interval === 'YEARLY'
+                ? t('Your yearly subscription is now active.', 'आपका ईयरली सब्सक्रिप्शन अब सक्रिय है।')
+                : t('Your monthly subscription is now active.', 'आपका मंथली सब्सक्रिप्शन अब सक्रिय है।')}
+            </div>
+            <div className="mt-5 rounded-[24px] border border-slate-200/70 bg-slate-50/80 p-5 dark:border-slate-800 dark:bg-slate-900/60">
+              <div className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">
+                ₹{paymentSuccess.amount.toLocaleString('en-IN')}
+              </div>
+              {paymentSuccess.endsAt ? (
+                <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                  {t('Active until', 'सक्रिय रहेगा')} {fmtDate(paymentSuccess.endsAt)}
+                </div>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={() => setPaymentSuccess(null)}
+              className={`${saveBtnCls} mt-5 w-full justify-center`}
+            >
+              {t('Continue to workspace', 'वर्कस्पेस पर जाएं')}
+            </button>
           </div>
         </div>
       ) : null}

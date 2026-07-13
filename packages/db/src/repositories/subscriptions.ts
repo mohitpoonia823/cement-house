@@ -508,7 +508,7 @@ export async function processRazorpayWebhookEvent(input: {
       LIMIT 1
     `
     if (existing[0]?.processed) {
-      return { processed: true as const, idempotent: true as const, paymentUpdated: false as const }
+      return { processed: true as const, idempotent: true as const, paymentUpdated: false as const, businessId: null }
     }
     if (!existing[0]) {
       await tx.$executeRaw`
@@ -528,7 +528,7 @@ export async function processRazorpayWebhookEvent(input: {
         SET processed = TRUE, "processedAt" = NOW()
         WHERE "eventId" = ${input.eventId}
       `
-      return { processed: true as const, idempotent: false as const, paymentUpdated: false as const }
+      return { processed: true as const, idempotent: false as const, paymentUpdated: false as const, businessId: null }
     }
 
     const payments = await tx.$queryRaw<Array<{
@@ -564,7 +564,7 @@ export async function processRazorpayWebhookEvent(input: {
         SET processed = TRUE, "processedAt" = NOW()
         WHERE "eventId" = ${input.eventId}
       `
-      return { processed: true as const, idempotent: false as const, paymentUpdated: false as const }
+      return { processed: true as const, idempotent: false as const, paymentUpdated: false as const, businessId: null }
     }
     if (payment.status === 'SUCCESS' && input.eventType === 'payment.captured') {
       await tx.$executeRaw`
@@ -572,7 +572,7 @@ export async function processRazorpayWebhookEvent(input: {
         SET processed = TRUE, "processedAt" = NOW()
         WHERE "eventId" = ${input.eventId}
       `
-      return { processed: true as const, idempotent: true as const, paymentUpdated: false as const }
+      return { processed: true as const, idempotent: true as const, paymentUpdated: false as const, businessId: payment.businessId }
     }
 
     if (input.eventType === 'payment.failed') {
@@ -591,7 +591,7 @@ export async function processRazorpayWebhookEvent(input: {
         SET processed = TRUE, "processedAt" = NOW()
         WHERE "eventId" = ${input.eventId}
       `
-      return { processed: true as const, idempotent: false as const, paymentUpdated: true as const }
+      return { processed: true as const, idempotent: false as const, paymentUpdated: true as const, businessId: payment.businessId }
     }
 
     const now = new Date()
@@ -707,7 +707,7 @@ export async function processRazorpayWebhookEvent(input: {
       WHERE "eventId" = ${input.eventId}
     `
 
-    return { processed: true as const, idempotent: false as const, paymentUpdated: true as const }
+    return { processed: true as const, idempotent: false as const, paymentUpdated: true as const, businessId: payment.businessId }
   })
 }
 
