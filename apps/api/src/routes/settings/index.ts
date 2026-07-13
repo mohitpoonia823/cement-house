@@ -16,6 +16,7 @@ import { ensureUsageAllowed, getSubscriptionAccessContext } from '../../services
 import {
   type BusinessWithBilling,
   computeBusinessAccess,
+  deriveBusinessPricing,
   ensurePlatformSettings,
 } from '../../services/billing'
 import { getSampleMaterialsForBusinessType, SAMPLE_CUSTOMER } from '../../services/sample-data'
@@ -120,6 +121,8 @@ const UpdateStaffSchema = z.object({
 
 const SubscriptionCheckoutInitiateSchema = z.object({
   interval: z.enum(['MONTHLY', 'YEARLY']),
+  // Self-serve plan choice; omitted = renew the currently assigned plan.
+  plan: z.enum(['BASIC', 'PRO', 'ENTERPRISE']).optional(),
 })
 
 const UpdateModulesConfigSchema = z.object({
@@ -620,7 +623,7 @@ export async function settingsRoutes(app: FastifyInstance) {
       })
     }
 
-    const [platform, business, paymentMethod, plan, pending] = await Promise.all([
+    const [platform, business, paymentMethod, assignedPlan, pending] = await Promise.all([
       ensurePlatformSettings(),
       settingsRepository.getSettingsBusinessById(bizId),
       settingsRepository.getDefaultPaymentMethodByBusiness(bizId),
@@ -630,7 +633,19 @@ export async function settingsRoutes(app: FastifyInstance) {
       subscriptionsRepository.getLatestPendingSubscriptionPaymentByBusiness(bizId),
     ])
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
+
+    // Self-serve plan choice: an explicitly requested plan wins over the
+    // assigned one (the webhook activates whatever plan this checkout records).
+    let plan = assignedPlan
+    if (body.data.plan && body.data.plan !== assignedPlan?.name) {
+      const requested = await subscriptionsRepository.getPlanByName(body.data.plan)
+      if (!requested) {
+        return reply.status(400).send({ success: false, error: 'The selected plan is not available right now.' })
+      }
+      plan = requested
+    }
     if (!plan) return reply.status(400).send({ success: false, error: 'No active paid plan is configured' })
+    const isPlanSwitch = plan.name !== assignedPlan?.name
 
     const accessBusiness: BusinessWithBilling = {
       id: business.id,
@@ -645,8 +660,16 @@ export async function settingsRoutes(app: FastifyInstance) {
       isActive: business.isActive,
       suspendedReason: business.suspendedReason,
     }
-    // plan participates in pricing: override → plan price → platform default.
-    const access = computeBusinessAccess(accessBusiness, platform, new Date(), plan)
+    // Pricing hierarchy: override → plan price → platform default. A negotiated
+    // per-business override belongs to the ASSIGNED plan only, so switching to
+    // a different plan charges that plan's list price instead.
+    const chargePricing = deriveBusinessPricing(
+      isPlanSwitch
+        ? { ...accessBusiness, monthlySubscriptionAmount: 0, yearlySubscriptionAmount: 0 }
+        : accessBusiness,
+      platform,
+      plan,
+    )
 
     if (pending) {
       const pendingAgeMs = Date.now() - new Date(pending.createdAt).getTime()
@@ -672,8 +695,8 @@ export async function settingsRoutes(app: FastifyInstance) {
     }
 
     const amount = body.data.interval === 'YEARLY'
-      ? Number(access.pricing.yearlyPrice)
-      : Number(access.pricing.monthlyPrice)
+      ? Number(chargePricing.yearlyPrice)
+      : Number(chargePricing.monthlyPrice)
     const amountInPaise = Math.round(Number(amount) * 100)
     if (!Number.isFinite(amountInPaise) || amountInPaise <= 0) {
       return reply.status(400).send({ success: false, error: 'Invalid payment amount' })

@@ -193,6 +193,7 @@ export default function SettingsPage() {
 
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [selectedInterval, setSelectedInterval] = useState<BillingInterval>('MONTHLY')
+  const [chosenPlan, setChosenPlan] = useState<'BASIC' | 'PRO' | 'ENTERPRISE' | null>(null)
   const [isConfirmingPayment, setIsConfirmingPayment] = useState(false)
   const [logoutReason, setLogoutReason] = useState('')
   const [toasts, setToasts] = useState<ToastItem[]>([])
@@ -201,9 +202,31 @@ export default function SettingsPage() {
     [modulesSelection, featureSelection],
   )
 
-  const selectedPlanAmount = selectedInterval === 'YEARLY'
-    ? fmt(Number(data?.subscription?.yearlyPrice ?? 0))
-    : fmt(Number(data?.subscription?.monthlyPrice ?? 0))
+  const assignedPlanName: 'BASIC' | 'PRO' | 'ENTERPRISE' =
+    data?.business?.subscriptionPlan === 'ENTERPRISE'
+      ? 'ENTERPRISE'
+      : data?.business?.subscriptionPlan === 'PRO'
+        ? 'PRO'
+        : 'BASIC'
+  const selectedPlanName = chosenPlan ?? assignedPlanName
+  const activePaidPlans = useMemo(
+    () => ((bootstrapData?.plans ?? []) as ActivePlan[]).filter((plan) => plan.isActive && plan.name !== 'FREE'),
+    [bootstrapData?.plans],
+  )
+  // The assigned plan may carry a negotiated per-business price (the API
+  // already resolves it); switching plans charges that plan's list price.
+  const planPrices = (planName: string) => {
+    if (planName === assignedPlanName) {
+      return {
+        monthly: Number(data?.subscription?.monthlyPrice ?? 0),
+        yearly: Number(data?.subscription?.yearlyPrice ?? 0),
+      }
+    }
+    const row = activePaidPlans.find((plan) => plan.name === planName)
+    return { monthly: Number(row?.priceMonthly ?? 0), yearly: Number(row?.priceYearly ?? 0) }
+  }
+  const selectedPrices = planPrices(selectedPlanName)
+  const selectedPlanAmount = selectedInterval === 'YEARLY' ? fmt(selectedPrices.yearly) : fmt(selectedPrices.monthly)
   const canCancelSubscription =
     Boolean(data?.subscription?.interval) &&
     Boolean(data?.subscription?.endsAt) &&
@@ -214,7 +237,9 @@ export default function SettingsPage() {
     const status = data?.subscription?.status
     const daysRemaining = Number(data?.subscription?.daysRemaining ?? 0)
     const stillInCurrentCycle = status === 'ACTIVE' || (status === 'CANCELLED' && daysRemaining > 0)
-    return !accessLocked && stillInCurrentCycle && data?.subscription?.interval === interval
+    // Selecting a different plan re-enables checkout even mid-cycle (upgrade
+    // path — the paid window queues after the current one).
+    return !accessLocked && stillInCurrentCycle && data?.subscription?.interval === interval && selectedPlanName === assignedPlanName
   }
 
   const currentPlanName = (subscriptionUsage?.subscription?.plan?.name ?? null) as ActivePlan['name'] | null
@@ -532,6 +557,7 @@ export default function SettingsPage() {
       const initiate = await api
         .post('/api/settings/subscription/checkout/initiate', {
           interval: selectedInterval,
+          plan: selectedPlanName,
         })
         .then((r) => r.data.data)
 
@@ -794,29 +820,62 @@ export default function SettingsPage() {
               }
             />
             <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/60">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Choose billing cycle</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Choose plan</div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                {activePaidPlans.map((plan) => {
+                  const prices = planPrices(plan.name)
+                  const selected = selectedPlanName === plan.name
+                  return (
+                    <button
+                      key={plan.id}
+                      type="button"
+                      onClick={() => setChosenPlan(plan.name as 'BASIC' | 'PRO' | 'ENTERPRISE')}
+                      className={`rounded-xl p-3 text-left transition-colors ${
+                        selected
+                          ? 'border-2 border-indigo-500 bg-indigo-50/70 dark:border-indigo-400 dark:bg-indigo-950/30'
+                          : 'border border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-slate-600'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-sm font-semibold text-slate-900 dark:text-white">{plan.name}</span>
+                        {plan.name === assignedPlanName ? (
+                          <span className="text-[9px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">Current</span>
+                        ) : null}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                        {fmt(prices.monthly)}/mo • {fmt(prices.yearly)}/yr
+                      </div>
+                      {plan.description ? (
+                        <div className="mt-1 text-[10px] leading-4 text-slate-400 dark:text-slate-500">{plan.description}</div>
+                      ) : null}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="mt-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Billing cycle</div>
               <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
                 <PlanOption
                   title="Monthly"
-                  amount={fmt(Number(data?.subscription?.monthlyPrice ?? 0))}
+                  amount={fmt(selectedPrices.monthly)}
                   sub="30-day access window"
                   statusLabel={isCurrentPlanActive('MONTHLY') ? 'Current plan' : undefined}
                   onClick={() => openCheckout('MONTHLY')}
                   busy={isConfirmingPayment && selectedInterval === 'MONTHLY'}
                   subscribed={isCurrentPlanActive('MONTHLY')}
                   disabled={isCurrentPlanActive('MONTHLY')}
-                  ctaLabel={isCurrentPlanActive('MONTHLY') ? 'Current plan' : 'Activate monthly'}
+                  ctaLabel={isCurrentPlanActive('MONTHLY') ? 'Current plan' : `Activate ${selectedPlanName} monthly`}
                 />
                 <PlanOption
                   title="Yearly"
-                  amount={fmt(Number(data?.subscription?.yearlyPrice ?? 0))}
+                  amount={fmt(selectedPrices.yearly)}
                   sub="365-day access window"
                   statusLabel={isCurrentPlanActive('YEARLY') ? 'Current plan' : 'Best value'}
                   onClick={() => openCheckout('YEARLY')}
                   busy={isConfirmingPayment && selectedInterval === 'YEARLY'}
                   subscribed={isCurrentPlanActive('YEARLY')}
                   disabled={isCurrentPlanActive('YEARLY')}
-                  ctaLabel={isCurrentPlanActive('YEARLY') ? 'Current plan' : 'Activate yearly'}
+                  ctaLabel={isCurrentPlanActive('YEARLY') ? 'Current plan' : `Activate ${selectedPlanName} yearly`}
                 />
               </div>
             </div>

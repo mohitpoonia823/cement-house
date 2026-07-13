@@ -84,6 +84,15 @@ const PlanNameSchema = z.enum(['FREE', 'BASIC', 'PRO', 'ENTERPRISE'])
 // registration flow shows, so plan gating and business config never drift.
 const PLAN_GATEABLE_FEATURE_KEYS = new Set<string>(CUSTOM_ONBOARDING_FEATURES.map((feature) => feature.key))
 
+// Migration 011 seeded plans.features with legacy allow* keys that are not part
+// of the gateable catalog; hide them so the UI never echoes back invalid keys.
+function toGateableCatalogRow<T extends { blockedFeatures: string[] }>(plan: T): T {
+  return {
+    ...plan,
+    blockedFeatures: plan.blockedFeatures.filter((key) => PLAN_GATEABLE_FEATURE_KEYS.has(key)),
+  }
+}
+
 const NullableLimitSchema = z.number().int().min(0).nullable().optional()
 
 const UpdatePlanCatalogSchema = z.object({
@@ -525,7 +534,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     return {
       success: true,
       data: {
-        plans,
+        plans: plans.map(toGateableCatalogRow),
         gateableFeatures: CUSTOM_ONBOARDING_FEATURES.map((feature) => ({ key: feature.key, label: feature.label })),
       },
     }
@@ -562,7 +571,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
         limits: body.data.limits,
       },
     })
-    return { success: true, data: updated }
+    return { success: true, data: toGateableCatalogRow(updated) }
   })
 
   app.put('/plan-pricing/:name', async (req, reply) => {
