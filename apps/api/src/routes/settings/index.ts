@@ -623,6 +623,13 @@ export async function settingsRoutes(app: FastifyInstance) {
       })
     }
 
+    // Abandoned checkouts (user closed the Razorpay popup) must not linger:
+    // they would 409-block retries and, worse, their planned windows used to
+    // push every later checkout further into the future. Anything older than
+    // the pending lock is considered abandoned.
+    const pendingLockMs = 20 * 60 * 1000
+    await subscriptionsRepository.expireStalePendingSubscriptionPayments(bizId, new Date(Date.now() - pendingLockMs))
+
     const [platform, business, paymentMethod, assignedPlan, pending] = await Promise.all([
       ensurePlatformSettings(),
       settingsRepository.getSettingsBusinessById(bizId),
@@ -673,7 +680,6 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     if (pending) {
       const pendingAgeMs = Date.now() - new Date(pending.createdAt).getTime()
-      const pendingLockMs = 20 * 60 * 1000
       if (Number.isFinite(pendingAgeMs) && pendingAgeMs <= pendingLockMs) {
         const pendingWindow =
           pending.plannedStartAt && pending.plannedEndAt

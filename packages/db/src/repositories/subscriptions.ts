@@ -406,10 +406,13 @@ export async function getNextSubscriptionWindowStart(businessId: string, now = n
         AND b."subscriptionEndsAt" IS NOT NULL
         AND b."subscriptionEndsAt" > ${now}
       UNION ALL
+      -- Only PAID windows occupy time. A PENDING row is an abandoned or
+      -- in-flight checkout: counting it would push every subsequent checkout's
+      -- window 30/365 days further out without any money changing hands.
       SELECT (sp.metadata->>'plannedEndAt')::timestamptz AS end_at
       FROM payment_transactions sp
       WHERE sp."businessId" = ${businessId}
-        AND sp.status IN ('PENDING'::"PaymentStatus", 'SUCCEEDED'::"PaymentStatus")
+        AND sp.status = 'SUCCEEDED'::"PaymentStatus"
         AND sp.metadata ? 'plannedEndAt'
         AND (sp.metadata->>'plannedEndAt')::timestamptz > ${now}
       UNION ALL
@@ -426,6 +429,25 @@ export async function getNextSubscriptionWindowStart(businessId: string, now = n
   `
   const next = rows[0]?.nextStartAt
   return next ? new Date(next) : now
+}
+
+/**
+ * Mark abandoned checkouts (PENDING older than the lock window) as FAILED so
+ * they stop blocking new checkouts. Safe even if the user later pays the old
+ * Razorpay order: webhook activation looks payments up by order id and does
+ * not require PENDING status.
+ */
+export async function expireStalePendingSubscriptionPayments(businessId: string, olderThan: Date) {
+  return prisma.$executeRaw`
+    UPDATE payment_transactions
+    SET
+      status = 'FAILED'::"PaymentStatus",
+      metadata = COALESCE(metadata, '{}'::jsonb) || '{"abandoned": true}'::jsonb,
+      "updatedAt" = NOW()
+    WHERE "businessId" = ${businessId}
+      AND status = 'PENDING'::"PaymentStatus"
+      AND "createdAt" < ${olderThan}
+  `
 }
 
 export async function getLatestPendingSubscriptionPaymentByBusiness(businessId: string) {
