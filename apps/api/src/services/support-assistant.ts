@@ -4,6 +4,7 @@
 // present, otherwise the built-in fallback below — so it answers about THIS
 // app's features specifically and does not invent product behaviour.
 import { supportKbRepository } from '@cement-house/db'
+import { buildFeatureMapContext } from './feature-map'
 
 export class SupportAssistantConfigError extends Error {
   constructor(message: string) {
@@ -49,6 +50,8 @@ COMMON TASKS
 - Add staff members: Settings > staff section. You can set permissions per staff member.
 - Change language: use the language dropdown in the top bar (English / Hindi / Hinglish).
 - Install the app on phone/desktop: tap "Install App" in the top bar, or use the browser's Add to Home Screen / Install option.
+- Download/export a CSV report: most list pages have an "Export CSV" button near the top of the list (e.g. "Export orders" on the Orders page). Click it to download that list as a CSV file you can open in Excel or Google Sheets. The Export CSV button is available on Orders, Customers, Khata, Suppliers, Expenses, and Inventory. Note: exporting may require a paid plan — if an upgrade message appears, the current plan does not include exports.
+- Download an order as PDF: open a specific order and use the "Download PDF" button to get its challan/invoice PDF.
 
 SUBSCRIPTION & BILLING
 - New businesses get a free trial. When it ends, the workspace locks until a paid plan is activated.
@@ -100,6 +103,7 @@ export async function answerSupportQuestion(input: {
   language: AssistantLanguage
   history?: AssistantTurn[]
   businessName?: string | null
+  userRole?: string | null
 }) {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) {
@@ -109,15 +113,18 @@ export async function answerSupportQuestion(input: {
   const model = process.env.GEMINI_SUPPORT_MODEL ?? process.env.GEMINI_BILL_SCAN_MODEL ?? 'gemini-2.0-flash'
 
   const knowledgeBase = await loadKnowledgeBase()
+  const featureMap = buildFeatureMapContext({ role: input.userRole })
 
   const systemPrompt = [
     'You are the in-app support assistant for NexaHub, a business management app for Indian shopkeepers.',
-    'Answer the user\'s question using ONLY the knowledge base below. Be concise, warm, and practical — most users are non-technical shop owners.',
-    'When explaining how to do something, give short step-by-step directions and name the exact screen/button (e.g. "Khata", "+ New order").',
-    'If the knowledge base does not contain the answer, do NOT guess. Say you are not sure and suggest they raise a ticket using the "Need Help" form on the Tickets page for the human support team.',
+    'Answer using ONLY the two grounding sources below: the APP FEATURE MAP (what the app can do, where each feature lives, and the actions on each screen) and the KNOWLEDGE BASE (extra how-to detail and nuance). Be concise, warm, and practical — most users are non-technical shop owners.',
+    'When explaining how to do something, give short step-by-step directions and name the exact screen/button (e.g. "Khata", "+ New order", "Export CSV").',
+    'If neither source covers the answer, do NOT guess. Say you are not sure and suggest they raise a ticket using the "Need Help" form on the Tickets page for the human support team.',
     'Never ask for or reveal passwords, OTPs, or payment card details. For their actual data/numbers, point them to the relevant screen (e.g. Reports) rather than inventing figures.',
     languageInstruction(input.language),
     input.businessName ? `The user's business is "${input.businessName}".` : '',
+    '',
+    featureMap,
     '',
     'KNOWLEDGE BASE:',
     knowledgeBase,
@@ -126,7 +133,7 @@ export async function answerSupportQuestion(input: {
   const history = (input.history ?? []).slice(-6)
   const contents = [
     { role: 'user', parts: [{ text: systemPrompt }] },
-    { role: 'model', parts: [{ text: 'Understood. I will help using only that knowledge base.' }] },
+    { role: 'model', parts: [{ text: 'Understood. I will help using only the app feature map and knowledge base above.' }] },
     ...history.map((turn) => ({
       role: turn.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: turn.content }],

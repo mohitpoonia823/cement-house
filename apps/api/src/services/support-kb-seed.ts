@@ -71,6 +71,18 @@ export const STARTER_KB_ENTRIES: StarterKbEntry[] = [
       'Financials shows your profit/loss and financial summary, and Reports gives detailed analytics across sales, dues, and stock. For specific numbers about your business, open these screens rather than expecting exact figures in chat.',
   },
   {
+    title: 'How do I download or export my orders as a CSV/Excel report?',
+    category: 'Reports',
+    content:
+      'Open the Orders page and click the "Export orders" (Export CSV) button near the top of the list. It downloads your orders as a CSV file you can open in Excel or Google Sheets. The same Export CSV button is available on other list pages too — Customers, Khata, Suppliers, Expenses, and Inventory — so you can export each of those the same way. Note: exports may require a paid plan. If you see an "upgrade your plan" message, your current plan does not include exports.',
+  },
+  {
+    title: 'How do I download an order bill/invoice as PDF?',
+    category: 'Orders',
+    content:
+      'Open the specific order from the Orders list and use the "Download PDF" button on the order page to download its challan/invoice as a PDF.',
+  },
+  {
     title: 'How does GST billing work?',
     category: 'GST',
     content:

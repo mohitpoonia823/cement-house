@@ -119,6 +119,7 @@ export async function supportRoutes(app: FastifyInstance) {
         language: body.data.language,
         history: body.data.history,
         businessName,
+        userRole: (req.user as any)?.role ?? null,
       })
       return { success: true, data: { answer: result.answer } }
     } catch (error) {
