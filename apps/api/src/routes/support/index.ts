@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { supportRepository } from '@cement-house/db'
 import { requireSuperAdmin } from '../../middleware/auth'
 import { getBusinessIdOrThrow } from '../../middleware/tenant'
+import { answerSupportQuestion, SupportAssistantConfigError } from '../../services/support-assistant'
 
 const SUPPORT_UNREAD_CACHE_TTL_MS = 20_000
 const supportUnreadCountCache = new Map<string, { expiresAt: number; count: number }>()
@@ -36,6 +37,20 @@ const UpdateStatusSchema = z.object({
 
 const NotificationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
+})
+
+const AssistantSchema = z.object({
+  message: z.string().trim().min(2).max(2000),
+  language: z.enum(['en', 'hi', 'hinglish']).default('en'),
+  history: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string().trim().min(1).max(4000),
+      }),
+    )
+    .max(12)
+    .optional(),
 })
 
 function isSuperAdmin(req: any) {
@@ -85,6 +100,34 @@ export async function supportRoutes(app: FastifyInstance) {
     invalidateSupportUnreadCache()
 
     return { success: true, data: { ticketId: created.ticketId } }
+  })
+
+  // AI self-service assistant (answer-only). Does not create tickets — the
+  // "Need Help" form remains the path to human support.
+  app.post('/assistant', async (req, reply) => {
+    if (isSuperAdmin(req)) return reply.status(403).send({ success: false, error: 'Assistant is for workspace users' })
+    const body = AssistantSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+
+    // Ensures the caller belongs to a business (tenant guard).
+    getBusinessIdOrThrow(req)
+    const businessName = (req.user as any)?.businessName ?? null
+
+    try {
+      const result = await answerSupportQuestion({
+        message: body.data.message,
+        language: body.data.language,
+        history: body.data.history,
+        businessName,
+      })
+      return { success: true, data: { answer: result.answer } }
+    } catch (error) {
+      if (error instanceof SupportAssistantConfigError) {
+        return reply.status(503).send({ success: false, error: 'AI assistant is not available right now. Please use Need Help to reach the support team.' })
+      }
+      req.log.error({ route: '/api/support/assistant', err: error }, 'support assistant failed')
+      return reply.status(502).send({ success: false, error: 'The assistant could not answer right now. Please try again or use Need Help.' })
+    }
   })
 
   app.get('/tickets/:id', async (req, reply) => {

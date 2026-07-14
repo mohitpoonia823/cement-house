@@ -1,11 +1,12 @@
 ﻿import type { FastifyInstance } from 'fastify'
-import { superAdminRepository } from '@cement-house/db'
+import { superAdminRepository, supportKbRepository } from '@cement-house/db'
 import { CUSTOM_ONBOARDING_FEATURES } from '@cement-house/utils'
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { invalidateAuthCachesForBusiness, requireSuperAdmin } from '../../middleware/auth'
 import { createAuditLog } from '../../services/audit'
 import { ensurePlatformSettings, invalidatePlatformSettingsCache } from '../../services/billing'
+import { STARTER_KB_ENTRIES } from '../../services/support-kb-seed'
 const OVERVIEW_CACHE_TTL_MS = 15_000
 const ANALYTICS_CACHE_TTL_MS = 20_000
 const superAdminOverviewCache = new Map<string, { expiresAt: number; value: any }>()
@@ -585,6 +586,65 @@ export async function superAdminRoutes(app: FastifyInstance) {
     if (!updated) return reply.status(404).send({ success: false, error: 'Plan not found' })
     invalidatePlatformSettingsCache()
     return { success: true, data: updated }
+  })
+
+  // ---- Support assistant knowledge base (FAQ entries the AI is grounded on) ----
+  const KbCreateSchema = z.object({
+    title: z.string().trim().min(2).max(160),
+    content: z.string().trim().min(2).max(8000),
+    category: z.string().trim().max(80).nullable().optional(),
+    isPublished: z.boolean().optional(),
+    sortOrder: z.number().int().min(0).max(100000).optional(),
+  })
+  const KbUpdateSchema = z.object({
+    title: z.string().trim().min(2).max(160).optional(),
+    content: z.string().trim().min(2).max(8000).optional(),
+    category: z.string().trim().max(80).nullable().optional(),
+    isPublished: z.boolean().optional(),
+    sortOrder: z.number().int().min(0).max(100000).optional(),
+  })
+
+  app.get('/knowledge-base', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const entries = await supportKbRepository.listAllKbEntries()
+    return { success: true, data: entries }
+  })
+
+  // One-click starter KB: seeds a ready-made FAQ set derived from the app's
+  // features so the admin refines instead of authoring from scratch.
+  app.post('/knowledge-base/seed', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const { inserted } = await supportKbRepository.seedKbEntriesIfMissing(STARTER_KB_ENTRIES)
+    const entries = await supportKbRepository.listAllKbEntries()
+    return { success: true, data: { inserted, entries } }
+  })
+
+  app.post('/knowledge-base', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const body = KbCreateSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    const created = await supportKbRepository.createKbEntry(body.data)
+    return { success: true, data: created }
+  })
+
+  app.patch('/knowledge-base/:id', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params)
+    if (!params.success) return reply.status(400).send({ success: false, error: 'Invalid entry id' })
+    const body = KbUpdateSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    const updated = await supportKbRepository.updateKbEntry(params.data.id, body.data)
+    if (!updated) return reply.status(404).send({ success: false, error: 'Entry not found' })
+    return { success: true, data: updated }
+  })
+
+  app.delete('/knowledge-base/:id', async (req, reply) => {
+    if (!requireSuperAdmin(req, reply)) return
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params)
+    if (!params.success) return reply.status(400).send({ success: false, error: 'Invalid entry id' })
+    const deleted = await supportKbRepository.deleteKbEntry(params.data.id)
+    if (!deleted) return reply.status(404).send({ success: false, error: 'Entry not found' })
+    return { success: true }
   })
 
   app.get('/overview', async (req, reply) => {

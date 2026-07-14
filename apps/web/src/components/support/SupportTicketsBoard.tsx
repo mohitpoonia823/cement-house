@@ -109,6 +109,22 @@ export function SupportTicketsBoard({
     },
   })
 
+  // Flywheel: turn an admin's ticket reply into a published KB entry so the AI
+  // can answer the same question next time. Reuses the super-admin KB endpoint.
+  const [savedToKbId, setSavedToKbId] = useState<string | null>(null)
+  const saveToKb = useMutation({
+    mutationFn: (payload: { title: string; content: string; messageId: string }) =>
+      api.post('/api/super-admin/knowledge-base', { title: payload.title, content: payload.content, category: 'From tickets' }).then((res) => res.data.data),
+    onSuccess: (_data, variables) => {
+      const messageId = variables.messageId
+      setSavedToKbId(messageId)
+      setTimeout(() => setSavedToKbId((current) => (current === messageId ? null : current)), 2500)
+    },
+    onError: () => {
+      window.alert(t('Could not save to knowledge base.', 'नॉलेज बेस में सेव नहीं हो सका।', 'Knowledge base me save nahi ho paya.'))
+    },
+  })
+
   const listTitle = isSuperAdmin ? t('All tickets', 'सभी टिकट', 'Saare tickets') : t('Your tickets', 'आपके टिकट', 'Aapke tickets')
   const emptyText = isSuperAdmin
     ? t('No tickets yet.', 'अभी कोई टिकट नहीं।', 'Abhi koi ticket nahi.')
@@ -256,7 +272,31 @@ export function SupportTicketsBoard({
                       )}
                       <div className="mt-1 text-[10px] opacity-70">{fmtDateTime(message.createdAt)}</div>
                       {mine && editingMessageId !== message.id ? (
-                        <div className="mt-1.5 flex justify-end gap-2">
+                        <div className="mt-1.5 flex flex-wrap justify-end gap-2">
+                          {isSuperAdmin ? (
+                            savedToKbId === message.id ? (
+                              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-300">
+                                {t('Saved to KB ✓', 'KB में सेव ✓', 'KB me saved ✓')}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={saveToKb.isPending}
+                                onClick={() => {
+                                  if (!selectedTicket) return
+                                  saveToKb.mutate({
+                                    title: selectedTicket.subject,
+                                    content: message.message,
+                                    messageId: message.id,
+                                  })
+                                }}
+                                className="text-[10px] font-semibold uppercase tracking-[0.12em] opacity-75 hover:opacity-100 disabled:opacity-40"
+                                title={t('Save this reply to the AI knowledge base', 'इस जवाब को एआई नॉलेज बेस में सेव करें', 'Is reply ko AI knowledge base me save karo')}
+                              >
+                                {t('Save to KB', 'KB में सेव करें', 'KB me save')}
+                              </button>
+                            )
+                          ) : null}
                           <button
                             type="button"
                             onClick={() => {

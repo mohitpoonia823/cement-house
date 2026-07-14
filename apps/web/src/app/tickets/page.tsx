@@ -5,8 +5,10 @@ import { useSearchParams } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
 import { SectionHeader } from '@/components/ui/Card'
 import { SupportTicketsBoard } from '@/components/support/SupportTicketsBoard'
+import { SupportAssistantPanel } from '@/components/support/SupportAssistantPanel'
 import { PageLoader } from '@/components/ui/Spinner'
 import { useI18n } from '@/lib/i18n'
+import { useAuthStore } from '@/store/auth'
 
 export default function TicketsPage() {
   return (
@@ -20,6 +22,8 @@ function TicketsContent() {
   const { language } = useI18n()
   const searchParams = useSearchParams()
   const ticketId = searchParams.get('ticketId')
+  const role = useAuthStore((state) => state.user?.role)
+  const showAssistant = role !== 'SUPER_ADMIN'
 
   return (
     <AppShell>
@@ -28,6 +32,7 @@ function TicketsContent() {
         title={language === 'hi' ? 'टिकट्स' : 'Tickets'}
         description={language === 'hi' ? 'एडमिन को सवाल भेजें और जवाब एक ही थ्रेड में ट्रैक करें।' : language === 'hinglish' ? 'Admin ko query bhejo aur replies ek hi thread me track karo.' : 'Raise queries to admin and track replies in one conversation thread.'}
       />
+      {showAssistant ? <SupportAssistantPanel /> : null}
       <SupportTicketsBoard preselectedTicketId={ticketId} />
     </AppShell>
   )

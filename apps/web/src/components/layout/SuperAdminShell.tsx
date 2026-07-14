@@ -16,6 +16,7 @@ const navItems = [
   { label: 'Users', href: '/super-admin/users', key: 'superadmin.users' },
   { label: 'Metrics', href: '/super-admin/metrics', key: 'superadmin.metrics' },
   { label: 'Tickets', href: '/super-admin/tickets', key: 'nav.tickets' },
+  { label: 'Knowledge Base', href: '/super-admin/knowledge-base', key: 'superadmin.knowledgeBase' },
   { label: 'Settings', href: '/super-admin/settings', key: 'nav.settings' },
 ]
 
@@ -67,6 +68,13 @@ function NavIcon({ href, className = '' }: { href: string; className?: string })
     return (
       <svg {...common}>
         <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.28 0-2.49-.28-3.58-.77L3 21l1.8-5.56A8.47 8.47 0 0 1 3.5 11.5 8.5 8.5 0 0 1 12 3a8.5 8.5 0 0 1 9 8.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (href === '/super-admin/knowledge-base') {
+    return (
+      <svg {...common}>
+        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v14H6.5A2.5 2.5 0 0 0 4 19.5zM4 19.5A2.5 2.5 0 0 0 6.5 22H20M8 7h8M8 10h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     )
   }
@@ -182,7 +190,11 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
                                 : language === 'hinglish'
                                   ? 'Metrics'
                                   : 'Metrics'
-                              : t(item.key)}
+                              : item.key === 'superadmin.knowledgeBase'
+                                ? language === 'hi'
+                                  ? 'नॉलेज बेस'
+                                  : 'Knowledge Base'
+                                : t(item.key)}
                     </span>
                   </span>
                   <span className={cn('h-2.5 w-2.5 rounded-full', active ? 'bg-emerald-200' : 'bg-slate-500')} />
@@ -266,7 +278,11 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
                           ? language === 'hi'
                             ? 'मेट्रिक्स'
                             : 'Metrics'
-                          : t(item.key)
+                          : item.key === 'superadmin.knowledgeBase'
+                            ? language === 'hi'
+                              ? 'नॉलेज बेस'
+                              : 'Knowledge Base'
+                            : t(item.key)
                 return (
                   <Link
                     key={item.href}
