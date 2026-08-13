@@ -424,11 +424,38 @@ export async function getOrderForChallan(orderId: string, businessId: string) {
 // never hand out the same number; a rollback releases the number's increment
 // with the rest of the transaction (gapless legal numbering).
 async function allocateInvoiceNumber(tx: Prisma.TransactionClient, businessId: string, year: number) {
+  // The counter can fall behind the orders it is supposed to number — a
+  // restored backup, an imported order, or a counter row created after the
+  // fact all leave it low. It then re-issues a number that already exists and
+  // every subsequent create fails on the (businessId, orderNumber) unique
+  // index, wedging the business permanently rather than intermittently.
+  //
+  // GREATEST() against the highest number actually on file makes allocation
+  // self-correcting: normal operation still takes counter + 1, and a drifted
+  // counter is dragged forward on the next order instead of dead-locking.
+  //
+  // MAX() on the text column is exact here because the format is fixed-width
+  // zero-padded (INV-2026-000002), so lexicographic order matches numeric
+  // order; it also lets Postgres answer from the (businessId, orderNumber)
+  // unique index rather than scanning the business's orders.
   const rows = await tx.$queryRaw<Array<{ value: number }>>(Prisma.sql`
+    WITH existing AS (
+      SELECT COALESCE(
+               CAST(SUBSTRING(MAX(o."orderNumber") FROM '([0-9]+)$') AS INTEGER),
+               0
+             ) AS max_seq
+      FROM orders o
+      WHERE o."businessId" = ${businessId}
+        AND o."orderNumber" LIKE ${`INV-${year}-%`}
+    )
     INSERT INTO invoice_sequences ("businessId", year, value, "updatedAt")
-    VALUES (${businessId}, ${year}, 1, NOW())
+    SELECT ${businessId}, ${year}, existing.max_seq + 1, NOW() FROM existing
     ON CONFLICT ("businessId", year)
-    DO UPDATE SET value = invoice_sequences.value + 1, "updatedAt" = NOW()
+    DO UPDATE SET value = GREATEST(
+                    invoice_sequences.value + 1,
+                    (SELECT max_seq + 1 FROM existing)
+                  ),
+                  "updatedAt" = NOW()
     RETURNING value
   `)
   const seq = rows[0]?.value

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { accountingRepository } from '@cement-house/db'
 import { requireOwner, getBizId } from '../../middleware/auth'
+import { formatZodError } from '../../utils/validation'
 
 const SUPPLIERS_CACHE_TTL_MS = 10_000
 const suppliersCache = new Map<string, { expiresAt: number; value: any }>()
@@ -88,7 +89,7 @@ export async function supplierRoutes(app: FastifyInstance) {
   app.get('/:id', async (req, reply) => {
     const bizId = getBizId(req)
     const params = SupplierIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const supplier = await accountingRepository.getSupplierById(params.data.id, bizId)
     if (!supplier) return reply.status(404).send({ success: false, error: 'Supplier not found' })
@@ -108,7 +109,7 @@ export async function supplierRoutes(app: FastifyInstance) {
     const user = req.user as { id: string }
     const bizId = getBizId(req)
     const body = CreateSupplierSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     if (body.data.phone) {
       const existing = await accountingRepository.findSupplierByPhone(body.data.phone, bizId)
@@ -128,9 +129,9 @@ export async function supplierRoutes(app: FastifyInstance) {
   app.patch('/:id', async (req, reply) => {
     const bizId = getBizId(req)
     const params = SupplierIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
     const body = UpdateSupplierSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const supplier = await accountingRepository.updateSupplier(params.data.id, bizId, {
       ...body.data,
@@ -145,7 +146,7 @@ export async function supplierRoutes(app: FastifyInstance) {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
     const params = SupplierIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     await accountingRepository.softDeleteSupplier(params.data.id, bizId)
     invalidateSuppliersCache(bizId)
@@ -157,9 +158,9 @@ export async function supplierRoutes(app: FastifyInstance) {
     const user = req.user as { id: string }
     const bizId = getBizId(req)
     const params = SupplierIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
     const body = CreatePurchaseSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     try {
       const purchase = await accountingRepository.createPurchase({
@@ -189,9 +190,9 @@ export async function supplierRoutes(app: FastifyInstance) {
     const user = req.user as { id: string }
     const bizId = getBizId(req)
     const params = SupplierIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
     const body = RecordPaymentSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     try {
       const entry = await accountingRepository.recordSupplierPayment({

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { referralPartnersRepository } from '@cement-house/db'
 import { getBizId, requireOwner } from '../../middleware/auth'
+import { formatZodError } from '../../utils/validation'
 
 const ReferralRewardTypeSchema = z.enum(['FLAT', 'PERCENT'])
 
@@ -43,7 +44,7 @@ export async function referralPartnersRoutes(app: FastifyInstance) {
   app.get('/', async (req, reply) => {
     const bizId = getBizId(req)
     const query = ListQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
 
     const items = await referralPartnersRepository.listReferralPartners(bizId, query.data.search)
     return { success: true, data: items }
@@ -52,7 +53,7 @@ export async function referralPartnersRoutes(app: FastifyInstance) {
   app.get('/stats', async (req, reply) => {
     const bizId = getBizId(req)
     const query = StatsQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
 
     const leaderboard = await referralPartnersRepository.getReferralLeaderboard({
       businessId: bizId,
@@ -66,7 +67,7 @@ export async function referralPartnersRoutes(app: FastifyInstance) {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
     const body = CreateSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
     if (body.data.rewardType === 'PERCENT' && body.data.rewardValue > 100) {
       return reply.status(400).send({ success: false, error: 'Percent reward cannot exceed 100' })
     }
@@ -82,9 +83,9 @@ export async function referralPartnersRoutes(app: FastifyInstance) {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
     const params = IdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
     const body = UpdateSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
     if (body.data.rewardType === 'PERCENT' && typeof body.data.rewardValue === 'number' && body.data.rewardValue > 100) {
       return reply.status(400).send({ success: false, error: 'Percent reward cannot exceed 100' })
     }
@@ -98,7 +99,7 @@ export async function referralPartnersRoutes(app: FastifyInstance) {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
     const params = IdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
     await referralPartnersRepository.softDeleteReferralPartner(params.data.id, bizId)
     return { success: true }
   })

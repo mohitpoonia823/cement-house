@@ -81,6 +81,22 @@ function fail(status: number, error: string, code?: string): { ok: false; status
   return { ok: false, status, error, code }
 }
 
+/**
+ * True for anything raised by Prisma or the Postgres driver, as opposed to a
+ * message this codebase wrote. Prisma tags its own errors with a `P####` code
+ * and prefixes raw-query failures with the invocation it was running.
+ */
+function isDatabaseError(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown } | null
+  const code = String(candidate?.code ?? '')
+  const message = String(candidate?.message ?? '')
+  return (
+    /^P\d{4}$/.test(code) ||
+    message.includes('Invalid `prisma.') ||
+    message.includes('Raw query failed')
+  )
+}
+
 function startOfDay(date: Date) {
   const next = new Date(date)
   next.setHours(0, 0, 0, 0)
@@ -293,6 +309,15 @@ export async function createOrderForBusiness(
     // not land.
     if (message.includes('Transaction API error: Transaction not found')) {
       return fail(503, 'Order creation timed out internally. Please retry once.', 'ORDER_TX_RETRY')
+    }
+    // Messages thrown by the repository ("Insufficient stock in selected
+    // location") are written for the shopkeeper and pass through. Anything
+    // raised by Prisma or Postgres is not — it carries SQL, constraint names
+    // and row values, which the UI renders verbatim. Log those and show a
+    // generic line instead.
+    if (isDatabaseError(error)) {
+      console.error('[orders] create failed:', error)
+      return fail(500, 'Could not save the order. Please try again.')
     }
     return fail(400, message || 'Failed to create order')
   }

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { multiLocationRepository } from '@cement-house/db'
 import { getBizId } from '../../middleware/auth'
+import { formatZodError } from '../../utils/validation'
 
 const LocationTypeSchema = z.enum(['STORE', 'GODOWN', 'WAREHOUSE', 'YARD'])
 
@@ -39,7 +40,7 @@ export async function locationRoutes(app: FastifyInstance) {
     }
     const businessId = getBizId(req)
     const body = CreateLocationSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const location = await multiLocationRepository.createLocation({
       businessId,
@@ -56,8 +57,8 @@ export async function locationRoutes(app: FastifyInstance) {
     const businessId = getBizId(req)
     const params = LocationParamsSchema.safeParse(req.params)
     const body = UpdateLocationSchema.safeParse(req.body)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const location = await multiLocationRepository.updateLocation({
       businessId,

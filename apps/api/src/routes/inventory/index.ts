@@ -11,6 +11,7 @@ import {
   uploadBillImageIfConfigured,
 } from '../../services/bill-image-storage'
 import { ensureUsageAllowed } from '../../services/subscription-access'
+import { formatZodError } from '../../utils/validation'
 
 const INVENTORY_LIST_CACHE_TTL_MS = 10_000
 const INVENTORY_OPTIONS_CACHE_TTL_MS = 10_000
@@ -292,7 +293,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
   app.get('/', async (req, reply) => {
     const bizId = getBizId(req)
     const query = ListInventoryQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
 
     // Paginated path (opt-in via ?page). Returns { items, total, page, pageSize, ...metrics }.
     // The array path below is preserved for consumers that need every row
@@ -357,7 +358,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
     const user = req.user as { id: string }
     const bizId = getBizId(req)
     const body = StockInSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
     let updated
     try {
       updated = await inventoryRepository.stockInMaterial({
@@ -389,7 +390,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
     const user = req.user as { id: string }
     const bizId = getBizId(req)
     const body = AdjustSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const adjusted = await inventoryRepository.adjustMaterialStock({
       materialId: body.data.materialId,
@@ -407,7 +408,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
   app.get('/stock-by-location', async (req, reply) => {
     const bizId = getBizId(req)
     const query = StockByLocationQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
     const rows = await multiLocationRepository.getStockByLocation({
       businessId: bizId,
       materialId: query.data.materialId,
@@ -420,7 +421,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
     const user = req.user as { id: string }
     const bizId = getBizId(req)
     const body = BillScanSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     let image: ReturnType<typeof parseBillImageDataUrl>
     try {
@@ -538,7 +539,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
   app.get('/bill-scans', async (req, reply) => {
     const bizId = getBizId(req)
     const query = BillScanListQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
 
     const normalizedSearch = query.data.search?.trim().toLowerCase() ?? ''
     const cacheKey = `${bizId}:bill-scans:${query.data.limit}:${normalizedSearch}`
@@ -561,7 +562,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
   app.get('/bill-scans/:id', async (req, reply) => {
     const bizId = getBizId(req)
     const params = MaterialIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const draft = await withBillCandidates(await inventoryRepository.getPurchaseBillDraft(params.data.id, bizId), bizId)
     if (!draft) return reply.status(404).send({ success: false, error: 'Bill scan not found' })
@@ -571,7 +572,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
   app.get('/bill-scans/:id/download', async (req, reply) => {
     const bizId = getBizId(req)
     const params = MaterialIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const draft = await withBillCandidates(await inventoryRepository.getPurchaseBillDraft(params.data.id, bizId), bizId)
     if (!draft) return reply.status(404).send({ success: false, error: 'Bill scan not found' })
@@ -636,9 +637,9 @@ export async function inventoryRoutes(app: FastifyInstance) {
     const user = req.user as { id: string }
     const bizId = getBizId(req)
     const params = MaterialIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
     const body = CommitBillScanSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     try {
       const result = await inventoryRepository.commitPurchaseBillScan({
@@ -661,7 +662,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
   app.post('/bill-scans/cleanup-orphans', async (req, reply) => {
     const bizId = getBizId(req)
     const body = CleanupOrphanBillImagesSchema.safeParse(req.body ?? {})
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     try {
       const referenced = await inventoryRepository.listReferencedBillStorageObjects(bizId, 'supabase')
@@ -742,7 +743,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
   app.get('/:id/movements', async (req, reply) => {
     const bizId = getBizId(req)
     const params = MaterialIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const cacheKey = `${bizId}:movements:${params.data.id}`
     const now = Date.now()
@@ -764,7 +765,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
   app.post('/', async (req, reply) => {
     const bizId = getBizId(req)
     const body = CreateMaterialSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
     const normalized = withTaxMetadata(withDerivedWeightFields(body.data))
     const validationError = validateMaterialByFeatures(req, normalized)
     if (validationError) return reply.status(400).send({ success: false, error: validationError })
@@ -799,9 +800,9 @@ export async function inventoryRoutes(app: FastifyInstance) {
   app.patch('/:id', async (req, reply) => {
     const bizId = getBizId(req)
     const params = MaterialIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
     const body = UpdateMaterialSchema.safeParse({ ...(req.body as object), id: params.data.id })
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
     const normalized = withTaxMetadata(withDerivedWeightFields(body.data))
     const validationError = validateMaterialByFeatures(req, normalized)
     if (validationError) return reply.status(400).send({ success: false, error: validationError })
@@ -826,7 +827,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
   app.delete('/:id', async (req, reply) => {
     const bizId = getBizId(req)
     const params = MaterialIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     await inventoryRepository.softDeleteMaterial(params.data.id, bizId)
     invalidateInventoryCacheForBusiness(bizId)
@@ -836,7 +837,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
   app.post('/bulk-delete', async (req, reply) => {
     const bizId = getBizId(req)
     const body = BulkDeleteSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const deleted = await inventoryRepository.bulkSoftDeleteMaterials(body.data.ids, bizId)
     invalidateInventoryCacheForBusiness(bizId)

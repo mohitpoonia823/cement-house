@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { salesReturnsRepository } from '@cement-house/db'
 import { getBizId } from '../../middleware/auth'
+import { formatZodError } from '../../utils/validation'
 
 const ReturnIdParamsSchema = z.object({ id: z.string().uuid() })
 const CreateReturnSchema = z.object({
@@ -23,7 +24,7 @@ export async function salesReturnRoutes(app: FastifyInstance) {
   app.get('/:id', async (req, reply) => {
     const bizId = getBizId(req)
     const params = ReturnIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
     const detail = await salesReturnsRepository.getSalesReturnDetail(params.data.id, bizId)
     if (!detail) return reply.status(404).send({ success: false, error: 'Sales return not found' })
     return { success: true, data: detail }
@@ -33,7 +34,7 @@ export async function salesReturnRoutes(app: FastifyInstance) {
     const bizId = getBizId(req)
     const user = req.user as { id: string }
     const body = CreateReturnSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
     try {
       const created = await salesReturnsRepository.createSalesReturn({
         businessId: bizId,

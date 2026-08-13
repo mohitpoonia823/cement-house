@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { accountingRepository } from '@cement-house/db'
 import { getBizId, requireOwner } from '../../middleware/auth'
 import { buildGstr1PortalJson } from '../../services/gst-portal'
+import { formatZodError } from '../../utils/validation'
 
 const DateRangeSchema = z.object({
   startDate: z.string().optional(),
@@ -62,7 +63,7 @@ export async function accountingRoutes(app: FastifyInstance) {
   app.get('/day-book', async (req, reply) => {
     const bizId = getBizId(req)
     const query = DayBookQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
 
     const data = await accountingRepository.getDayBook({
       businessId: bizId,
@@ -77,7 +78,7 @@ export async function accountingRoutes(app: FastifyInstance) {
   app.get('/account-ledger', async (req, reply) => {
     const bizId = getBizId(req)
     const query = AccountLedgerQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
 
     const data = await accountingRepository.getAccountLedger({
       businessId: bizId,
@@ -92,7 +93,7 @@ export async function accountingRoutes(app: FastifyInstance) {
   app.get('/trial-balance', async (req, reply) => {
     const bizId = getBizId(req)
     const query = AsOfSchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
 
     const data = await accountingRepository.getTrialBalance({
       businessId: bizId,
@@ -122,7 +123,7 @@ export async function accountingRoutes(app: FastifyInstance) {
     const user = req.user as { id: string }
     const bizId = getBizId(req)
     const body = RecordExpenseSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     try {
       const entry = await accountingRepository.recordExpense({
@@ -148,7 +149,7 @@ export async function accountingRoutes(app: FastifyInstance) {
     const user = req.user as { id: string }
     const bizId = getBizId(req)
     const body = RecordContraSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const entry = await accountingRepository.recordContra({
       businessId: bizId,
@@ -166,7 +167,7 @@ export async function accountingRoutes(app: FastifyInstance) {
   app.get('/profit-loss', async (req, reply) => {
     const bizId = getBizId(req)
     const query = PeriodSchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
     const { start, end } = resolvePeriod(query.data)
     const data = await accountingRepository.getProfitAndLoss({ businessId: bizId, start, end })
     return { success: true, data }
@@ -175,7 +176,7 @@ export async function accountingRoutes(app: FastifyInstance) {
   app.get('/balance-sheet', async (req, reply) => {
     const bizId = getBizId(req)
     const query = AsOfSchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
     const asOf = parseDate(query.data.asOf) ?? new Date()
     const data = await accountingRepository.getBalanceSheet({ businessId: bizId, asOf })
     return { success: true, data }
@@ -184,7 +185,7 @@ export async function accountingRoutes(app: FastifyInstance) {
   app.get('/payables-aging', async (req, reply) => {
     const bizId = getBizId(req)
     const query = AsOfSchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
     const asOf = parseDate(query.data.asOf) ?? new Date()
     const data = await accountingRepository.getPayablesAging({ businessId: bizId, asOf })
     return { success: true, data }
@@ -194,7 +195,7 @@ export async function accountingRoutes(app: FastifyInstance) {
   app.get('/gstr1', async (req, reply) => {
     const bizId = getBizId(req)
     const query = PeriodSchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
     const { start, end } = resolvePeriod(query.data)
     const data = await accountingRepository.getGstr1({ businessId: bizId, start, end })
     return { success: true, data }
@@ -204,7 +205,7 @@ export async function accountingRoutes(app: FastifyInstance) {
   app.get('/gstr1/portal', async (req, reply) => {
     const bizId = getBizId(req)
     const query = PeriodSchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
     const { start, end } = resolvePeriod(query.data)
     const data = await accountingRepository.getGstr1InvoiceLevel({ businessId: bizId, start, end })
     const result = buildGstr1PortalJson({ data, periodStart: start })
@@ -215,7 +216,7 @@ export async function accountingRoutes(app: FastifyInstance) {
   app.get('/gstr3b', async (req, reply) => {
     const bizId = getBizId(req)
     const query = PeriodSchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
     const { start, end } = resolvePeriod(query.data)
     const data = await accountingRepository.getGstr3b({ businessId: bizId, start, end })
     return { success: true, data }
@@ -253,7 +254,7 @@ export async function accountingRoutes(app: FastifyInstance) {
       account: z.enum(['Cash', 'Bank']),
       amount: z.number().min(0).max(1_000_000_000),
     }).safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const data = await accountingRepository.setOpeningBalance({
       businessId: bizId,

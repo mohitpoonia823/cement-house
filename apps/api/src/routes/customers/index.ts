@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { customersRepository } from '@cement-house/db'
 import { requireOwner, getBizId } from '../../middleware/auth'
 import { ensureUsageAllowed } from '../../services/subscription-access'
+import { formatZodError } from '../../utils/validation'
 const CUSTOMERS_LIST_CACHE_TTL_MS = 10_000
 const customersListCache = new Map<string, { expiresAt: number; value: any }>()
 const customersListInFlight = new Map<string, Promise<any>>()
@@ -64,7 +65,7 @@ export async function customerRoutes(app: FastifyInstance) {
   app.get('/', async (req, reply) => {
     const bizId = getBizId(req)
     const query = ListCustomersQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
 
     // Paginated path (opt-in via ?page). Returns { items, total, page, pageSize, ...metrics }.
     // The array path below is preserved for consumers that need every row (dashboard).
@@ -145,7 +146,7 @@ export async function customerRoutes(app: FastifyInstance) {
   app.get('/:id', async (req, reply) => {
     const bizId = getBizId(req)
     const params = CustomerIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const customer = await customersRepository.getCustomerById(params.data.id, bizId)
     if (!customer) return reply.status(404).send({ success: false, error: 'Customer not found' })
@@ -177,7 +178,7 @@ export async function customerRoutes(app: FastifyInstance) {
   app.post('/', async (req, reply) => {
     const bizId = getBizId(req)
     const body = CreateCustomerSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     try {
       await ensureUsageAllowed(bizId, 'customers')
@@ -207,10 +208,10 @@ export async function customerRoutes(app: FastifyInstance) {
   app.patch('/:id', async (req, reply) => {
     const bizId = getBizId(req)
     const params = CustomerIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const body = UpdateCustomerSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const customer = await customersRepository.updateCustomer(params.data.id, bizId, {
       ...body.data,
@@ -226,10 +227,10 @@ export async function customerRoutes(app: FastifyInstance) {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
     const params = CustomerIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const body = UpdateRiskSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const customer = await customersRepository.updateCustomer(params.data.id, bizId, { riskTag: body.data.riskTag })
     if (!customer) return reply.status(404).send({ success: false, error: 'Customer not found' })
@@ -242,7 +243,7 @@ export async function customerRoutes(app: FastifyInstance) {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
     const params = CustomerIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     await customersRepository.softDeleteCustomer(params.data.id, bizId)
     invalidateCustomersListCacheForBusiness(bizId)
@@ -253,7 +254,7 @@ export async function customerRoutes(app: FastifyInstance) {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
     const body = BulkDeleteSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const deleted = await customersRepository.bulkSoftDeleteCustomers(body.data.ids, bizId)
     invalidateCustomersListCacheForBusiness(bizId)

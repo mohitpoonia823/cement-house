@@ -4,6 +4,7 @@ import { remindersRepository } from '@cement-house/db'
 import { WA_TEMPLATES } from '@cement-house/utils'
 import { requireOwner, getBizId } from '../../middleware/auth'
 import { createAuditLog } from '../../services/audit'
+import { formatZodError } from '../../utils/validation'
 
 const SendReminderSchema = z.object({
   customerId: z.string().uuid(),
@@ -83,7 +84,7 @@ export async function reminderRoutes(app: FastifyInstance) {
 
     const bizId = getBizId(req)
     const body = SendReminderSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const customer = await remindersRepository.getCustomerByIdInBusiness(body.data.customerId, bizId)
     if (!customer) return reply.status(404).send({ success: false, error: 'Customer not found' })
@@ -128,7 +129,7 @@ export async function reminderRoutes(app: FastifyInstance) {
 
     const bizId = getBizId(req)
     const parsed = BulkSchema.safeParse(req.body ?? {})
-    if (!parsed.success) return reply.status(400).send({ success: false, error: parsed.error.message })
+    if (!parsed.success) return reply.status(400).send({ success: false, error: formatZodError(parsed.error) })
     const minDays = parsed.data.minDays ?? 7
 
     const customers = await remindersRepository.listCustomersByBusiness(bizId)
@@ -200,7 +201,7 @@ export async function reminderRoutes(app: FastifyInstance) {
 
     const bizId = getBizId(req)
     const parsed = SendSelectedSchema.safeParse(req.body)
-    if (!parsed.success) return reply.status(400).send({ success: false, error: parsed.error.message })
+    if (!parsed.success) return reply.status(400).send({ success: false, error: formatZodError(parsed.error) })
 
     const customers = await remindersRepository.listCustomersByBusiness(bizId, parsed.data.customerIds)
     const snapshots = await remindersRepository.getLedgerSnapshotsByCustomerIds(

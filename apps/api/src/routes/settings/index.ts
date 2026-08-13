@@ -20,6 +20,7 @@ import {
   ensurePlatformSettings,
 } from '../../services/billing'
 import { getSampleMaterialsForBusinessType, SAMPLE_CUSTOMER } from '../../services/sample-data'
+import { formatZodError } from '../../utils/validation'
 
 const SETTINGS_CACHE_TTL_MS = 10_000
 const SETTINGS_SUBSCRIPTION_CACHE_TTL_MS = 10_000
@@ -1093,7 +1094,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
     const body = UpdateBusinessSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const business = await settingsRepository.updateBusinessProfile(bizId, {
       ...body.data,
@@ -1110,7 +1111,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
     const body = UpdateGstBillingSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const current = await settingsRepository.getSettingsBusinessById(bizId)
     if (!current) return reply.status(404).send({ success: false, error: 'Business not found' })
@@ -1141,7 +1142,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
     const body = UpdateModulesConfigSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const current = await settingsRepository.getSettingsBusinessById(bizId)
     if (!current) return reply.status(404).send({ success: false, error: 'Business not found' })
@@ -1233,7 +1234,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
     const body = OnboardingCompleteSchema.safeParse(req.body ?? {})
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const current = await settingsRepository.getSettingsBusinessById(bizId)
     if (!current) return reply.status(404).send({ success: false, error: 'Business not found' })
@@ -1273,7 +1274,7 @@ export async function settingsRoutes(app: FastifyInstance) {
   app.patch('/reminders', async (req, reply) => {
     const bizId = getBizId(req)
     const body = UpdateReminderRulesSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const business = await settingsRepository.updateBusinessReminders(bizId, body.data)
     if (!business) return reply.status(404).send({ success: false, error: 'Business not found' })
@@ -1285,7 +1286,7 @@ export async function settingsRoutes(app: FastifyInstance) {
   app.patch('/profile', async (req, reply) => {
     const userId = (req.user as any).id
     const body = UpdateProfileSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     if (body.data.phone) {
       const existing = await settingsRepository.findUserByPhone(body.data.phone)
@@ -1311,7 +1312,7 @@ export async function settingsRoutes(app: FastifyInstance) {
   app.post('/change-password', async (req, reply) => {
     const userId = (req.user as any).id
     const body = ChangePasswordSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const user = await settingsRepository.getUserPasswordById(userId)
     if (!user) return reply.status(404).send({ success: false, error: 'User not found' })
@@ -1349,7 +1350,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (!requireOwner(req, reply)) return
     const bizId = getBizId(req)
     const body = CreateStaffSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     try {
       await ensureUsageAllowed(bizId, 'users')
@@ -1389,7 +1390,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     const bizId = getBizId(req)
     const { id } = req.params as any
     const body = UpdateStaffSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     if (body.data.phone) {
       const existing = await settingsRepository.findUserByPhone(body.data.phone)

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { deliveryRepository } from '@cement-house/db'
 import { generateChallanNumber } from '@cement-house/utils'
 import { getBizId } from '../../middleware/auth'
+import { formatZodError } from '../../utils/validation'
 
 const DeliveryIdParamsSchema = z.object({
   id: z.string().uuid(),
@@ -33,7 +34,7 @@ export async function deliveryRoutes(app: FastifyInstance) {
   app.get('/', async (req, reply) => {
     const bizId = getBizId(req)
     const query = ListQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
 
     const deliveries = await deliveryRepository.listDeliveries(bizId, query.data.status, query.data.date)
     return { success: true, data: deliveries }
@@ -42,7 +43,7 @@ export async function deliveryRoutes(app: FastifyInstance) {
   app.get('/:id', async (req, reply) => {
     const bizId = getBizId(req)
     const params = DeliveryIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const delivery = await deliveryRepository.getDeliveryById(params.data.id, bizId)
     if (!delivery) return reply.status(404).send({ success: false, error: 'Delivery not found' })
@@ -51,7 +52,7 @@ export async function deliveryRoutes(app: FastifyInstance) {
 
   app.post('/', async (req, reply) => {
     const body = CreateDeliverySchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const bizId = getBizId(req)
     const order = await deliveryRepository.getOrderForDelivery(body.data.orderId, bizId)
@@ -77,7 +78,7 @@ export async function deliveryRoutes(app: FastifyInstance) {
   app.patch('/:id/dispatch', async (req, reply) => {
     const bizId = getBizId(req)
     const params = DeliveryIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const delivery = await deliveryRepository.updateDeliveryStatus(params.data.id, bizId, 'IN_TRANSIT')
     if (!delivery) return reply.status(404).send({ success: false, error: 'Delivery not found' })
@@ -87,10 +88,10 @@ export async function deliveryRoutes(app: FastifyInstance) {
   app.patch('/:id/confirm', async (req, reply) => {
     const bizId = getBizId(req)
     const params = DeliveryIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const body = ConfirmDeliverySchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const updated = await deliveryRepository.confirmDelivery({
       id: params.data.id,
@@ -106,7 +107,7 @@ export async function deliveryRoutes(app: FastifyInstance) {
   app.patch('/:id/fail', async (req, reply) => {
     const bizId = getBizId(req)
     const params = DeliveryIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const updated = await deliveryRepository.failDelivery(params.data.id, bizId)
     if (!updated) return reply.status(404).send({ success: false, error: 'Delivery not found' })

@@ -187,8 +187,9 @@ export default function CustomersPage() {
       setEditId(null)
       setForm(emptyForm)
     } catch (err: any) {
-      setFormError(err.response?.data?.error ?? 'Failed')
-      pushToast(err.response?.data?.error ?? 'Failed to save customer.', 'error')
+      // Inline only — the message belongs next to the field it refers to. A
+      // toast would duplicate it and then disappear while the form is still open.
+      setFormError(err.response?.data?.error ?? 'Could not save the customer. Please try again.')
     }
   }
 

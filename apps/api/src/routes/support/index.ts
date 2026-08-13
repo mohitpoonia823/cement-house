@@ -4,6 +4,7 @@ import { supportRepository } from '@cement-house/db'
 import { requireSuperAdmin } from '../../middleware/auth'
 import { getBusinessIdOrThrow } from '../../middleware/tenant'
 import { answerSupportQuestion, SupportAssistantConfigError } from '../../services/support-assistant'
+import { formatZodError } from '../../utils/validation'
 
 const SUPPORT_UNREAD_CACHE_TTL_MS = 20_000
 const supportUnreadCountCache = new Map<string, { expiresAt: number; count: number }>()
@@ -76,7 +77,7 @@ export async function supportRoutes(app: FastifyInstance) {
   app.post('/tickets', async (req, reply) => {
     if (isSuperAdmin(req)) return reply.status(403).send({ success: false, error: 'Super Admin cannot create tickets here' })
     const body = CreateTicketSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const businessId = getBusinessIdOrThrow(req)
     const userId = (req.user as any).id as string
@@ -107,7 +108,7 @@ export async function supportRoutes(app: FastifyInstance) {
   app.post('/assistant', async (req, reply) => {
     if (isSuperAdmin(req)) return reply.status(403).send({ success: false, error: 'Assistant is for workspace users' })
     const body = AssistantSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     // Ensures the caller belongs to a business (tenant guard).
     getBusinessIdOrThrow(req)
@@ -158,7 +159,7 @@ export async function supportRoutes(app: FastifyInstance) {
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params)
     if (!params.success) return reply.status(400).send({ success: false, error: 'Invalid ticket id' })
     const body = AddMessageSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
     const ticketId = params.data.id
     const senderUserId = (req.user as any).id as string
     const senderIsAdmin = isSuperAdmin(req)
@@ -205,7 +206,7 @@ export async function supportRoutes(app: FastifyInstance) {
     const params = z.object({ id: z.string().uuid(), messageId: z.string().uuid() }).safeParse(req.params)
     if (!params.success) return reply.status(400).send({ success: false, error: 'Invalid message route params' })
     const body = EditMessageSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
     const ticketId = params.data.id
     const senderUserId = (req.user as any).id as string
 
@@ -255,7 +256,7 @@ export async function supportRoutes(app: FastifyInstance) {
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params)
     if (!params.success) return reply.status(400).send({ success: false, error: 'Invalid ticket id' })
     const body = UpdateStatusSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const ticket = await supportRepository.getAdminTicketById(params.data.id)
     if (!ticket) return reply.status(404).send({ success: false, error: 'Ticket not found' })
@@ -266,7 +267,7 @@ export async function supportRoutes(app: FastifyInstance) {
 
   app.get('/notifications', async (req, reply) => {
     const query = NotificationQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
     const userId = (req.user as any).id as string
     const notifications = await supportRepository.getNotificationsByUser(userId, query.data.limit)
     return { success: true, data: notifications }

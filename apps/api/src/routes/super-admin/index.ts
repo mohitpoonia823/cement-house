@@ -7,6 +7,7 @@ import { invalidateAuthCachesForBusiness, requireSuperAdmin } from '../../middle
 import { createAuditLog } from '../../services/audit'
 import { ensurePlatformSettings, invalidatePlatformSettingsCache } from '../../services/billing'
 import { STARTER_KB_ENTRIES } from '../../services/support-kb-seed'
+import { formatZodError } from '../../utils/validation'
 const OVERVIEW_CACHE_TTL_MS = 15_000
 const ANALYTICS_CACHE_TTL_MS = 20_000
 const superAdminOverviewCache = new Map<string, { expiresAt: number; value: any }>()
@@ -275,7 +276,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
   app.get('/payments', async (req, reply) => {
     if (!requireSuperAdmin(req, reply)) return
     const query = AdminPaymentsQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
     const startDate = query.data.startDate ? new Date(query.data.startDate) : undefined
     const endDate = query.data.endDate ? new Date(query.data.endDate) : undefined
     if (startDate && Number.isNaN(startDate.getTime())) {
@@ -307,7 +308,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
   app.get('/webhooks', async (req, reply) => {
     if (!requireSuperAdmin(req, reply)) return
     const query = AdminWebhooksQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
     const result = await superAdminRepository.listAdminWebhookLogs(query.data)
     return {
       success: true,
@@ -331,7 +332,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     if (!requireSuperAdmin(req, reply)) return
     const { id } = req.params as { id: string }
     const body = SuspendBusinessSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
     const business = await superAdminRepository.suspendBusinessByAdmin({
       businessId: id,
       reason: body.data.reason,
@@ -353,7 +354,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     if (!requireSuperAdmin(req, reply)) return
     const { id } = req.params as { id: string }
     const body = ChangePlanSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
     const business = await superAdminRepository.changeBusinessPlanByAdmin({
       businessId: id,
       plan: body.data.plan,
@@ -375,7 +376,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     if (!requireSuperAdmin(req, reply)) return
     const { id } = req.params as { id: string }
     const body = ExtendSubscriptionSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
     const business = await superAdminRepository.extendBusinessSubscriptionByAdmin({
       businessId: id,
       days: body.data.days,
@@ -411,7 +412,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
 
     const currentUserId = (req.user as any).id as string
     const body = UpdateSuperAdminProfileSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const existing = await superAdminRepository.findUserByPhone(body.data.phone)
     if (existing && existing.id !== currentUserId) {
@@ -460,7 +461,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
 
     const currentUserId = (req.user as any).id as string
     const body = UpdateSuperAdminPasswordSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const currentUser = await superAdminRepository.getSuperAdminPassword(currentUserId)
     if (!currentUser || currentUser.role !== 'SUPER_ADMIN') {
@@ -495,7 +496,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
   app.patch('/billing-config', async (req, reply) => {
     if (!requireSuperAdmin(req, reply)) return
     const body = UpdateBillingConfigSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const settings = await superAdminRepository.upsertPlatformSettings({
       trialDays: body.data.trialDays,
@@ -546,7 +547,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     const params = z.object({ name: PlanNameSchema }).safeParse(req.params)
     if (!params.success) return reply.status(400).send({ success: false, error: 'Invalid plan name' })
     const body = UpdatePlanCatalogSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     // Trials are created on the FREE plan; deactivating it would break signup.
     if (params.data.name === 'FREE' && body.data.isActive === false) {
@@ -580,7 +581,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     const params = z.object({ name: PlanNameSchema }).safeParse(req.params)
     if (!params.success) return reply.status(400).send({ success: false, error: 'Invalid plan name' })
     const body = UpdatePlanPricingSchema.safeParse({ ...(req.body as Record<string, unknown>), name: params.data.name })
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const updated = await superAdminRepository.updateAdminPlanPricing(body.data)
     if (!updated) return reply.status(404).send({ success: false, error: 'Plan not found' })
@@ -622,7 +623,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
   app.post('/knowledge-base', async (req, reply) => {
     if (!requireSuperAdmin(req, reply)) return
     const body = KbCreateSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
     const created = await supportKbRepository.createKbEntry(body.data)
     return { success: true, data: created }
   })
@@ -632,7 +633,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params)
     if (!params.success) return reply.status(400).send({ success: false, error: 'Invalid entry id' })
     const body = KbUpdateSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
     const updated = await supportKbRepository.updateKbEntry(params.data.id, body.data)
     if (!updated) return reply.status(404).send({ success: false, error: 'Entry not found' })
     return { success: true, data: updated }
@@ -751,7 +752,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     if (!requireSuperAdmin(req, reply)) return
 
     const query = OverviewAnalyticsQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
 
     const now = new Date()
     let startDate = new Date(now)
@@ -836,7 +837,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     if (!requireSuperAdmin(req, reply)) return
 
     const query = ListBusinessesQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
 
     const { page, pageSize, search, status } = query.data
     const result = await superAdminRepository.listBusinesses({ page, pageSize, search, status })
@@ -857,7 +858,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     if (!requireSuperAdmin(req, reply)) return
 
     const query = ListUsersQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
 
     const { page, pageSize, search, role, sortBy, sortOrder } = query.data
     const result = await superAdminRepository.listUsers({ page, pageSize, search, role, sortBy, sortOrder })
@@ -889,7 +890,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params)
     if (!params.success) return reply.status(400).send({ success: false, error: 'Invalid user id' })
     const body = UpdateUserByAdminSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const target = await superAdminRepository.getUserById(params.data.id)
     if (!target) return reply.status(404).send({ success: false, error: 'User not found' })
@@ -980,7 +981,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
 
     const { id } = req.params as { id: string }
     const body = UpdateBusinessSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const current = await superAdminRepository.getBusinessById(id)
     if (!current) return reply.status(404).send({ success: false, error: 'Business not found' })

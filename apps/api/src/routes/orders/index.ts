@@ -4,6 +4,7 @@ import { ordersRepository } from '@cement-house/db'
 import { generateChallanNumber } from '@cement-house/utils'
 import { getBizId } from '../../middleware/auth'
 import { createAuditLog } from '../../services/audit'
+import { formatZodError } from '../../utils/validation'
 import {
   AddOrderItemSchema,
   CreateOrderSchema,
@@ -58,7 +59,7 @@ export async function orderRoutes(app: FastifyInstance) {
   app.get('/', async (req, reply) => {
     const bizId = getBizId(req)
     const query = ListOrdersQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
 
     const pageSize = 20
     const cacheKey = `${bizId}:${query.data.page}:${query.data.status ?? ''}:${query.data.customerId ?? ''}`
@@ -121,7 +122,7 @@ export async function orderRoutes(app: FastifyInstance) {
   app.get('/:id', async (req, reply) => {
     const bizId = getBizId(req)
     const params = OrderIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const cacheKey = `${bizId}:${params.data.id}`
     const now = Date.now()
@@ -151,7 +152,7 @@ export async function orderRoutes(app: FastifyInstance) {
     const actor = req.user as OrderActor
     const bizId = getBizId(req)
     const body = CreateOrderSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const result = await createOrderForBusiness(bizId, actor, body.data)
     if (!result.ok) {
@@ -167,12 +168,12 @@ export async function orderRoutes(app: FastifyInstance) {
 
   app.post('/:id/items', async (req, reply) => {
     const params = OrderIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const actor = req.user as OrderActor
     const bizId = getBizId(req)
     const body = AddOrderItemSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const result = await appendItemToOrderForBusiness(bizId, actor, params.data.id, body.data)
     if (!result.ok) {
@@ -185,11 +186,11 @@ export async function orderRoutes(app: FastifyInstance) {
 
   app.patch('/:id/status', async (req, reply) => {
     const params = OrderIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const bizId = getBizId(req)
     const body = UpdateStatusSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     if (body.data.status === 'DISPATCHED') {
       const order = await ordersRepository.getOrderDetail(params.data.id, bizId)
@@ -242,7 +243,7 @@ export async function orderRoutes(app: FastifyInstance) {
   app.delete('/:id', async (req, reply) => {
     const bizId = getBizId(req)
     const params = OrderIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const order = await ordersRepository.getOrderDetail(params.data.id, bizId)
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
@@ -259,7 +260,7 @@ export async function orderRoutes(app: FastifyInstance) {
   app.post('/bulk-delete', async (req, reply) => {
     const bizId = getBizId(req)
     const body = BulkDeleteSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const deleted = await ordersRepository.bulkSoftDeleteOrders(body.data.ids, bizId)
     invalidateOrderCachesForBusiness(bizId)
@@ -272,7 +273,7 @@ import { streamChallan } from '../../services/pdf'
 export async function orderChallanRoute(app: FastifyInstance) {
   app.get('/:id/challan', async (req, reply) => {
     const params = OrderIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const bizId = getBizId(req)
     const order = await ordersRepository.getOrderForChallan(params.data.id, bizId)

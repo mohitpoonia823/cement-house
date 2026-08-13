@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { multiLocationRepository } from '@cement-house/db'
 import { getBizId } from '../../middleware/auth'
+import { formatZodError } from '../../utils/validation'
 
 const CreateTransferSchema = z.object({
   fromLocationId: z.string().uuid(),
@@ -26,7 +27,7 @@ export async function stockTransferRoutes(app: FastifyInstance) {
     const businessId = getBizId(req)
     const user = req.user as { id: string }
     const body = CreateTransferSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     try {
       const transferId = await multiLocationRepository.createStockTransfer({
@@ -43,7 +44,7 @@ export async function stockTransferRoutes(app: FastifyInstance) {
   app.get('/', async (req, reply) => {
     const businessId = getBizId(req)
     const query = ListTransferQuerySchema.safeParse(req.query)
-    if (!query.success) return reply.status(400).send({ success: false, error: query.error.message })
+    if (!query.success) return reply.status(400).send({ success: false, error: formatZodError(query.error) })
     const rows = await multiLocationRepository.listStockTransfers({
       businessId,
       limit: query.data.limit,
@@ -54,7 +55,7 @@ export async function stockTransferRoutes(app: FastifyInstance) {
   app.get('/:id', async (req, reply) => {
     const businessId = getBizId(req)
     const params = TransferParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
     const row = await multiLocationRepository.getStockTransferDetail({
       businessId,
       transferId: params.data.id,

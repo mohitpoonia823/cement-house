@@ -2,6 +2,7 @@
 import { z } from 'zod'
 import { ledgerRepository } from '@cement-house/db'
 import { getBizId } from '../../middleware/auth'
+import { formatZodError } from '../../utils/validation'
 
 const LEDGER_SUMMARY_CACHE_TTL_MS = 60_000
 const LEDGER_DETAIL_CACHE_TTL_MS = 30_000
@@ -61,7 +62,7 @@ export async function ledgerRoutes(app: FastifyInstance) {
   app.get('/:customerId', async (req, reply) => {
     const bizId = getBizId(req)
     const params = CustomerIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const cacheKey = `${bizId}:customer:${params.data.customerId}`
     const now = Date.now()
@@ -92,7 +93,7 @@ export async function ledgerRoutes(app: FastifyInstance) {
     const user = req.user as { id: string }
     const bizId = getBizId(req)
     const body = RecordPaymentSchema.safeParse(req.body)
-    if (!body.success) return reply.status(400).send({ success: false, error: body.error.message })
+    if (!body.success) return reply.status(400).send({ success: false, error: formatZodError(body.error) })
 
     const entry = await ledgerRepository.recordPaymentAndApply({
       ...body.data,
@@ -119,7 +120,7 @@ export async function ledgerStatementRoute(app: FastifyInstance) {
   app.get('/:customerId/statement', async (req, reply) => {
     const bizId = getBizId(req)
     const params = CustomerIdParamsSchema.safeParse(req.params)
-    if (!params.success) return reply.status(400).send({ success: false, error: params.error.message })
+    if (!params.success) return reply.status(400).send({ success: false, error: formatZodError(params.error) })
 
     const customer = await ledgerRepository.getCustomerBasicById(params.data.customerId, bizId)
     if (!customer) return reply.status(404).send({ success: false, error: 'Customer not found' })
