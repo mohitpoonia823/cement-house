@@ -12,7 +12,6 @@ WORKDIR /app
 FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
 COPY apps/api/package.json          ./apps/api/
-COPY apps/worker/package.json       ./apps/worker/
 COPY packages/db/package.json       ./packages/db/
 COPY packages/utils/package.json    ./packages/utils/
 COPY packages/types/package.json    ./packages/types/

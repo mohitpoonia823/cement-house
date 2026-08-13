@@ -1,7 +1,10 @@
 # ─────────────────────────────────────────────────────────────
 # CD Pipeline — Build Docker Images → Push to Docker Hub → Deploy to Render
 # Runs only after CI passes on master branch
-# Web (apps/web) is deployed via Vercel automatically
+# Web (apps/web) is deployed via Vercel automatically.
+# The worker is gone: its cron jobs now live in the API under /api/cron and are
+# triggered over HTTP (see apps/api/src/routes/cron).
+# Once the API is verified on Vercel, this whole workflow can be deleted.
 # ─────────────────────────────────────────────────────────────
 
 name: CD
@@ -51,19 +54,6 @@ jobs:
           cache-from: type=gha,scope=api
           cache-to: type=gha,mode=max,scope=api
 
-      # ── Build & Push Worker Image ─────────────────────────
-      - name: Build & Push Worker
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./apps/worker/Dockerfile
-          push: true
-          tags: |
-            ${{ env.DOCKERHUB_REPO }}:worker-latest
-            ${{ env.DOCKERHUB_REPO }}:worker-${{ steps.sha.outputs.short }}
-          cache-from: type=gha,scope=worker
-          cache-to: type=gha,mode=max,scope=worker
-
       # ── Build & Push Web Image ────────────────────────────
       - name: Build & Push Web
         uses: docker/build-push-action@v5
@@ -90,11 +80,6 @@ jobs:
           curl -s "${{ secrets.RENDER_DEPLOY_HOOK_API }}"
           echo "✅ API deploy triggered"
 
-      - name: Trigger Render Deploy — Worker
-        run: |
-          curl -s "${{ secrets.RENDER_DEPLOY_HOOK_WORKER }}"
-          echo "✅ Worker deploy triggered"
-
       - name: Summary
         run: |
           echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
@@ -102,5 +87,4 @@ jobs:
           echo "| Service | Image | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|-------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| API     | \`${{ env.DOCKERHUB_REPO }}:api-latest\` | ✅ Deployed |" >> $GITHUB_STEP_SUMMARY
-          echo "| Worker  | \`${{ env.DOCKERHUB_REPO }}:worker-latest\` | ✅ Deployed |" >> $GITHUB_STEP_SUMMARY
           echo "| Web     | \`${{ env.DOCKERHUB_REPO }}:web-latest\` | ✅ Vercel (auto-deployed) |" >> $GITHUB_STEP_SUMMARY

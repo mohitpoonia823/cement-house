@@ -1,6 +1,14 @@
 # ─────────────────────────────────────────────────────────────
 # Render Blueprint — Infrastructure as Code
-# Defines all 2 services from one monorepo (web moved to Vercel)
+#
+# LEGACY / CUTOVER ONLY. Everything is moving to Vercel:
+#   - web    → already on Vercel
+#   - worker → deleted; its cron jobs are now HTTP endpoints on the API
+#              (apps/api/src/routes/cron) driven by an external scheduler
+#   - api    → apps/api/vercel.json; kept here as a rollback target until the
+#              Vercel deployment is verified, then delete this file and the
+#              Render service.
+#
 # Docs: https://render.com/docs/blueprint-spec
 # ─────────────────────────────────────────────────────────────
 
@@ -17,8 +25,6 @@ services:
         sync: false
       - key: DIRECT_URL
         sync: false
-      - key: REDIS_URL
-        sync: false
       - key: JWT_SECRET
         sync: false
       - key: JWT_EXPIRES_IN
@@ -27,40 +33,20 @@ services:
         sync: false
       - key: RAZORPAY_KEY_SECRET
         sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
       - key: PORT
         value: 4000
       - key: WEB_URL
-        value: https://cement-house-web.vercel.app  # ✅ Updated
+        value: https://cement-house-web.vercel.app
       - key: WHATSAPP_PHONE_NUMBER_ID
         sync: false
       - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      # Shared secret for /api/cron/* — the endpoints 503 without it.
+      - key: CRON_SECRET
         sync: false
     buildFilter:
       paths:
         - apps/api/**
-        - packages/**
-
-  # ── Background Worker (as Web Service for free tier) ────────
-  - type: web
-    name: cement-house-worker
-    runtime: docker
-    dockerfilePath: ./apps/worker/Dockerfile
-    dockerContext: .
-    plan: free
-    envVars:
-      - key: PORT
-        value: 10000
-      - key: DATABASE_URL
-        sync: false
-      - key: DIRECT_URL
-        sync: false
-      - key: REDIS_URL
-        sync: false
-      - key: WHATSAPP_PHONE_NUMBER_ID
-        sync: false
-      - key: WHATSAPP_ACCESS_TOKEN
-        sync: false
-    buildFilter:
-      paths:
-        - apps/worker/**
         - packages/**
