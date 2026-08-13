@@ -9,6 +9,7 @@ import { PageLoader } from '@/components/ui/Spinner'
 import { useSuperAdminBillingConfig, useSuperAdminBusinesses, type BusinessListItem } from '@/lib/super-admin'
 import { api } from '@/lib/api'
 import { fmt, fmtDate } from '@/lib/utils'
+import { NumberInput } from '@/components/ui/NumberInput'
 
 type BusinessDraft = {
   subscriptionPlan: BusinessListItem['subscriptionPlan']
@@ -166,13 +167,13 @@ export default function SuperAdminBusinessesPage() {
         </div>
         <div className="grid gap-4 xl:grid-cols-3">
           <Field label="Trial days">
-            <input type="number" min={1} max={90} value={billingDraft.trialDays} onChange={(e) => setBillingDraft((current) => ({ ...current, trialDays: Number(e.target.value) }))} className={inputCls} />
+            <NumberInput min={1} max={90} value={billingDraft.trialDays} onChange={(e) => setBillingDraft((current) => ({ ...current, trialDays: Number(e.target.value) }))} className={inputCls} />
           </Field>
           <Field label="Monthly plan">
-            <input type="number" min={0} value={billingDraft.monthlyPrice} onChange={(e) => setBillingDraft((current) => ({ ...current, monthlyPrice: Number(e.target.value) }))} className={inputCls} />
+            <NumberInput min={0} value={billingDraft.monthlyPrice} onChange={(e) => setBillingDraft((current) => ({ ...current, monthlyPrice: Number(e.target.value) }))} className={inputCls} />
           </Field>
           <Field label="Yearly plan">
-            <input type="number" min={0} value={billingDraft.yearlyPrice} onChange={(e) => setBillingDraft((current) => ({ ...current, yearlyPrice: Number(e.target.value) }))} className={inputCls} />
+            <NumberInput min={0} value={billingDraft.yearlyPrice} onChange={(e) => setBillingDraft((current) => ({ ...current, yearlyPrice: Number(e.target.value) }))} className={inputCls} />
           </Field>
         </div>
       </Card>
@@ -269,9 +270,7 @@ export default function SuperAdminBusinessesPage() {
 
               <div className="mt-4 grid gap-3 sm:grid-cols-[220px_auto] sm:items-end">
                 <Field label={business.subscriptionStatus === 'TRIAL' ? 'Extend trial (days)' : 'Extend access (days)'}>
-                  <input
-                    type="number"
-                    min={1}
+                  <NumberInput min={1}
                     max={365}
                     value={extendDaysByBusiness[business.id] ?? 7}
                     onChange={(e) =>
@@ -280,8 +279,7 @@ export default function SuperAdminBusinessesPage() {
                         [business.id]: Math.max(1, Math.min(365, Number(e.target.value) || 1)),
                       }))
                     }
-                    className={inputCls}
-                  />
+                    className={inputCls} />
                 </Field>
                 <div className="flex">
                   <button

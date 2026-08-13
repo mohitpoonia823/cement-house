@@ -7,6 +7,7 @@ import { Card, SectionHeader } from '@/components/ui/Card'
 import { PageLoader } from '@/components/ui/Spinner'
 import { fmt } from '@/lib/utils'
 import { useOrder, useCreateSalesReturn } from '@/hooks/useOrders'
+import { NumberInput } from '@/components/ui/NumberInput'
 
 export default function OrderReturnPage() {
   const params = useParams<{ id: string }>()
@@ -107,15 +108,12 @@ export default function OrderReturnPage() {
                     <td className="py-2 pr-3">{soldQty} {item.material?.unit ?? ''}</td>
                     <td className="py-2 pr-3">{fmt(Number(item.unitPrice ?? 0))}</td>
                     <td className="py-2 pr-3">
-                      <input
-                        type="number"
-                        min={0}
+                      <NumberInput min={0}
                         max={soldQty}
                         step={0.001}
                         value={quantities[item.id] ?? ''}
                         onChange={(e) => setQuantities((p) => ({ ...p, [item.id]: e.target.value }))}
-                        className="w-28 rounded-lg border border-stone-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900"
-                      />
+                        className="w-28 rounded-lg border border-stone-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900" />
                     </td>
                     <td className="py-2 pr-3">{fmt(Number(item.lineTotal ?? soldQty * Number(item.unitPrice ?? 0)))}</td>
                   </tr>

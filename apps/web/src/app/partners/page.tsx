@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { AppShell } from '@/components/layout/AppShell'
 import { Card } from '@/components/ui/Card'
 import { fmt } from '@/lib/utils'
+import { NumberInput } from '@/components/ui/NumberInput'
 import {
   useCreateReferralPartner,
   useDeleteReferralPartner,
@@ -196,7 +197,7 @@ export default function PartnersPage() {
           </div>
           <div className="md:col-span-2">
             <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">Reward value</div>
-            <input type="number" min={0} step={0.01} value={form.rewardValue} onChange={(e) => setForm((p) => ({ ...p, rewardValue: Number(e.target.value) }))} placeholder="Reward value" className={inputCls()} />
+            <NumberInput min={0} step={0.01} value={form.rewardValue} onChange={(e) => setForm((p) => ({ ...p, rewardValue: Number(e.target.value) }))} placeholder="Reward value" className={inputCls()} />
           </div>
           <div className="md:col-span-6">
             <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">Notes</div>

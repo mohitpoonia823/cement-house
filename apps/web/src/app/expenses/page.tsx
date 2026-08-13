@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
 import { useAuthStore } from '@/store/auth'
 import { ExportCsvButton } from '@/components/common/ExportCsvButton'
+import { NumberInput } from '@/components/ui/NumberInput'
 
 const NEW_HEAD = '__new__'
 
@@ -150,11 +151,11 @@ export default function ExpensesPage() {
             </div>
             <div>
               <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-stone-500">{t('Cash in hand', 'नकद')}</label>
-              <input type="number" min={0} step="0.01" value={openCash} onChange={(e) => setOpenCash(e.target.value)} className="rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+              <NumberInput min={0} step="0.01" value={openCash} onChange={(e) => setOpenCash(e.target.value)} className="rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
             </div>
             <div>
               <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-stone-500">{t('Bank balance', 'बैंक बैलेंस')}</label>
-              <input type="number" min={0} step="0.01" value={openBank} onChange={(e) => setOpenBank(e.target.value)} className="rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+              <NumberInput min={0} step="0.01" value={openBank} onChange={(e) => setOpenBank(e.target.value)} className="rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
             </div>
             <button type="submit" disabled={setOpening.isPending} className="rounded-lg bg-amber-600 px-4 py-1.5 text-xs text-white hover:bg-amber-700 disabled:opacity-50">{t('Save', 'सेव करें')}</button>
             <button type="button" onClick={() => setShowOpening(false)} className="px-2 py-1.5 text-xs text-stone-500 hover:text-stone-700">{t('Cancel', 'रद्द करें')}</button>
@@ -188,7 +189,7 @@ export default function ExpensesPage() {
               )}
               <div>
                 <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-stone-500">{t('Amount', 'राशि')}</label>
-                <input type="number" min={1} required value={expAmount} onChange={(e) => setExpAmount(e.target.value)} className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+                <NumberInput min={1} required value={expAmount} onChange={(e) => setExpAmount(e.target.value)} className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
               </div>
               <div>
                 <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-stone-500">{t('Paid via', 'भुगतान माध्यम')}</label>
@@ -221,7 +222,7 @@ export default function ExpensesPage() {
             </div>
             <div>
               <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-stone-500">{t('Amount', 'राशि')}</label>
-              <input type="number" min={1} required value={contraAmount} onChange={(e) => setContraAmount(e.target.value)} className="rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+              <NumberInput min={1} required value={contraAmount} onChange={(e) => setContraAmount(e.target.value)} className="rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
             </div>
             <button type="submit" disabled={recordContra.isPending} className="rounded-lg bg-violet-600 px-4 py-1.5 text-xs text-white hover:bg-violet-700 disabled:opacity-50">{t('Post transfer', 'ट्रांसफर पोस्ट करें')}</button>
             <button type="button" onClick={() => setShowContra(false)} className="px-2 py-1.5 text-xs text-stone-500 hover:text-stone-700">{t('Cancel', 'रद्द करें')}</button>

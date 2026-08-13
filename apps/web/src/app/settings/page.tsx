@@ -11,6 +11,7 @@ import { useLocations } from '@/hooks/useInventory'
 import { useAuthStore } from '@/store/auth'
 import { useI18n } from '@/lib/i18n'
 import Link from 'next/link'
+import { NumberInput } from '@/components/ui/NumberInput'
 import {
   CUSTOM_ONBOARDING_FEATURES,
   CUSTOM_ONBOARDING_MODULES,
@@ -1371,9 +1372,9 @@ export default function SettingsPage() {
                       {t('Enable automated payment reminders', 'à¤‘à¤Ÿà¥‹à¤®à¥‡à¤Ÿà¥‡à¤¡ à¤ªà¥‡à¤®à¥‡à¤‚à¤Ÿ à¤°à¤¿à¤®à¤¾à¤‡à¤‚à¤¡à¤° à¤¸à¤•à¥à¤·à¤® à¤•à¤°à¥‡à¤‚')}
                     </label>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      <Field label="Soft"><input type="number" value={remSoft} onChange={(e) => setRemSoft(Number(e.target.value))} className={inputCls} /></Field>
-                      <Field label="Follow-up"><input type="number" value={remFollow} onChange={(e) => setRemFollow(Number(e.target.value))} className={inputCls} /></Field>
-                      <Field label="Firm"><input type="number" value={remFirm} onChange={(e) => setRemFirm(Number(e.target.value))} className={inputCls} /></Field>
+                      <Field label="Soft"><NumberInput value={remSoft} onChange={(e) => setRemSoft(Number(e.target.value))} className={inputCls} /></Field>
+                      <Field label="Follow-up"><NumberInput value={remFollow} onChange={(e) => setRemFollow(Number(e.target.value))} className={inputCls} /></Field>
+                      <Field label="Firm"><NumberInput value={remFirm} onChange={(e) => setRemFirm(Number(e.target.value))} className={inputCls} /></Field>
                     </div>
                     <div className="flex gap-2">
                       <button type="submit" disabled={updateRem.isPending} className={saveBtnCls}>{updateRem.isPending ? t('Saving...', 'à¤¸à¥‡à¤µ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...') : t('Save rules', 'à¤¨à¤¿à¤¯à¤® à¤¸à¥‡à¤µ à¤•à¤°à¥‡à¤‚')}</button>

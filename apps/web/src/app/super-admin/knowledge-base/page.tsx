@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { SuperAdminShell } from '@/components/layout/SuperAdminShell'
 import { Card, SectionHeader } from '@/components/ui/Card'
 import { api } from '@/lib/api'
+import { NumberInput } from '@/components/ui/NumberInput'
 
 type AlertTone = 'success' | 'danger'
 
@@ -174,13 +175,10 @@ export default function SuperAdminKnowledgeBasePage() {
             </Field>
             <div className="flex items-center gap-4">
               <Field label="Sort order">
-                <input
-                  type="number"
-                  value={draft.sortOrder}
+                <NumberInput value={draft.sortOrder}
                   onChange={(e) => setDraft((d) => ({ ...d, sortOrder: Number(e.target.value) }))}
                   className={`${inputCls} w-28`}
-                  min={0}
-                />
+                  min={0} />
               </Field>
               <label className="mt-5 inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                 <input type="checkbox" checked={draft.isPublished} onChange={(e) => setDraft((d) => ({ ...d, isPublished: e.target.checked }))} className="h-4 w-4" />

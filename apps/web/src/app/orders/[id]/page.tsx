@@ -12,6 +12,7 @@ import { api } from '@/lib/api'
 import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { useAuthStore } from '@/store/auth'
+import { NumberInput } from '@/components/ui/NumberInput'
 
 const STATUS_FLOW: Record<string, string[]> = {
   DRAFT: ['CONFIRMED', 'CANCELLED'],
@@ -428,13 +429,13 @@ export default function OrderDetailPage() {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="block text-xs text-stone-500 mb-1">Quantity</label>
-                  <input type="number" min={0.01} step={0.01} value={newItem.quantity}
+                  <NumberInput min={0.01} step={0.01} value={newItem.quantity}
                     onChange={e => setNewItem({ ...newItem, quantity: Number(e.target.value) })}
                     className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
                 </div>
                 <div>
                   <label className="block text-xs text-stone-500 mb-1">Unit Price (₹)</label>
-                  <input type="number" min={0} step={0.01} value={newItem.unitPrice}
+                  <NumberInput min={0} step={0.01} value={newItem.unitPrice}
                     onChange={e => setNewItem({ ...newItem, unitPrice: Number(e.target.value) })}
                     className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
                 </div>

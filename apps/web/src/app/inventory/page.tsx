@@ -30,6 +30,7 @@ import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { ExportCsvButton } from '@/components/common/ExportCsvButton'
+import { NumberInput } from '@/components/ui/NumberInput'
 
 const inventoryRowsPerPage = 10
 
@@ -827,7 +828,7 @@ function InventoryContent() {
           <>
             <div>
               <label className="block text-xs text-stone-500 mb-1">Gross weight</label>
-              <input type="number" min={0} step={0.01} value={form.grossWeight} onChange={e => setForm((p: any) => {
+              <NumberInput min={0} step={0.01} value={form.grossWeight} onChange={e => setForm((p: any) => {
                 const grossWeight = e.target.value
                 const tare = Number(p.tareWeight || 0)
                 const gross = Number(grossWeight || 0)
@@ -838,7 +839,7 @@ function InventoryContent() {
             </div>
             <div>
               <label className="block text-xs text-stone-500 mb-1">Tare weight</label>
-              <input type="number" min={0} step={0.01} value={form.tareWeight} onChange={e => setForm((p: any) => {
+              <NumberInput min={0} step={0.01} value={form.tareWeight} onChange={e => setForm((p: any) => {
                 const tareWeight = e.target.value
                 const tare = Number(tareWeight || 0)
                 const gross = Number(p.grossWeight || 0)
@@ -849,11 +850,11 @@ function InventoryContent() {
             </div>
             <div>
               <label className="block text-xs text-stone-500 mb-1">Net weight</label>
-              <input type="number" min={0} step={0.01} value={form.netWeight} onChange={e => setForm((p: any) => ({ ...p, netWeight: e.target.value }))} className={inputClass} />
+              <NumberInput min={0} step={0.01} value={form.netWeight} onChange={e => setForm((p: any) => ({ ...p, netWeight: e.target.value }))} className={inputClass} />
             </div>
             <div>
               <label className="block text-xs text-stone-500 mb-1">Weight</label>
-              <input type="number" min={0} step={0.01} value={form.weight} onChange={e => setForm((p: any) => ({ ...p, weight: e.target.value }))} className={inputClass} />
+              <NumberInput min={0} step={0.01} value={form.weight} onChange={e => setForm((p: any) => ({ ...p, weight: e.target.value }))} className={inputClass} />
             </div>
           </>
         ) : null}
@@ -865,11 +866,11 @@ function InventoryContent() {
           <>
             <div>
               <label className="block text-xs text-stone-500 mb-1">Purity (%)</label>
-              <input type="number" min={0} max={100} step={0.01} value={form.purity} onChange={e => setForm((p: any) => ({ ...p, purity: e.target.value }))} className={inputClass} />
+              <NumberInput min={0} max={100} step={0.01} value={form.purity} onChange={e => setForm((p: any) => ({ ...p, purity: e.target.value }))} className={inputClass} />
             </div>
             <div>
               <label className="block text-xs text-stone-500 mb-1">Making charges</label>
-              <input type="number" min={0} step={0.01} value={form.makingCharges} onChange={e => setForm((p: any) => ({ ...p, makingCharges: e.target.value }))} className={inputClass} />
+              <NumberInput min={0} step={0.01} value={form.makingCharges} onChange={e => setForm((p: any) => ({ ...p, makingCharges: e.target.value }))} className={inputClass} />
             </div>
           </>
         ) : null}
@@ -1038,7 +1039,7 @@ function InventoryContent() {
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">{t('Initial stock', 'à¤ªà¥à¤°à¤¾à¤°à¤‚à¤­à¤¿à¤• à¤¸à¥à¤Ÿà¥‰à¤•')}</label>
-                <input type="number" value={newForm.stockQty} placeholder="0" onChange={e => setNewForm(p => ({ ...p, stockQty: e.target.value }))}
+                <NumberInput value={newForm.stockQty} placeholder="0" onChange={e => setNewForm(p => ({ ...p, stockQty: e.target.value }))}
                   min={0} step={0.01}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
@@ -1046,25 +1047,25 @@ function InventoryContent() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div>
                 <label className="block text-xs text-stone-500 mb-1">{t('Min threshold', 'à¤¨à¥à¤¯à¥‚à¤¨à¤¤à¤® à¤¸à¥€à¤®à¤¾')}</label>
-                <input type="number" value={newForm.minThreshold} placeholder="0" onChange={e => setNewForm(p => ({ ...p, minThreshold: e.target.value }))}
+                <NumberInput value={newForm.minThreshold} placeholder="0" onChange={e => setNewForm(p => ({ ...p, minThreshold: e.target.value }))}
                   min={0} step={0.01}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">{t('Max threshold', 'à¤…à¤§à¤¿à¤•à¤¤à¤® à¤¸à¥€à¤®à¤¾')}</label>
-                <input type="number" value={newForm.maxThreshold} placeholder="0" onChange={e => setNewForm(p => ({ ...p, maxThreshold: e.target.value }))}
+                <NumberInput value={newForm.maxThreshold} placeholder="0" onChange={e => setNewForm(p => ({ ...p, maxThreshold: e.target.value }))}
                   min={0} step={0.01}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">{t('Purchase price (â‚¹) *', 'à¤–à¤°à¥€à¤¦ à¤®à¥‚à¤²à¥à¤¯ (â‚¹) *')}</label>
-                <input type="number" value={newForm.purchasePrice} placeholder="0" onChange={e => setNewForm(p => ({ ...p, purchasePrice: e.target.value }))}
+                <NumberInput value={newForm.purchasePrice} placeholder="0" onChange={e => setNewForm(p => ({ ...p, purchasePrice: e.target.value }))}
                   min={0} step={0.01} required
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">{t('Sale price (â‚¹) *', 'à¤¬à¤¿à¤•à¥à¤°à¥€ à¤®à¥‚à¤²à¥à¤¯ (â‚¹) *')}</label>
-                <input type="number" value={newForm.salePrice} placeholder="0" onChange={e => setNewForm(p => ({ ...p, salePrice: e.target.value }))}
+                <NumberInput value={newForm.salePrice} placeholder="0" onChange={e => setNewForm(p => ({ ...p, salePrice: e.target.value }))}
                   min={0} step={0.01} required
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
@@ -1111,7 +1112,7 @@ function InventoryContent() {
               {canWeight ? (
                 <div>
                   <label className="block text-xs text-stone-500 mb-1">Net weight</label>
-                  <input type="number" min={0} step={0.01} value={newForm.netWeight} onChange={e => setNewForm(p => ({ ...p, netWeight: e.target.value }))}
+                  <NumberInput min={0} step={0.01} value={newForm.netWeight} onChange={e => setNewForm(p => ({ ...p, netWeight: e.target.value }))}
                     className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               ) : null}
@@ -1158,27 +1159,27 @@ function InventoryContent() {
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Stock quantity</label>
-                <input type="number" value={editForm.stockQty} min={0} step={0.01} onChange={e => setEditForm(p => ({ ...p, stockQty: e.target.value }))}
+                <NumberInput value={editForm.stockQty} min={0} step={0.01} onChange={e => setEditForm(p => ({ ...p, stockQty: e.target.value }))}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Min threshold</label>
-                <input type="number" value={editForm.minThreshold} min={0} step={0.01} onChange={e => setEditForm(p => ({ ...p, minThreshold: e.target.value }))}
+                <NumberInput value={editForm.minThreshold} min={0} step={0.01} onChange={e => setEditForm(p => ({ ...p, minThreshold: e.target.value }))}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Max threshold</label>
-                <input type="number" value={editForm.maxThreshold} min={0} step={0.01} onChange={e => setEditForm(p => ({ ...p, maxThreshold: e.target.value }))}
+                <NumberInput value={editForm.maxThreshold} min={0} step={0.01} onChange={e => setEditForm(p => ({ ...p, maxThreshold: e.target.value }))}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Purchase price</label>
-                <input type="number" value={editForm.purchasePrice} min={0} step={0.01} onChange={e => setEditForm(p => ({ ...p, purchasePrice: e.target.value }))}
+                <NumberInput value={editForm.purchasePrice} min={0} step={0.01} onChange={e => setEditForm(p => ({ ...p, purchasePrice: e.target.value }))}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Sale price</label>
-                <input type="number" value={editForm.salePrice} min={0} step={0.01} onChange={e => setEditForm(p => ({ ...p, salePrice: e.target.value }))}
+                <NumberInput value={editForm.salePrice} min={0} step={0.01} onChange={e => setEditForm(p => ({ ...p, salePrice: e.target.value }))}
                   className="w-full text-xs px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               {canExpiry ? (
@@ -1517,13 +1518,13 @@ function InventoryContent() {
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label className="block text-xs text-stone-500 mb-1">Quantity ({selectedMat?.unit}) *</label>
-                    <input type="number" value={siQty} onChange={e => setSiQty(e.target.value)}
+                    <NumberInput value={siQty} onChange={e => setSiQty(e.target.value)}
                       placeholder="0" min={0.01} step={0.01} required
                       className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   <div>
                     <label className="block text-xs text-stone-500 mb-1">{t('Purchase price', 'à¤–à¤°à¥€à¤¦ à¤®à¥‚à¤²à¥à¤¯')} (â‚¹/{selectedMat?.unit}) *</label>
-                    <input type="number" value={siPrice} onChange={e => setSiPrice(e.target.value)}
+                    <NumberInput value={siPrice} onChange={e => setSiPrice(e.target.value)}
                       placeholder={String(selectedMat?.purchasePrice ?? 0)} min={0} required
                       className="w-full text-sm px-3 py-2 border border-stone-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-stone-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
@@ -1713,16 +1714,13 @@ function InventoryContent() {
                   return (
                     <div key={material.id} className="grid grid-cols-[1fr_120px] items-center gap-2">
                       <div className="truncate text-xs text-stone-700 dark:text-slate-200">{material.name}</div>
-                      <input
-                        type="number"
-                        min={0}
+                      <NumberInput min={0}
                         step={0.001}
                         max={available > 0 ? available : undefined}
                         placeholder={`Qty (max ${available.toFixed(3)})`}
                         value={bulkTransferQty[material.id] ?? ''}
                         onChange={(e) => setBulkTransferQty((prev) => ({ ...prev, [material.id]: e.target.value }))}
-                        className={inputClass}
-                      />
+                        className={inputClass} />
                     </div>
                   )
                 })}
@@ -1749,16 +1747,13 @@ function InventoryContent() {
                     <option key={m.id} value={m.id}>{m.name}</option>
                   ))}
                 </select>
-                <input
-                  type="number"
-                  min={0.001}
+                <NumberInput min={0.001}
                   step={0.001}
                   value={transferQty}
                   onChange={(e) => setTransferQty(e.target.value)}
                   max={availableTransferQty > 0 ? availableTransferQty : undefined}
                   placeholder="Quantity"
-                  className={inputClass}
-                />
+                  className={inputClass} />
                 <div className="text-[11px] text-stone-500 dark:text-slate-400">
                   Available at source: {availableTransferQty.toFixed(3)}
                 </div>

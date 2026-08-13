@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Card, SectionHeader } from '@/components/ui/Card'
 import { PageLoader } from '@/components/ui/Spinner'
 import { api } from '@/lib/api'
+import { NumberInput } from '@/components/ui/NumberInput'
 
 type PlanName = 'FREE' | 'BASIC' | 'PRO' | 'ENTERPRISE'
 
@@ -171,11 +172,11 @@ function PlanCard({
       <div className="grid grid-cols-2 gap-2">
         <label className="block">
           <div className="mb-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">₹ / month</div>
-          <input type="number" min={0} value={priceMonthly} onChange={(e) => setPriceMonthly(e.target.value)} className={inputCls} />
+          <NumberInput min={0} value={priceMonthly} onChange={(e) => setPriceMonthly(e.target.value)} className={inputCls} />
         </label>
         <label className="block">
           <div className="mb-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">₹ / year</div>
-          <input type="number" min={0} value={priceYearly} onChange={(e) => setPriceYearly(e.target.value)} className={inputCls} />
+          <NumberInput min={0} value={priceYearly} onChange={(e) => setPriceYearly(e.target.value)} className={inputCls} />
         </label>
       </div>
 
@@ -184,14 +185,11 @@ function PlanCard({
         {LIMIT_FIELDS.map((field) => (
           <label key={field.key} className="flex items-center justify-between gap-2">
             <span className="text-xs text-slate-600 dark:text-slate-300">{field.label}</span>
-            <input
-              type="number"
-              min={0}
+            <NumberInput min={0}
               placeholder="∞"
               value={limits[field.key] === null ? '' : String(limits[field.key])}
               onChange={(e) => setLimit(field.key, e.target.value)}
-              className={`${inputCls} w-24 text-right`}
-            />
+              className={`${inputCls} w-24 text-right`} />
           </label>
         ))}
         <div className="text-[10px] text-slate-400 dark:text-slate-500">Blank = unlimited</div>

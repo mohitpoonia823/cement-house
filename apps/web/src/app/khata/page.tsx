@@ -10,6 +10,7 @@ import { useMemo, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useI18n } from '@/lib/i18n'
 import { ExportCsvButton } from '@/components/common/ExportCsvButton'
+import { NumberInput } from '@/components/ui/NumberInput'
 
 const PAYMENT_MODES = ['CASH', 'UPI', 'CHEQUE']
 
@@ -260,15 +261,12 @@ function KhataContent() {
                     ))}
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row">
-                    <input
-                      type="number"
-                      value={payAmount}
+                    <NumberInput value={payAmount}
                       onChange={(e) => setPayAmount(e.target.value)}
                       placeholder={t('Amount (INR)', 'राशि (INR)')}
                       min={1}
                       required
-                      className="flex-1 rounded-lg border border-green-300 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-green-700 dark:bg-slate-900 dark:text-slate-100"
-                    />
+                      className="flex-1 rounded-lg border border-green-300 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-green-700 dark:bg-slate-900 dark:text-slate-100" />
                     <input
                       type="text"
                       value={payRef}

@@ -15,6 +15,7 @@ import { fmt, fmtDate } from '@/lib/utils'
 import { useMemo, useState, Suspense } from 'react'
 import { useI18n } from '@/lib/i18n'
 import { ExportCsvButton } from '@/components/common/ExportCsvButton'
+import { NumberInput } from '@/components/ui/NumberInput'
 
 const PAYMENT_MODES = ['CASH', 'UPI', 'CHEQUE', 'BANK']
 
@@ -235,7 +236,7 @@ function SuppliersContent() {
                 <input required value={supName} onChange={(e) => setSupName(e.target.value)} placeholder={t('Supplier name', 'सप्लायर का नाम')} className="w-full rounded-lg border border-sky-300 bg-white px-2 py-1.5 text-xs dark:border-sky-700 dark:bg-slate-900 dark:text-slate-100" />
                 <input value={supPhone} onChange={(e) => setSupPhone(e.target.value)} placeholder={t('Phone (optional)', 'फोन (वैकल्पिक)')} className="w-full rounded-lg border border-sky-300 bg-white px-2 py-1.5 text-xs dark:border-sky-700 dark:bg-slate-900 dark:text-slate-100" />
                 <input value={supGstin} onChange={(e) => setSupGstin(e.target.value)} placeholder={t('GSTIN (optional)', 'GSTIN (वैकल्पिक)')} className="w-full rounded-lg border border-sky-300 bg-white px-2 py-1.5 text-xs dark:border-sky-700 dark:bg-slate-900 dark:text-slate-100" />
-                <input type="number" min={0} value={supOpening} onChange={(e) => setSupOpening(e.target.value)} placeholder={t('Opening balance owed', 'शुरुआती देय राशि')} className="w-full rounded-lg border border-sky-300 bg-white px-2 py-1.5 text-xs dark:border-sky-700 dark:bg-slate-900 dark:text-slate-100" />
+                <NumberInput min={0} value={supOpening} onChange={(e) => setSupOpening(e.target.value)} placeholder={t('Opening balance owed', 'शुरुआती देय राशि')} className="w-full rounded-lg border border-sky-300 bg-white px-2 py-1.5 text-xs dark:border-sky-700 dark:bg-slate-900 dark:text-slate-100" />
                 <div className="flex gap-2">
                   <button type="submit" disabled={createSupplier.isPending} className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs text-white hover:bg-sky-700 disabled:opacity-60">
                     {createSupplier.isPending && <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />}
@@ -303,7 +304,7 @@ function SuppliersContent() {
                     ))}
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row">
-                    <input type="number" min={1} required value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder={t('Amount (INR)', 'राशि (INR)')} className="flex-1 rounded-lg border border-green-300 bg-white px-2 py-1.5 text-xs dark:border-green-700 dark:bg-slate-900 dark:text-slate-100" />
+                    <NumberInput min={1} required value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder={t('Amount (INR)', 'राशि (INR)')} className="flex-1 rounded-lg border border-green-300 bg-white px-2 py-1.5 text-xs dark:border-green-700 dark:bg-slate-900 dark:text-slate-100" />
                     <input value={payRef} onChange={(e) => setPayRef(e.target.value)} placeholder={t('Ref / cheque no (optional)', 'रेफ / चेक नंबर (वैकल्पिक)')} className="flex-1 rounded-lg border border-green-300 bg-white px-2 py-1.5 text-xs dark:border-green-700 dark:bg-slate-900 dark:text-slate-100" />
                     <button type="submit" disabled={recordPayment.isPending} className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs text-white hover:bg-green-700 disabled:opacity-60">
                       {recordPayment.isPending && <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />}
@@ -353,9 +354,9 @@ function SuppliersContent() {
                             <option key={m.id} value={m.id}>{m.name}{m.unit ? ` (${m.unit})` : ''}</option>
                           ))}
                         </select>
-                        <input type="number" min={0} step="0.001" value={row.quantity} onChange={(e) => setBillRows((rows) => rows.map((r, i) => i === idx ? { ...r, quantity: e.target.value } : r))} placeholder={t('Qty', 'मात्रा')} className="col-span-2 rounded-lg border border-sky-300 bg-white px-2 py-1.5 text-[11px] dark:border-sky-700 dark:bg-slate-900 dark:text-slate-100" />
-                        <input type="number" min={0} step="0.01" value={row.unitCost} onChange={(e) => setBillRows((rows) => rows.map((r, i) => i === idx ? { ...r, unitCost: e.target.value } : r))} placeholder={t('Rate', 'दर')} className="col-span-2 rounded-lg border border-sky-300 bg-white px-2 py-1.5 text-[11px] dark:border-sky-700 dark:bg-slate-900 dark:text-slate-100" />
-                        <input type="number" min={0} max={100} step="0.01" value={row.gstRate} onChange={(e) => setBillRows((rows) => rows.map((r, i) => i === idx ? { ...r, gstRate: e.target.value } : r))} placeholder={t('GST%', 'GST%')} className="col-span-2 rounded-lg border border-sky-300 bg-white px-2 py-1.5 text-[11px] dark:border-sky-700 dark:bg-slate-900 dark:text-slate-100" />
+                        <NumberInput min={0} step="0.001" value={row.quantity} onChange={(e) => setBillRows((rows) => rows.map((r, i) => i === idx ? { ...r, quantity: e.target.value } : r))} placeholder={t('Qty', 'मात्रा')} className="col-span-2 rounded-lg border border-sky-300 bg-white px-2 py-1.5 text-[11px] dark:border-sky-700 dark:bg-slate-900 dark:text-slate-100" />
+                        <NumberInput min={0} step="0.01" value={row.unitCost} onChange={(e) => setBillRows((rows) => rows.map((r, i) => i === idx ? { ...r, unitCost: e.target.value } : r))} placeholder={t('Rate', 'दर')} className="col-span-2 rounded-lg border border-sky-300 bg-white px-2 py-1.5 text-[11px] dark:border-sky-700 dark:bg-slate-900 dark:text-slate-100" />
+                        <NumberInput min={0} max={100} step="0.01" value={row.gstRate} onChange={(e) => setBillRows((rows) => rows.map((r, i) => i === idx ? { ...r, gstRate: e.target.value } : r))} placeholder={t('GST%', 'GST%')} className="col-span-2 rounded-lg border border-sky-300 bg-white px-2 py-1.5 text-[11px] dark:border-sky-700 dark:bg-slate-900 dark:text-slate-100" />
                         <button type="button" onClick={() => setBillRows((rows) => rows.length > 1 ? rows.filter((_, i) => i !== idx) : rows)} className="col-span-1 text-sm text-slate-300 hover:text-red-500">×</button>
                       </div>
                     ))}

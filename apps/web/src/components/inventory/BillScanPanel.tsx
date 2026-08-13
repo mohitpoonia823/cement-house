@@ -9,6 +9,7 @@ import { useCommitPurchaseBillScan, usePurchaseBillScanDraft, useScanPurchaseBil
 import { useI18n } from '@/lib/i18n'
 import { fmt } from '@/lib/utils'
 import { splitPreferredUnits } from '@/lib/business-terms'
+import { NumberInput } from '@/components/ui/NumberInput'
 
 type Material = {
   id: string
@@ -609,15 +610,12 @@ export function BillScanPanel({
                             )}
                           </td>
                           <td className="px-3 py-3">
-                            <input
-                              type="number"
-                              value={edit.quantity}
+                            <NumberInput value={edit.quantity}
                               disabled={edit.action === 'SKIP'}
                               min={0.01}
                               step={0.01}
                               onChange={(event) => updateLine(line.id, { quantity: event.target.value })}
-                              className="w-28 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
-                            />
+                              className="w-28 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900" />
                           </td>
                           <td className="px-3 py-3">
                             <select
@@ -632,15 +630,12 @@ export function BillScanPanel({
                             </select>
                           </td>
                           <td className="px-3 py-3">
-                            <input
-                              type="number"
-                              value={edit.purchasePrice}
+                            <NumberInput value={edit.purchasePrice}
                               disabled={edit.action === 'SKIP'}
                               min={0}
                               step={0.01}
                               onChange={(event) => updateLine(line.id, { purchasePrice: event.target.value })}
-                              className="w-36 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
-                            />
+                              className="w-36 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900" />
                             {line.lineTotal !== null && (
                               <div className="mt-1 text-[10px] text-stone-400">Line: {fmt(line.lineTotal)}</div>
                             )}

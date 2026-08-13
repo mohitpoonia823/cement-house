@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
 import { useTenantCapabilities } from '@/hooks/useTenantCapabilities'
 import { useReferralPartners } from '@/hooks/useReferralPartners'
+import { NumberInput } from '@/components/ui/NumberInput'
 
 type BillingBasis = 'QUANTITY' | 'WEIGHT'
 
@@ -612,23 +613,17 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
                 </select>
               </div>
               <div className="col-span-1 sm:col-span-2">
-                <input
-                  type="number"
-                  value={item.quantity}
+                <NumberInput value={item.quantity}
                   min={0.01}
                   step={0.01}
                   onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
-                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                />
+                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
               </div>
               <div className="col-span-1 sm:col-span-2">
-                <input
-                  type="number"
-                  value={item.unitPrice}
+                <NumberInput value={item.unitPrice}
                   min={0}
                   onChange={(e) => updateItem(idx, 'unitPrice', e.target.value)}
-                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                />
+                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
               </div>
               <div className="col-span-1 rounded-lg bg-stone-50 px-2 py-1.5 text-xs font-medium text-stone-700 dark:bg-slate-900 dark:text-slate-300 sm:col-span-3">
                 {fmt(item.quantity * item.unitPrice)}
@@ -721,40 +716,31 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
                           <label className="mb-1 block truncate text-[10px] text-stone-400">
                             {language === 'hi' ? '???? ???' : 'Gross'}
                           </label>
-                          <input
-                            type="number"
-                            min={0}
+                          <NumberInput min={0}
                             step={0.01}
                             value={item.grossWeight ?? 0}
                             onChange={(e) => updateItem(idx, 'grossWeight', e.target.value)}
-                            className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                          />
+                            className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
                         </div>
                         <div>
                           <label className="mb-1 block truncate text-[10px] text-stone-400">
                             {language === 'hi' ? '???? ???' : 'Tare'}
                           </label>
-                          <input
-                            type="number"
-                            min={0}
+                          <NumberInput min={0}
                             step={0.01}
                             value={item.tareWeight ?? 0}
                             onChange={(e) => updateItem(idx, 'tareWeight', e.target.value)}
-                            className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                          />
+                            className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
                         </div>
                         <div>
                           <label className="mb-1 block truncate text-[10px] text-stone-400">
                             {language === 'hi' ? '??? ???' : 'Net'}
                           </label>
-                          <input
-                            type="number"
-                            min={0}
+                          <NumberInput min={0}
                             step={0.01}
                             value={item.netWeight ?? 0}
                             onChange={(e) => updateItem(idx, 'netWeight', e.target.value)}
-                            className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                          />
+                            className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
                         </div>
                       </div>
                     </div>
@@ -774,15 +760,12 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
                       HSN not configured
                     </span>
                   ) : null}
-                  <input
-                    type="number"
-                    min={0}
+                  <NumberInput min={0}
                     step={0.01}
                     value={item.discountAmount ?? 0}
                     onChange={(e) => updateItem(idx, 'discountAmount', e.target.value)}
                     placeholder="Discount"
-                    className="w-28 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                  />
+                    className="w-28 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
                 </div>
               ) : null}
             </div>
@@ -823,14 +806,11 @@ export function NewOrderForm({ redirectOnSuccess = true, onSuccess, onCancel }: 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <label className="mb-1 block text-xs text-stone-500">{language === 'hi' ? '??? ?????? ???? (??)' : 'Amount paid now (Rs)'}</label>
-            <input
-              type="number"
-              value={amountPaid}
+            <NumberInput value={amountPaid}
               min={0}
               max={totalAmount}
               onChange={(e) => setAmountPaid(Number(e.target.value))}
-              className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-            />
+              className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
           </div>
           <div className="flex flex-col justify-end">
             <div className="text-xs text-stone-500">{language === 'hi' ? '??? (????)' : 'Remaining (udhar)'}</div>
