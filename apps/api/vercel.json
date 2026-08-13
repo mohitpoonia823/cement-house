@@ -1,7 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "//regions": "hnd1 is ap-northeast-1 — the same AWS region as the Supabase instance. Order creation issues ~20 sequential queries in one transaction, so it pays the round-trip cost 20 times; co-locating turns a cross-Pacific hop into an intra-region one. Tokyo is also closer to Indian users than the iad1 default. Keep this in sync if the database ever moves.",
   "regions": ["hnd1"],
   "buildCommand": "pnpm --filter @cement-house/db exec prisma generate && node scripts/build-vercel.mjs",
   "outputDirectory": "public",
