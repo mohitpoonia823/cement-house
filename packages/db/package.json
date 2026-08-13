@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "postinstall": "prisma generate",
     "db:push":    "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:sync":    "node scripts/db-sync.mjs",

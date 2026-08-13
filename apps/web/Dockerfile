@@ -16,6 +16,8 @@ COPY apps/api/package.json          ./apps/api/
 COPY packages/db/package.json       ./packages/db/
 COPY packages/utils/package.json    ./packages/utils/
 COPY packages/types/package.json    ./packages/types/
+# Required before install: the db package's postinstall runs `prisma generate`.
+COPY packages/db/prisma             ./packages/db/prisma/
 RUN pnpm install --frozen-lockfile
 
 # ── Stage 2: Build Next.js (standalone output) ──────────────

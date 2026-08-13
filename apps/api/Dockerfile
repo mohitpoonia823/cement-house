@@ -15,6 +15,10 @@ COPY apps/api/package.json          ./apps/api/
 COPY packages/db/package.json       ./packages/db/
 COPY packages/utils/package.json    ./packages/utils/
 COPY packages/types/package.json    ./packages/types/
+# The db package's postinstall runs `prisma generate`, so the schema must be
+# present before install — otherwise Prisma emits a stub client with no model
+# types and every downstream `prisma.*` call degrades to `any`.
+COPY packages/db/prisma             ./packages/db/prisma/
 RUN pnpm install --frozen-lockfile
 
 # ── Stage 2: Build ──────────────────────────────────────────
