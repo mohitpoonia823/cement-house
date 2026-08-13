@@ -196,6 +196,12 @@ interface MarkFailedSignatureInput {
   razorpayPaymentId: string
 }
 
+interface AbandonCheckoutInput {
+  transactionId: string
+  businessId: string
+  reason: string
+}
+
 interface FinalizeSubscriptionInput {
   transactionId: string
   businessId: string
@@ -435,6 +441,30 @@ export async function markTransactionFailedForSignature(input: MarkFailedSignatu
       AND "businessId" = ${input.businessId}
       AND status = 'PENDING'::"PaymentStatus"
   `)
+}
+
+/**
+ * Release a checkout the user never completed (gateway failure, or popup closed)
+ * so the 20-minute pending lock does not block an immediate retry.
+ *
+ * Only touches PENDING rows, so a webhook capture that landed first always wins.
+ * Metadata is merged rather than replaced: the Razorpay order id and planned
+ * window stay intact, because webhook activation still looks this row up by
+ * order id if the user ends up paying the abandoned order after all.
+ */
+export async function abandonPendingCheckout(input: AbandonCheckoutInput) {
+  const updated = await prisma.$executeRaw(Prisma.sql`
+    UPDATE payment_transactions
+    SET
+      status = 'FAILED'::"PaymentStatus",
+      "failureReason" = ${input.reason},
+      metadata = COALESCE(metadata, '{}'::jsonb) || '{"abandoned": true}'::jsonb,
+      "updatedAt" = NOW()
+    WHERE id = ${input.transactionId}
+      AND "businessId" = ${input.businessId}
+      AND status = 'PENDING'::"PaymentStatus"
+  `)
+  return updated > 0
 }
 
 export async function getSubscriptionTransactionForVerification(transactionId: string, businessId: string) {

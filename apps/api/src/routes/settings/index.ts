@@ -149,6 +149,12 @@ const SubscriptionCheckoutVerifySchema = z.object({
   razorpaySignature: z.string().min(1),
 })
 
+const SubscriptionCheckoutAbandonSchema = z.object({
+  transactionId: z.string().min(1),
+  reason: z.enum(['DISMISSED', 'FAILED']).optional(),
+  gatewayMessage: z.string().trim().max(200).optional(),
+})
+
 const CancelSubscriptionSchema = z.object({
   reason: z.string().trim().min(3).max(200).optional(),
 })
@@ -723,13 +729,13 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (pending) {
       const pendingAgeMs = Date.now() - new Date(pending.createdAt).getTime()
       if (Number.isFinite(pendingAgeMs) && pendingAgeMs <= pendingLockMs) {
-        const pendingWindow =
-          pending.plannedStartAt && pending.plannedEndAt
-            ? ` Planned window: ${pending.plannedStartAt.toISOString()} to ${pending.plannedEndAt.toISOString()}.`
-            : ''
+        // Timestamps go out as raw ISO in `data` only — the client renders them
+        // in the viewer's own timezone. Keeping them out of `error` means the
+        // fallback message stays readable if it is ever surfaced verbatim.
+        const unlockAtMs = new Date(pending.createdAt).getTime() + pendingLockMs
         return reply.status(409).send({
           success: false,
-          error: `A subscription payment is already being processed. Please wait for confirmation before starting another checkout.${pendingWindow}`,
+          error: 'A subscription payment is already being processed. Please wait for confirmation before starting another checkout.',
           data: {
             code: 'PAYMENT_PENDING',
             pendingOrderId: pending.razorpayOrderId,
@@ -737,6 +743,10 @@ export async function settingsRoutes(app: FastifyInstance) {
             pendingCreatedAt: pending.createdAt.toISOString(),
             pendingPlannedStartAt: pending.plannedStartAt?.toISOString?.() ?? null,
             pendingPlannedEndAt: pending.plannedEndAt?.toISOString?.() ?? null,
+            // Server clock is authoritative: the client counts down to this
+            // instant rather than trusting its own idea of "now".
+            pendingUnlockAt: new Date(unlockAtMs).toISOString(),
+            retryAfterSeconds: Math.max(0, Math.ceil((unlockAtMs - Date.now()) / 1000)),
           },
         })
       }
@@ -983,6 +993,36 @@ export async function settingsRoutes(app: FastifyInstance) {
         session: activation?.session ?? null,
       },
     }
+  })
+
+  // Called when checkout ends without a payment — the gateway rejected it, or
+  // the user closed the popup. Without this the PENDING row survives the full
+  // 20-minute lock window and /checkout/initiate answers 409 PAYMENT_PENDING,
+  // so a customer whose payment just failed cannot retry.
+  app.post('/subscription/checkout/abandon', async (req, reply) => {
+    if (!requireOwner(req, reply)) return
+    const bizId = getBizId(req)
+    const body = SubscriptionCheckoutAbandonSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ success: false, error: 'Invalid abandon payload' })
+
+    const gatewayMessage = body.data.gatewayMessage?.trim()
+    const failureReason = body.data.reason === 'FAILED'
+      ? `Payment failed at checkout${gatewayMessage ? `: ${gatewayMessage}` : ''}`
+      : 'Checkout closed before payment'
+
+    const released = await settingsRepository.abandonPendingCheckout({
+      transactionId: body.data.transactionId,
+      businessId: bizId,
+      reason: failureReason,
+    })
+
+    req.log.info(
+      { route: '/api/settings/subscription/checkout/abandon', bizId, transactionId: body.data.transactionId, released },
+      'checkout abandoned',
+    )
+    // `released: false` just means the row was no longer PENDING (a webhook
+    // capture beat us to it), which is not an error for the caller.
+    return { success: true, data: { released } }
   })
 
   app.post('/subscription/cancel', async (req, reply) => {

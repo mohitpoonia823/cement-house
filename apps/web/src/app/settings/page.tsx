@@ -4,7 +4,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { Badge } from '@/components/ui/Badge'
 import { Card, SectionHeader } from '@/components/ui/Card'
 import { api } from '@/lib/api'
-import { fmt, fmtDate } from '@/lib/utils'
+import { fmt, fmtCountdown, fmtDate, fmtDateTime } from '@/lib/utils'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCreateStaff, useDeleteStaff, useStaff, useUpdateStaff } from '@/hooks/useStaff'
 import { useLocations } from '@/hooks/useInventory'
@@ -151,6 +151,16 @@ export default function SettingsPage() {
   const deleteStaff = useDeleteStaff()
 
   const [alert, setAlert] = useState<{ tone: AlertTone; message: string } | null>(null)
+  // Set when /checkout/initiate answers 409 PAYMENT_PENDING, so the banner can
+  // show a live countdown instead of asking the user to keep guessing.
+  const [pendingLock, setPendingLock] = useState<{
+    message: string
+    unlockAt: number
+    interval: string | null
+    plannedStartAt: string | null
+    plannedEndAt: string | null
+  } | null>(null)
+  const [pendingLockRemainingMs, setPendingLockRemainingMs] = useState(0)
   const [trialNoticeDismissed, setTrialNoticeDismissed] = useState(false)
   const [bizEdit, setBizEdit] = useState(false)
   const [bizName, setBizName] = useState('')
@@ -547,6 +557,27 @@ export default function SettingsPage() {
     if (checkoutOpen) ensureRazorpayLoaded().catch(() => undefined)
   }, [checkoutOpen])
 
+  // Tick the pending-checkout countdown once a second, and clear the lock the
+  // moment it expires so the Activate buttons become usable without a reload.
+  useEffect(() => {
+    if (!pendingLock) {
+      setPendingLockRemainingMs(0)
+      return
+    }
+    const tick = () => {
+      const remaining = pendingLock.unlockAt - Date.now()
+      if (remaining <= 0) {
+        setPendingLock(null)
+        setPendingLockRemainingMs(0)
+        return
+      }
+      setPendingLockRemainingMs(remaining)
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [pendingLock])
+
   async function pollActivationStatus(transactionId: string, timeoutMs = 90_000) {
     const startedAt = Date.now()
     while (Date.now() - startedAt < timeoutMs) {
@@ -583,6 +614,21 @@ export default function SettingsPage() {
         throw new Error('Razorpay checkout is unavailable. Please refresh and try again.')
       }
 
+      // A checkout that ends without a payment (gateway rejected it, or the
+      // popup was closed) must release its PENDING transaction — otherwise the
+      // API's 20-minute pending lock answers the retry with 409 PAYMENT_PENDING.
+      let paymentSucceeded = false
+      const releaseCheckout = (reason: 'DISMISSED' | 'FAILED', gatewayMessage?: string) => {
+        if (paymentSucceeded) return
+        api
+          .post('/api/settings/subscription/checkout/abandon', {
+            transactionId: initiate.transactionId,
+            reason,
+            gatewayMessage: gatewayMessage?.slice(0, 200),
+          })
+          .catch(() => undefined)
+      }
+
       const verifiedResult = await new Promise<any>((resolve, reject) => {
         const rz = new RazorpayCtor({
           key: initiate.razorpay.keyId,
@@ -597,9 +643,13 @@ export default function SettingsPage() {
             interval: selectedInterval,
           },
           modal: {
-            ondismiss: () => reject(new Error('Payment popup was closed before completion.')),
+            ondismiss: () => {
+              releaseCheckout('DISMISSED')
+              reject(new Error('Payment popup was closed before completion.'))
+            },
           },
           handler: async (response: any) => {
+            paymentSucceeded = true
             try {
               const verified = await api
                 .post('/api/settings/subscription/checkout/verify', {
@@ -619,6 +669,7 @@ export default function SettingsPage() {
         })
 
         rz.on('payment.failed', (response: any) => {
+          releaseCheckout('FAILED', response?.error?.description)
           reject(new Error(response?.error?.description ?? 'Payment failed.'))
         })
         rz.open()
@@ -663,6 +714,26 @@ export default function SettingsPage() {
       }
     } catch (error) {
       const message = getAlertMessage(error, 'Payment failed. Please try again.')
+      const pending = (error as any)?.response?.data?.data
+      if (pending?.code === 'PAYMENT_PENDING') {
+        // Prefer the server's own unlock instant; fall back to its remaining
+        // seconds if an older API build did not send one.
+        const unlockAt = pending.pendingUnlockAt
+          ? new Date(pending.pendingUnlockAt).getTime()
+          : Date.now() + Number(pending.retryAfterSeconds ?? 0) * 1000
+        if (Number.isFinite(unlockAt) && unlockAt > Date.now()) {
+          setPendingLock({
+            message,
+            unlockAt,
+            interval: pending.pendingInterval ?? null,
+            plannedStartAt: pending.pendingPlannedStartAt ?? null,
+            plannedEndAt: pending.pendingPlannedEndAt ?? null,
+          })
+          setAlert(null)
+          pushToast('warning', message)
+          return
+        }
+      }
       setAlert({ tone: 'danger', message })
       pushToast('danger', message)
     } finally {
@@ -833,6 +904,17 @@ export default function SettingsPage() {
 
           {alert ? <AlertBanner tone={alert.tone} message={alert.message} className="mb-3" /> : null}
 
+          {pendingLock ? (
+            <PendingCheckoutBanner
+              message={pendingLock.message}
+              remainingMs={pendingLockRemainingMs}
+              unlockAt={pendingLock.unlockAt}
+              plannedStartAt={pendingLock.plannedStartAt}
+              plannedEndAt={pendingLock.plannedEndAt}
+              className="mb-3"
+            />
+          ) : null}
+
           <div className="grid items-start gap-3 xl:grid-cols-[1fr_1fr_1.15fr]">
             <InfoTile
               label="Current access"
@@ -904,7 +986,7 @@ export default function SettingsPage() {
                   onClick={() => openCheckout('MONTHLY')}
                   busy={isConfirmingPayment && selectedInterval === 'MONTHLY'}
                   subscribed={isCurrentPlanActive('MONTHLY')}
-                  disabled={isCurrentPlanActive('MONTHLY')}
+                  disabled={isCurrentPlanActive('MONTHLY') || Boolean(pendingLock)}
                   ctaLabel={isCurrentPlanActive('MONTHLY') ? 'Current plan' : `Activate ${selectedPlanName} monthly`}
                 />
                 <PlanOption
@@ -915,7 +997,7 @@ export default function SettingsPage() {
                   onClick={() => openCheckout('YEARLY')}
                   busy={isConfirmingPayment && selectedInterval === 'YEARLY'}
                   subscribed={isCurrentPlanActive('YEARLY')}
-                  disabled={isCurrentPlanActive('YEARLY')}
+                  disabled={isCurrentPlanActive('YEARLY') || Boolean(pendingLock)}
                   ctaLabel={isCurrentPlanActive('YEARLY') ? 'Current plan' : `Activate ${selectedPlanName} yearly`}
                 />
               </div>
@@ -1583,6 +1665,46 @@ function AlertBanner({
   } as const
 
   return <div className={`rounded-[22px] border px-4 py-3 text-sm ${tones[tone]} ${className}`}>{message}</div>
+}
+
+// A checkout is in flight and the API is refusing a second one. Shows the wait
+// as a live countdown plus a local-time unlock stamp, so the user knows exactly
+// when to retry instead of re-clicking a button that keeps failing.
+function PendingCheckoutBanner({
+  message,
+  remainingMs,
+  unlockAt,
+  plannedStartAt,
+  plannedEndAt,
+  className = '',
+}: {
+  message: string
+  remainingMs: number
+  unlockAt: number
+  plannedStartAt: string | null
+  plannedEndAt: string | null
+  className?: string
+}) {
+  return (
+    <div
+      className={`rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-200 ${className}`}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <span>{message}</span>
+        <span className="shrink-0 rounded-full bg-amber-100 px-3 py-1 font-mono text-sm font-semibold tabular-nums text-amber-900 dark:bg-amber-500/15 dark:text-amber-100">
+          {fmtCountdown(remainingMs)}
+        </span>
+      </div>
+      <div className="mt-1.5 text-xs text-amber-700 dark:text-amber-300/90">
+        You can start a new checkout at {fmtDateTime(unlockAt)}.
+        {plannedStartAt && plannedEndAt
+          ? ` Planned window: ${fmtDateTime(plannedStartAt)} to ${fmtDateTime(plannedEndAt)}.`
+          : ''}
+      </div>
+    </div>
+  )
 }
 
 function ToastStack({
