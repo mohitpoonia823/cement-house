@@ -3,12 +3,13 @@ import type { SubscriptionStatus } from '@cement-house/db'
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import { ensurePlatformSettings, syncBusinessStatusIfNeeded } from '../services/billing'
 import { computeEntitlements, type Entitlements } from '../services/entitlements'
+import { responseCacheTtl } from '../utils/cache'
 const LAST_SEEN_WRITE_COOLDOWN_MS = 5 * 60 * 1000
 const lastSeenWriteByUser = new Map<string, number>()
-const ACCESS_CONTEXT_TTL_MS = 15_000
+const ACCESS_CONTEXT_TTL_MS = responseCacheTtl(15_000)
 const accessContextCache = new Map<string, { expiresAt: number; value: CachedAccessContext }>()
 const accessContextInFlight = new Map<string, Promise<CachedAccessContext>>()
-const AUTH_USER_TTL_MS = 10_000
+const AUTH_USER_TTL_MS = responseCacheTtl(10_000)
 const AUTH_USER_CACHE_SWEEP_SIZE = 5000
 type AuthUserRow = Awaited<ReturnType<typeof loadAuthUserFresh>>
 const authUserCache = new Map<string, { expiresAt: number; value: NonNullable<AuthUserRow> }>()

@@ -1,8 +1,9 @@
 import type { BillingInterval, PaymentMethod, PlatformSetting, Prisma, PrismaClient, SubscriptionStatus } from '@cement-house/db'
 import { prisma } from '@cement-house/db'
+import { responseCacheTtl } from '../utils/cache'
 
 const PLATFORM_SETTINGS_ID = 'default'
-const PLATFORM_SETTINGS_CACHE_TTL_MS = 60_000
+const PLATFORM_SETTINGS_CACHE_TTL_MS = responseCacheTtl(60_000)
 
 type DbLike = PrismaClient | Prisma.TransactionClient
 let platformSettingsCache: PlatformSetting | null = null
