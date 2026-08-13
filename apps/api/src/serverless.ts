@@ -17,7 +17,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { FastifyInstance } from 'fastify'
-import { buildApp, assertBillingSchemaReady } from './app'
+import { buildApp } from './app'
 
 let appPromise: Promise<FastifyInstance> | undefined
 
@@ -34,12 +34,6 @@ function getApp() {
         appPromise = undefined
         throw error
       })
-
-    // Advisory only — never blocks a request. A long-running server refuses to
-    // start on an incomplete billing schema; serverless just surfaces it in logs.
-    assertBillingSchemaReady().catch((error) =>
-      console.error('[billing] schema check failed:', error instanceof Error ? error.message : error),
-    )
   }
   return appPromise
 }
