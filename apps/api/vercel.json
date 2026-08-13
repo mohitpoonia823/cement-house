@@ -1,5 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "fastify",
-  "buildCommand": "pnpm --filter @cement-house/db exec prisma generate"
+  "framework": null,
+  "buildCommand": "pnpm --filter @cement-house/db exec prisma generate && node scripts/build-vercel.mjs",
+  "outputDirectory": "public",
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
 }
