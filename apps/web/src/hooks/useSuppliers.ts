@@ -7,7 +7,6 @@ export function useSuppliers(filters?: { search?: string }) {
     queryKey: ['suppliers', filters],
     queryFn: () => api.get('/api/suppliers', { params: filters }).then((r) => r.data.data),
     staleTime: 30_000,
-    refetchOnMount: false,
     refetchOnWindowFocus: false,
     retry: 1,
   })
@@ -19,7 +18,6 @@ export function useSupplier(id: string) {
     queryFn: () => api.get(`/api/suppliers/${id}`).then((r) => r.data.data),
     enabled: !!id,
     staleTime: 30_000,
-    refetchOnMount: false,
     refetchOnWindowFocus: false,
     retry: 1,
   })

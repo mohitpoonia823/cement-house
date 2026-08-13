@@ -8,7 +8,6 @@ export function useLedger(customerId: string) {
     queryFn:  () => api.get(`/api/ledger/${customerId}`).then(r => r.data.data),
     enabled:  !!customerId,
     staleTime: 30_000,
-    refetchOnMount: false,
     refetchOnWindowFocus: false,
     retry: 1,
   })
@@ -19,7 +18,6 @@ export function useLedgerSummary() {
     queryKey: ['ledger', 'summary'],
     queryFn:  () => api.get('/api/ledger/summary/all').then(r => r.data.data),
     staleTime: 30_000,
-    refetchOnMount: false,
     refetchOnWindowFocus: false,
     retry: 1,
   })

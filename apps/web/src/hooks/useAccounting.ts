@@ -8,7 +8,6 @@ export function useDayBook(filters?: { startDate?: string; endDate?: string; lim
     queryFn: () => api.get('/api/accounting/day-book', { params: filters }).then((r) => r.data.data),
     placeholderData: (prev) => prev,
     staleTime: 30_000,
-    refetchOnMount: false,
     refetchOnWindowFocus: false,
     retry: 1,
   })
@@ -30,7 +29,6 @@ export function useTrialBalance(filters?: { asOf?: string }) {
     queryKey: ['accounting', 'trial-balance', filters],
     queryFn: () => api.get('/api/accounting/trial-balance', { params: filters }).then((r) => r.data.data),
     staleTime: 30_000,
-    refetchOnMount: false,
     refetchOnWindowFocus: false,
     retry: 1,
   })
@@ -52,7 +50,6 @@ export function useExpenses() {
     queryKey: ['accounting', 'expenses'],
     queryFn: () => api.get('/api/accounting/expenses').then((r) => r.data.data),
     staleTime: 30_000,
-    refetchOnMount: false,
     refetchOnWindowFocus: false,
     retry: 1,
   })
@@ -86,7 +83,6 @@ function reportQuery(path: string, key: string, params?: Record<string, string |
     queryKey: ['accounting', key, params],
     queryFn: () => api.get(`/api/accounting/${path}`, { params }).then((r) => r.data.data),
     staleTime: 30_000,
-    refetchOnMount: false,
     refetchOnWindowFocus: false,
     retry: 1,
   }
