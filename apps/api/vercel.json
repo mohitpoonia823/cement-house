@@ -1,13 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": null,
-  "buildCommand": "pnpm --filter @cement-house/db exec prisma generate",
-  "outputDirectory": "public",
-  "functions": {
-    "api/index.ts": {
-      "maxDuration": 60,
-      "memory": 1024
-    }
-  },
-  "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
+  "framework": "fastify",
+  "buildCommand": "pnpm --filter @cement-house/db exec prisma generate"
 }
