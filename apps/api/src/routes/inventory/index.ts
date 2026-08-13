@@ -12,11 +12,12 @@ import {
 } from '../../services/bill-image-storage'
 import { ensureUsageAllowed } from '../../services/subscription-access'
 import { formatZodError } from '../../utils/validation'
+import { responseCacheTtl } from '../../utils/cache'
 
-const INVENTORY_LIST_CACHE_TTL_MS = 10_000
-const INVENTORY_OPTIONS_CACHE_TTL_MS = 10_000
-const INVENTORY_MOVEMENTS_CACHE_TTL_MS = 10_000
-const INVENTORY_BILL_SCANS_CACHE_TTL_MS = 20_000
+const INVENTORY_LIST_CACHE_TTL_MS = responseCacheTtl(10_000)
+const INVENTORY_OPTIONS_CACHE_TTL_MS = responseCacheTtl(10_000)
+const INVENTORY_MOVEMENTS_CACHE_TTL_MS = responseCacheTtl(10_000)
+const INVENTORY_BILL_SCANS_CACHE_TTL_MS = responseCacheTtl(20_000)
 const inventoryListCache = new Map<string, { expiresAt: number; value: any }>()
 const inventoryListInFlight = new Map<string, Promise<any>>()
 const inventoryOptionsCache = new Map<string, { expiresAt: number; value: any }>()

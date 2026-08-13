@@ -5,8 +5,9 @@ import { requireSuperAdmin } from '../../middleware/auth'
 import { getBusinessIdOrThrow } from '../../middleware/tenant'
 import { answerSupportQuestion, SupportAssistantConfigError } from '../../services/support-assistant'
 import { formatZodError } from '../../utils/validation'
+import { responseCacheTtl } from '../../utils/cache'
 
-const SUPPORT_UNREAD_CACHE_TTL_MS = 20_000
+const SUPPORT_UNREAD_CACHE_TTL_MS = responseCacheTtl(20_000)
 const supportUnreadCountCache = new Map<string, { expiresAt: number; count: number }>()
 const supportUnreadCountInFlight = new Map<string, Promise<number>>()
 

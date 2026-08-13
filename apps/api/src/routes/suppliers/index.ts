@@ -3,8 +3,9 @@ import { z } from 'zod'
 import { accountingRepository } from '@cement-house/db'
 import { requireOwner, getBizId } from '../../middleware/auth'
 import { formatZodError } from '../../utils/validation'
+import { responseCacheTtl } from '../../utils/cache'
 
-const SUPPLIERS_CACHE_TTL_MS = 10_000
+const SUPPLIERS_CACHE_TTL_MS = responseCacheTtl(10_000)
 const suppliersCache = new Map<string, { expiresAt: number; value: any }>()
 const suppliersInFlight = new Map<string, Promise<any>>()
 

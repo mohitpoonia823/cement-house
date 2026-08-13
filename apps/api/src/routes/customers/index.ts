@@ -4,7 +4,8 @@ import { customersRepository } from '@cement-house/db'
 import { requireOwner, getBizId } from '../../middleware/auth'
 import { ensureUsageAllowed } from '../../services/subscription-access'
 import { formatZodError } from '../../utils/validation'
-const CUSTOMERS_LIST_CACHE_TTL_MS = 10_000
+import { responseCacheTtl } from '../../utils/cache'
+const CUSTOMERS_LIST_CACHE_TTL_MS = responseCacheTtl(10_000)
 const customersListCache = new Map<string, { expiresAt: number; value: any }>()
 const customersListInFlight = new Map<string, Promise<any>>()
 

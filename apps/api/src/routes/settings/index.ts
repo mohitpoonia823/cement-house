@@ -21,13 +21,14 @@ import {
 } from '../../services/billing'
 import { getSampleMaterialsForBusinessType, SAMPLE_CUSTOMER } from '../../services/sample-data'
 import { formatZodError } from '../../utils/validation'
+import { responseCacheTtl } from '../../utils/cache'
 
-const SETTINGS_CACHE_TTL_MS = 10_000
-const SETTINGS_SUBSCRIPTION_CACHE_TTL_MS = 10_000
-const SETTINGS_STAFF_CACHE_TTL_MS = 10_000
-const SETTINGS_SUBSCRIPTION_USAGE_CACHE_TTL_MS = 10_000
-const SETTINGS_BOOTSTRAP_CACHE_TTL_MS = 10_000
-const SETTINGS_ORDER_FORM_CACHE_TTL_MS = 30_000
+const SETTINGS_CACHE_TTL_MS = responseCacheTtl(10_000)
+const SETTINGS_SUBSCRIPTION_CACHE_TTL_MS = responseCacheTtl(10_000)
+const SETTINGS_STAFF_CACHE_TTL_MS = responseCacheTtl(10_000)
+const SETTINGS_SUBSCRIPTION_USAGE_CACHE_TTL_MS = responseCacheTtl(10_000)
+const SETTINGS_BOOTSTRAP_CACHE_TTL_MS = responseCacheTtl(10_000)
+const SETTINGS_ORDER_FORM_CACHE_TTL_MS = responseCacheTtl(30_000)
 const settingsCache = new Map<string, { expiresAt: number; value: any }>()
 const settingsInFlight = new Map<string, Promise<any>>()
 const settingsSubscriptionCache = new Map<string, { expiresAt: number; value: any }>()

@@ -6,6 +6,7 @@ import { streamAnalyticsSnapshot } from '../../services/pdf'
 import { createAuditLog } from '../../services/audit'
 import { checkPlanLimit } from '../../services/subscription-access'
 import * as XLSX from 'xlsx'
+import { responseCacheTtl } from '../../utils/cache'
 
 const ReportSummaryQuerySchema = z.object({
   granularity: z.enum(['monthly', 'yearly']).default('monthly'),
@@ -271,7 +272,7 @@ function csv(headers: string[], rows: Array<Array<string | number>>) {
   return [headers.map(escape).join(','), ...rows.map((row) => row.map(escape).join(','))].join('\n')
 }
 
-const DASHBOARD_CACHE_TTL_MS = 10_000
+const DASHBOARD_CACHE_TTL_MS = responseCacheTtl(10_000)
 const dashboardCache = new Map<string, { expiresAt: number; value: any }>()
 const dashboardInFlight = new Map<string, Promise<any>>()
 

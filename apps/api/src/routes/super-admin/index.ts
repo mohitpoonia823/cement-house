@@ -8,13 +8,14 @@ import { createAuditLog } from '../../services/audit'
 import { ensurePlatformSettings, invalidatePlatformSettingsCache } from '../../services/billing'
 import { STARTER_KB_ENTRIES } from '../../services/support-kb-seed'
 import { formatZodError } from '../../utils/validation'
-const OVERVIEW_CACHE_TTL_MS = 15_000
-const ANALYTICS_CACHE_TTL_MS = 20_000
+import { responseCacheTtl } from '../../utils/cache'
+const OVERVIEW_CACHE_TTL_MS = responseCacheTtl(15_000)
+const ANALYTICS_CACHE_TTL_MS = responseCacheTtl(20_000)
 const superAdminOverviewCache = new Map<string, { expiresAt: number; value: any }>()
 const superAdminOverviewInFlight = new Map<string, Promise<any>>()
 const superAdminAnalyticsCache = new Map<string, { expiresAt: number; value: any }>()
 const superAdminAnalyticsInFlight = new Map<string, Promise<any>>()
-const DASHBOARD_CACHE_TTL_MS = 15_000
+const DASHBOARD_CACHE_TTL_MS = responseCacheTtl(15_000)
 const dashboardCache = new Map<string, { expiresAt: number; value: any }>()
 const dashboardInFlight = new Map<string, Promise<any>>()
 

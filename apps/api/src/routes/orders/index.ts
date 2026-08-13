@@ -13,8 +13,8 @@ import {
   type OrderActor,
 } from '../../services/order-service'
 
-const ORDERS_LIST_CACHE_TTL_MS = 10_000
-const ORDER_DETAIL_CACHE_TTL_MS = 10_000
+const ORDERS_LIST_CACHE_TTL_MS = responseCacheTtl(10_000)
+const ORDER_DETAIL_CACHE_TTL_MS = responseCacheTtl(10_000)
 const ordersListCache = new Map<string, { expiresAt: number; value: any }>()
 const ordersListInFlight = new Map<string, Promise<any>>()
 const orderDetailCache = new Map<string, { expiresAt: number; value: any }>()
@@ -269,6 +269,7 @@ export async function orderRoutes(app: FastifyInstance) {
 }
 
 import { streamChallan } from '../../services/pdf'
+import { responseCacheTtl } from '../../utils/cache'
 
 export async function orderChallanRoute(app: FastifyInstance) {
   app.get('/:id/challan', async (req, reply) => {
