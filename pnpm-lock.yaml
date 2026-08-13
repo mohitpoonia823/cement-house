@@ -63,6 +63,9 @@ importers:
       '@types/bcryptjs':
         specifier: ^2.4.6
         version: 2.4.6
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.39
       '@types/nodemailer':
         specifier: ^6.4.15
         version: 6.4.23

@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "tsx": "^4.0.0",
+    "@types/node": "^20.0.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/nodemailer": "^6.4.15",
     "@types/pdfkit": "^0.13.4"
